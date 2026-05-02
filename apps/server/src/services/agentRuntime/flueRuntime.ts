@@ -11,6 +11,7 @@ import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import { assertAllowedWorktree } from "../projectService";
+import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
 
@@ -20,6 +21,10 @@ function normalizeProviderEnv() {
 	if (process.env.Z_AI_API_KEY && !process.env.ZAI_API_KEY) {
 		process.env.ZAI_API_KEY = process.env.Z_AI_API_KEY;
 	}
+}
+
+function providerFromModel(model: string) {
+	return model.split("/")[0] ?? "unknown";
 }
 
 function normalizeToolPath() {
@@ -196,9 +201,19 @@ export class FlueRuntime {
 		normalizeToolPath();
 		const agent = input.agents[0];
 		if (!agent) throw new Error("Create at least one agent profile first.");
+		const provider = providerFromModel(agent.model);
+		const runtimeApiKey = await getProviderRuntimeApiKey(provider);
+		if (provider === "kimi-coding" && runtimeApiKey)
+			process.env.KIMI_API_KEY = runtimeApiKey;
+		if (provider === "zai" && runtimeApiKey)
+			process.env.ZAI_API_KEY = runtimeApiKey;
+		if (provider === "openai-codex" && runtimeApiKey)
+			process.env.OPENAI_API_KEY = runtimeApiKey;
 		await this.log(run.id, "model", {
 			primary: agent.model,
+			provider,
 			fallback: "zai/glm-5.1",
+			hasOpenAICodexAuth: provider === "openai-codex" && Boolean(runtimeApiKey),
 			hasKimiKey: Boolean(process.env.KIMI_API_KEY),
 			hasZaiKey: Boolean(process.env.ZAI_API_KEY),
 		});
@@ -208,6 +223,12 @@ export class FlueRuntime {
 			const { createDefaultEnv, createLocalEnv } = await import(
 				"../../flue/sandbox/localWorktreeSandbox"
 			);
+			const resolveRuntimeModel = (modelRef: string) => {
+				const resolved = resolveModel(modelRef);
+				return provider === "openai-codex" && runtimeApiKey
+					? { ...resolved, provider: "openai" }
+					: resolved;
+			};
 			const ctx = createFlueContext({
 				id: run.id,
 				payload: {},
@@ -217,7 +238,7 @@ export class FlueRuntime {
 					skills: {},
 					roles: {},
 					model: undefined,
-					resolveModel,
+					resolveModel: resolveRuntimeModel,
 				},
 				createDefaultEnv,
 				createLocalEnv,

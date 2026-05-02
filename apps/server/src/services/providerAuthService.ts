@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { OAuthCredentials } from "@mariozechner/pi-ai/oauth";
-import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
+import { getOAuthApiKey, loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { db } from "../db/client";
 
 const execFileAsync = promisify(execFile);
@@ -122,6 +122,26 @@ export async function saveProviderApiKey(provider: string, key: string) {
 	if (!trimmed) throw new Error("API key is required");
 	await saveCredential(provider, { type: "api_key", key: trimmed });
 	return getProviderAuthStatus(provider);
+}
+
+export async function getProviderRuntimeApiKey(provider: string) {
+	const stored = await getStoredCredential(provider);
+	if (stored?.type === "api_key") return stored.key;
+	if (stored?.type === "oauth" && stored.credentials) {
+		const result = await getOAuthApiKey(provider, {
+			[provider]: stored.credentials,
+		});
+		if (!result) return undefined;
+		if (result.newCredentials !== stored.credentials) {
+			await saveCredential(provider, {
+				type: "oauth",
+				credentials: result.newCredentials,
+			});
+		}
+		return result.apiKey;
+	}
+	const env = envSource(provider);
+	return env ? process.env[env] : undefined;
 }
 
 export async function startOpenAICodexLogin() {
