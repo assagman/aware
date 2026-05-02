@@ -9,7 +9,7 @@ export const defaultAgentProfile = {
 	provider: "kimi-coding",
 	model: "kimi-coding/k2p6",
 	systemPrompt:
-		"You are a careful coding agent. Inspect first, make minimal edits, explain changed files. Do not run git commit or git push without explicit approval.",
+		"You are a careful coding agent. Inspect first, make minimal edits, explain changed files. Work only in selected worktree. Do not run git commit or git push without explicit approval.",
 	tools: ["read", "write", "edit", "bash", "grep", "glob", "task"],
 };
 

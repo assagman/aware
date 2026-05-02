@@ -58,6 +58,8 @@ export type Annotation = {
 	endLine?: number;
 	text: string;
 	sent: boolean;
+	status?: "pending" | "processing" | "sent";
+	runId?: ID;
 	createdAt: string;
 	updatedAt: string;
 };

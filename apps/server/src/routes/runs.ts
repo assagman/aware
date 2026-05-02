@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/client";
+import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 
 export const runs = new Hono();
 
@@ -13,10 +14,30 @@ runs.get("/:id", async (c) => {
 	return run ? c.json(run) : c.json({ error: "missing run" }, 404);
 });
 
+runs.post("/:id/cancel", async (c) => {
+	const id = c.req.param("id");
+	await db.update("runs", id, {
+		status: "cancelled",
+		endedAt: new Date().toISOString(),
+	});
+	return c.json({ ok: true });
+});
+
+runs.post("/:id/messages", async (c) => {
+	const id = c.req.param("id");
+	const body = await c.req.json();
+	void flueRuntime.continueRun(id, body.message);
+	return c.json({ ok: true });
+});
+
 runs.get("/:id/events", async (c) => {
 	const id = c.req.param("id");
-	const events = await db.list<{ id: string; runId: string }>("runEvents");
-	return c.json(events.filter((e) => e.runId === id));
+	const events = await db.list<{ id: string; runId: string; seq: number }>(
+		"runEvents",
+	);
+	return c.json(
+		events.filter((e) => e.runId === id).sort((a, b) => a.seq - b.seq),
+	);
 });
 
 runs.get("/:id/stream", async (c) => {

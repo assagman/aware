@@ -6,13 +6,12 @@ import type {
 	RunEvent,
 	Task,
 } from "@agent-ide/shared";
-import {
-	createFlueContext,
-	InMemorySessionStore,
-	resolveModel,
-} from "@flue/sdk/internal";
+import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
-import { listAnnotations } from "../annotationService";
+import { listAgentProfiles } from "../agentProfileService";
+import { listAnnotations, markAnnotationsSent } from "../annotationService";
+import { assertAllowedWorktree } from "../projectService";
+import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
 
 const now = () => new Date().toISOString();
@@ -21,6 +20,28 @@ function normalizeProviderEnv() {
 	if (process.env.Z_AI_API_KEY && !process.env.ZAI_API_KEY) {
 		process.env.ZAI_API_KEY = process.env.Z_AI_API_KEY;
 	}
+}
+
+function normalizeToolPath() {
+	const home = process.env.HOME;
+	const miseInstalls = home ? `${home}/.local/share/mise/installs` : "";
+	const pathParts = [
+		process.env.PATH ?? "",
+		home ? `${home}/.local/share/mise/shims` : "",
+		miseInstalls ? `${miseInstalls}/bun/1.3.8/bin` : "",
+		miseInstalls ? `${miseInstalls}/python/3.14.2/bin` : "",
+		home ? `${home}/.bun/bin` : "",
+		"/opt/homebrew/bin",
+		"/opt/homebrew/sbin",
+		"/usr/local/bin",
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+	]
+		.filter(Boolean)
+		.flatMap((part) => part.split(":"));
+	process.env.PATH = Array.from(new Set(pathParts)).join(":");
 }
 
 export type StartRunInput = {
@@ -36,6 +57,7 @@ export type StartChatInput = {
 	agents: AgentProfile[];
 	message: string;
 	annotations: Annotation[];
+	annotationIds?: string[];
 };
 
 export class FlueRuntime {
@@ -66,14 +88,28 @@ export class FlueRuntime {
 			annotations: input.annotations,
 			message: input.message,
 		});
+		await this.log(run.id, "user_message", { text: input.message });
+		await this.log(run.id, "annotations", { annotations: input.annotations });
 		await this.log(run.id, "prompt", { text: prompt });
+		void this.executeRun(run, {
+			task,
+			worktreePath: input.worktreePath,
+			agents: input.agents,
+			prompt,
+			annotationIds: input.annotationIds ?? input.annotations.map((a) => a.id),
+		});
+		return run;
+	}
+
+	private async executeRun(
+		run: AgentRun,
+		input: StartRunInput & { prompt: string; annotationIds?: string[] },
+	) {
 		try {
-			const result = await this.runFlue(
-				run,
-				{ task, worktreePath: input.worktreePath, agents: input.agents },
-				prompt,
-			);
+			const result = await this.runFlue(run, input, input.prompt);
 			await this.log(run.id, "result", result);
+			if (input.annotationIds?.length)
+				await markAnnotationsSent(input.annotationIds);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 		} catch (error) {
 			await this.log(run.id, "error", {
@@ -81,9 +117,6 @@ export class FlueRuntime {
 			});
 			await db.update("runs", run.id, { status: "failed", endedAt: now() });
 		}
-		return (
-			(await db.list<AgentRun>("runs")).find((r) => r.id === run.id) ?? run
-		);
 	}
 
 	async startRun(input: StartRunInput): Promise<AgentRun> {
@@ -117,8 +150,50 @@ export class FlueRuntime {
 		);
 	}
 
+	async continueRun(runId: string, message: string) {
+		const run = (await db.list<AgentRun>("runs")).find((r) => r.id === runId);
+		if (!run) throw new Error("missing run");
+		if (run.status !== "running") {
+			await db.update<AgentRun>("runs", run.id, { status: "running" });
+		}
+		const worktree = await assertAllowedWorktree(run.worktreeId);
+		const task = (await db.list<Task>("tasks")).find(
+			(t) => t.id === run.taskId,
+		);
+		const agents = await listAgentProfiles();
+		await this.log(run.id, "user_message", { text: message });
+		try {
+			const result = await this.runFlue(
+				run,
+				{
+					task: task ?? {
+						id: run.taskId,
+						projectId: "local",
+						worktreeId: run.worktreeId,
+						title: "Steering message",
+						body: message,
+						status: "running",
+						createdAt: now(),
+						updatedAt: now(),
+					},
+					worktreePath: worktree.path,
+					agents,
+				},
+				message,
+			);
+			await this.log(run.id, "result", result);
+			await db.update("runs", run.id, { status: "done", endedAt: now() });
+		} catch (error) {
+			await this.log(run.id, "error", {
+				message: error instanceof Error ? error.message : String(error),
+			});
+			await db.update("runs", run.id, { status: "failed", endedAt: now() });
+		}
+	}
+
 	private async runFlue(run: AgentRun, input: StartRunInput, prompt: string) {
 		normalizeProviderEnv();
+		normalizeToolPath();
 		const agent = input.agents[0];
 		if (!agent) throw new Error("Create at least one agent profile first.");
 		await this.log(run.id, "model", {
@@ -146,7 +221,7 @@ export class FlueRuntime {
 				},
 				createDefaultEnv,
 				createLocalEnv,
-				defaultStore: new InMemorySessionStore(),
+				defaultStore: flueSessionStore,
 			});
 			ctx.setEventCallback((event) => void this.log(run.id, event.type, event));
 			const model = process.env.KIMI_API_KEY
@@ -157,6 +232,7 @@ export class FlueRuntime {
 			const flueAgent = await ctx.init({
 				sandbox: "local",
 				model,
+				persist: flueSessionStore,
 			});
 			const session = await flueAgent.session(run.sessionId);
 			return await session.prompt(prompt);

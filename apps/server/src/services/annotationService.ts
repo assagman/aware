@@ -27,10 +27,23 @@ export async function createAnnotation(
 		...input,
 		id: randomUUID(),
 		sent: input.sent ?? false,
+		status: input.status ?? "pending",
 		createdAt: now(),
 		updatedAt: now(),
 	};
 	return db.insert("annotations", row);
+}
+
+export async function markAnnotationsProcessing(ids: string[], runId: string) {
+	await Promise.all(
+		ids.map((id) =>
+			db.update<Annotation>("annotations", id, {
+				status: "processing",
+				runId,
+				updatedAt: now(),
+			}),
+		),
+	);
 }
 
 export async function markAnnotationsSent(ids: string[]) {
@@ -38,6 +51,7 @@ export async function markAnnotationsSent(ids: string[]) {
 		ids.map((id) =>
 			db.update<Annotation>("annotations", id, {
 				sent: true,
+				status: "sent",
 				updatedAt: now(),
 			}),
 		),

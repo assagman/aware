@@ -50,6 +50,8 @@ export const annotationSchema = z.object({
 	endLine: z.number().optional(),
 	text: z.string(),
 	sent: z.boolean(),
+	status: z.enum(["pending", "processing", "sent"]).optional(),
+	runId: idSchema.optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });

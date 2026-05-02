@@ -7,6 +7,7 @@ export const tables = [
 	"annotations",
 	"runs",
 	"runEvents",
+	"flueSessions",
 	"locks",
 ] as const;
 

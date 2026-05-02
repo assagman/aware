@@ -16,21 +16,20 @@ export function buildPrompt(input: {
 	message?: string;
 }) {
 	return [
-		"System safety:",
-		"- Work in selected worktree only.",
-		"- Keep changes minimal and focused.",
-		"- Do not run git commit or git push unless user approval event exists.",
-		"- Use child tasks for parallel investigation when useful.",
-		"",
 		`Task: ${input.task.title}`,
 		input.task.body,
 		"",
-		"Agents:",
-		...input.agents.map((a) => `- ${a.name}: ${a.systemPrompt}`),
+		"User message:",
+		input.message || input.task.body,
 		"",
-		"Annotations:",
+		"Selected annotations:",
 		serializeAnnotations(input.annotations) || "(none)",
 		"",
-		input.message ? `User message: ${input.message}` : "",
+		"Instructions:",
+		"- Work only in selected worktree.",
+		"- Keep changes minimal and focused.",
+		"- Respect exact file paths and line ranges in annotations.",
+		"- If line numbers seem stale, inspect nearby code before editing.",
+		"- Do not run git commit or git push unless user explicitly approves.",
 	].join("\n");
 }
