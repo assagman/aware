@@ -10,7 +10,14 @@ import {
 } from "../services/taskService";
 
 export const tasks = new Hono();
-tasks.get("/", async (c) => c.json(await listTasks()));
+tasks.get("/", async (c) => {
+	const filter: { projectId?: string; worktreeId?: string } = {};
+	const projectId = c.req.query("projectId");
+	const worktreeId = c.req.query("worktreeId");
+	if (projectId) filter.projectId = projectId;
+	if (worktreeId) filter.worktreeId = worktreeId;
+	return c.json(await listTasks(filter));
+});
 tasks.post("/", async (c) => c.json(await createTask(await c.req.json())));
 tasks.post("/:id/agents", async (c) => {
 	const body = await c.req.json();

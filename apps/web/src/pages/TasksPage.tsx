@@ -1,7 +1,13 @@
 import type { AgentRun, Project, Task, Worktree } from "@agent-ide/shared";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
-import { setSelectedRunId, setSelectedTaskId } from "../app/selection";
+import {
+	getSelection,
+	setSelectedProjectId,
+	setSelectedRunId,
+	setSelectedTaskId,
+	setSelectedWorktreeId,
+} from "../app/selection";
 
 export function TasksPage() {
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -11,12 +17,44 @@ export function TasksPage() {
 	const [worktreeId, setWorktreeId] = useState("");
 	const [title, setTitle] = useState("");
 	const [body, setBody] = useState("");
-	const load = () => {
+	const filteredWorktrees = worktrees.filter(
+		(w) => !projectId || w.projectId === projectId,
+	);
+	const load = (nextProjectId?: string, nextWorktreeId?: string) => {
+		const selection = getSelection();
+		const selectedProjectId = nextProjectId ?? selection.selectedProjectId;
+		const selectedWorktreeId = nextWorktreeId ?? selection.selectedWorktreeId;
+		setProjectId(selectedProjectId);
+		setWorktreeId(selectedWorktreeId);
 		void apiGet<Project[]>("/projects").then(setProjects);
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
-		void apiGet<Task[]>("/tasks").then(setTasks);
+		if (!selectedProjectId || !selectedWorktreeId) {
+			setTasks([]);
+			return;
+		}
+		const params = new URLSearchParams({
+			projectId: selectedProjectId,
+			worktreeId: selectedWorktreeId,
+		});
+		void apiGet<Task[]>(`/tasks?${params}`).then(setTasks);
 	};
-	useEffect(load, []);
+	useEffect(() => {
+		const reload = () => load();
+		reload();
+		window.addEventListener("agent-ide-selection", reload);
+		return () => window.removeEventListener("agent-ide-selection", reload);
+	}, []);
+	function chooseProject(id: string) {
+		setProjectId(id);
+		setWorktreeId("");
+		setSelectedProjectId(id);
+		load(id, "");
+	}
+	function chooseWorktree(id: string) {
+		setWorktreeId(id);
+		setSelectedWorktreeId(id);
+		load(projectId, id);
+	}
 	async function create() {
 		const task = await apiPost<Task>("/tasks", {
 			projectId,
@@ -25,18 +63,18 @@ export function TasksPage() {
 			body,
 		});
 		setSelectedTaskId(task.id);
-		load();
+		load(projectId, worktreeId);
 	}
 	async function start(id: string) {
 		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {});
 		setSelectedRunId(run.id);
-		load();
+		load(projectId, worktreeId);
 		alert(`run ${run.id}`);
 	}
 	return (
 		<section id="tasks" className="card">
 			<h2>Tasks</h2>
-			<select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+			<select value={projectId} onChange={(e) => chooseProject(e.target.value)}>
 				<option value="">project</option>
 				{projects.map((p) => (
 					<option key={p.id} value={p.id}>
@@ -46,10 +84,10 @@ export function TasksPage() {
 			</select>
 			<select
 				value={worktreeId}
-				onChange={(e) => setWorktreeId(e.target.value)}
+				onChange={(e) => chooseWorktree(e.target.value)}
 			>
 				<option value="">worktree</option>
-				{worktrees.map((w) => (
+				{filteredWorktrees.map((w) => (
 					<option key={w.id} value={w.id}>
 						{w.branch}
 					</option>
@@ -65,7 +103,11 @@ export function TasksPage() {
 				onChange={(e) => setBody(e.target.value)}
 				placeholder="task details"
 			/>
-			<button type="button" onClick={create}>
+			<button
+				type="button"
+				onClick={create}
+				disabled={!projectId || !worktreeId || !title.trim()}
+			>
 				Create task
 			</button>
 			<ul>

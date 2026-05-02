@@ -14,8 +14,14 @@ function taskStatusFromRun(status: RunStatus): TaskStatus {
 	return status === "cancelled" ? "failed" : status;
 }
 
-export async function listTasks() {
-	const tasks = await db.list<Task>("tasks");
+export async function listTasks(
+	filter: Partial<Pick<Task, "projectId" | "worktreeId">> = {},
+) {
+	const tasks = (await db.list<Task>("tasks")).filter(
+		(task) =>
+			(!filter.projectId || task.projectId === filter.projectId) &&
+			(!filter.worktreeId || task.worktreeId === filter.worktreeId),
+	);
 	const runs = await db.list<AgentRun>("runs");
 	return tasks.map((task) => {
 		const latestRun = runs
