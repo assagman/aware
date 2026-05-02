@@ -1,4 +1,10 @@
-import { currentBranch, diff, statusShort } from "./gitService";
+import {
+	commits,
+	currentBranch,
+	type DiffMode,
+	diff,
+	statusShort,
+} from "./gitService";
 import { assertAllowedWorktree } from "./projectService";
 
 export async function getWorktreeStatus(worktreeId: string) {
@@ -11,9 +17,15 @@ export async function getWorktreeStatus(worktreeId: string) {
 
 export async function getGitDiff(
 	worktreeId: string,
-	mode: "unstaged" | "staged" | "base" = "unstaged",
+	mode: DiffMode = "unstaged",
 	base = "HEAD",
+	commit = "HEAD",
 ) {
 	const worktree = await assertAllowedWorktree(worktreeId);
-	return diff(worktree.path, mode, base);
+	return diff(worktree.path, mode, base, commit);
+}
+
+export async function getGitCommits(worktreeId: string) {
+	const worktree = await assertAllowedWorktree(worktreeId);
+	return commits(worktree.path);
 }
