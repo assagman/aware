@@ -1,0 +1,30 @@
+{
+  "projects": [],
+  "worktrees": [],
+  "agentProfiles": [
+    {
+      "id": "872e54f0-2eb2-4930-8da4-67f2e968504c",
+      "name": "Kimi Coder",
+      "provider": "kimi-coding",
+      "model": "kimi-coding/k2p6",
+      "systemPrompt": "You are a careful coding agent. Inspect first, make minimal edits, explain changed files. Do not run git commit or git push without explicit approval.",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "grep",
+        "glob",
+        "task"
+      ],
+      "createdAt": "2026-05-02T20:06:34.836Z",
+      "updatedAt": "2026-05-02T20:06:34.836Z"
+    }
+  ],
+  "tasks": [],
+  "taskAgents": [],
+  "annotations": [],
+  "runs": [],
+  "runEvents": [],
+  "locks": []
+}
