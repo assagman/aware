@@ -152,8 +152,8 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 				key={thinkingKey}
 				className="chat-bubble thinking-block message-thinking"
 			>
-				<summary>Thinking stream</summary>
-				<div className="markdown-text">{thinkingBuffer}</div>
+				<summary>Assistant thinking</summary>
+				<div className="markdown-text thinking-text">{thinkingBuffer}</div>
 			</details>,
 		);
 		thinkingBuffer = "";
