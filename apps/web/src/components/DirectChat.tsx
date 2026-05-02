@@ -2,10 +2,12 @@ import type { AgentRun } from "@agent-ide/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";
+import { RunLink } from "./RunLink";
 
 export function DirectChat({ onSent }: { onSent?: () => void }) {
 	const [message, setMessage] = useState("");
 	const [status, setStatus] = useState("");
+	const [runId, setRunId] = useState("");
 	async function send() {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
 		if (!selectedWorktreeId || !message.trim()) return;
@@ -16,6 +18,7 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 			message,
 		});
 		setSelectedRunId(run.id);
+		setRunId(run.id);
 		setStatus(`run ${run.id} ${run.status}`);
 		setMessage("");
 		onSent?.();
@@ -37,7 +40,13 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 			</button>
 			{status ? (
 				<p>
-					{status} — <a href="#runs">open run</a>
+					{status}
+					{runId ? (
+						<>
+							{" — "}
+							<RunLink runId={runId}>open run</RunLink>
+						</>
+					) : null}
 				</p>
 			) : null}
 		</div>

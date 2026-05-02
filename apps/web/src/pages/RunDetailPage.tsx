@@ -250,6 +250,12 @@ export function RunDetailPage() {
 	}
 	useEffect(() => {
 		void loadRuns();
+		const onSelection = () => {
+			const selectedRunId = getSelection().selectedRunId;
+			if (selectedRunId) setRunId(selectedRunId);
+		};
+		window.addEventListener("agent-ide-selection", onSelection);
+		return () => window.removeEventListener("agent-ide-selection", onSelection);
 	}, []);
 	useEffect(() => {
 		if (!runId) return;

@@ -1,6 +1,7 @@
 import type { AgentRun, Annotation } from "@agent-ide/shared";
 import { apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";
+import { RunLink } from "./RunLink";
 
 export function AnnotationsPanel({
 	annotations,
@@ -41,7 +42,7 @@ export function AnnotationsPanel({
 							? `:${a.startLine}${a.endLine ? `-${a.endLine}` : ""}`
 							: ""}
 						<p>{a.text}</p>
-						{a.runId ? <a href="#runs">run {a.runId.slice(0, 8)}</a> : null}
+						{a.runId ? <RunLink runId={a.runId} /> : null}
 						<button
 							type="button"
 							disabled={a.status === "processing"}

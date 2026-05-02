@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
 import { getSelection } from "../app/selection";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
+import { RunLink } from "../components/RunLink";
 
 function Tree({
 	paths,
@@ -193,7 +194,12 @@ export function FilesPage() {
 						className={`inline-annotation ${a.status === "processing" ? "processing" : ""}`}
 					>
 						<strong>File note:</strong> {a.text}
-						{a.runId ? <a href="#runs"> run {a.runId.slice(0, 8)}</a> : null}
+						{a.runId ? (
+							<>
+								{" "}
+								<RunLink runId={a.runId} />
+							</>
+						) : null}
 					</div>
 				))}
 				<div className="code-lines">
@@ -226,7 +232,10 @@ export function FilesPage() {
 									>
 										{a.text}
 										{a.runId ? (
-											<a href="#runs"> run {a.runId.slice(0, 8)}</a>
+											<>
+												{" "}
+												<RunLink runId={a.runId} />
+											</>
 										) : null}
 									</div>
 								))}
