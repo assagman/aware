@@ -70,6 +70,9 @@ export type AgentRun = {
 	worktreeId: ID;
 	status: RunStatus;
 	sessionId: string;
+	mainAgentProfileId?: ID;
+	mainAgentName?: string;
+	mainAgentModel?: string;
 	startedAt: string;
 	endedAt?: string;
 };

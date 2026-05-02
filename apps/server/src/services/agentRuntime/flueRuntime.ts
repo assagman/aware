@@ -77,12 +77,20 @@ export class FlueRuntime {
 			createdAt: now(),
 			updatedAt: now(),
 		};
+		const mainAgent = input.agents[0];
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: task.id,
 			worktreeId: input.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),
+			...(mainAgent
+				? {
+						mainAgentProfileId: mainAgent.id,
+						mainAgentName: mainAgent.name,
+						mainAgentModel: mainAgent.model,
+					}
+				: {}),
 			startedAt: now(),
 		};
 		await db.insert("tasks", task);
@@ -125,12 +133,20 @@ export class FlueRuntime {
 	}
 
 	async startRun(input: StartRunInput): Promise<AgentRun> {
+		const mainAgent = input.agents[0];
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: input.task.id,
 			worktreeId: input.task.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),
+			...(mainAgent
+				? {
+						mainAgentProfileId: mainAgent.id,
+						mainAgentName: mainAgent.name,
+						mainAgentModel: mainAgent.model,
+					}
+				: {}),
 			startedAt: now(),
 		};
 		await db.insert("runs", run);

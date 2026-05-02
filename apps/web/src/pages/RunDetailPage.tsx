@@ -30,6 +30,21 @@ function jsonPreview(value: unknown, max = 200) {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function modelEvent(events: RunEvent[]) {
+	return events.find((event) => event.type === "model")?.payload as
+		| Payload
+		| undefined;
+}
+
+function activeAgentLabel(run: AgentRun | undefined, events: RunEvent[]) {
+	if (!run) return "—";
+	const model = modelEvent(events);
+	const name = run.mainAgentName ?? "Main agent";
+	const modelName =
+		run.mainAgentModel ?? String(model?.primary ?? "unknown model");
+	return `${name} — ${modelName}`;
+}
+
 function toolName(payload: unknown, fallback: string) {
 	const p = payload as Payload;
 	return String(p.toolName ?? p.name ?? p.tool ?? fallback);
@@ -238,6 +253,10 @@ export function RunDetailPage() {
 		() => runs.find((r) => r.id === runId),
 		[runs, runId],
 	);
+	const activeAgent = useMemo(
+		() => activeAgentLabel(selectedRun, events),
+		[selectedRun, events],
+	);
 	async function loadRuns() {
 		const rows = await apiGet<AgentRun[]>("/runs");
 		setRuns(rows);
@@ -298,9 +317,14 @@ export function RunDetailPage() {
 					))}
 				</select>
 				{selectedRun ? (
-					<span>
-						Status: <strong>{selectedRun.status}</strong>
-					</span>
+					<>
+						<span>
+							Status: <strong>{selectedRun.status}</strong>
+						</span>
+						<span>
+							Main agent: <strong>{activeAgent}</strong>
+						</span>
+					</>
 				) : null}
 				<button
 					type="button"
