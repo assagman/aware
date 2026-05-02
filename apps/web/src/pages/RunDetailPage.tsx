@@ -14,6 +14,12 @@ function textOf(payload: unknown) {
 	if (typeof p.thinking === "string") return p.thinking;
 	if (typeof p.reasoning === "string") return p.reasoning;
 	if (typeof p.content === "string") return p.content;
+	if (typeof p.content === "object" && p.content !== null) {
+		const content = p.content as Payload;
+		if (typeof content.thinking === "string") return content.thinking;
+		if (typeof content.reasoning === "string") return content.reasoning;
+		if (typeof content.text === "string") return content.text;
+	}
 	if (
 		p.data &&
 		typeof p.data === "object" &&
@@ -181,9 +187,11 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 			continue;
 		}
 		if (event.type.includes("thinking") || event.type.includes("reason")) {
+			const text = textOf(event.payload);
+			if (!text) continue;
 			flushAssistant();
 			thinkingKey ||= event.id;
-			thinkingBuffer += textOf(event.payload);
+			thinkingBuffer += text;
 			continue;
 		}
 		flushAssistant();
@@ -218,17 +226,7 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 				),
 			);
 		} else if (event.type === "result") {
-			rendered.push(
-				<section
-					key={event.id}
-					className="chat-bubble assistant-message message-result"
-				>
-					<strong>Final result</strong>
-					<div className="markdown-text">
-						{textOf(event.payload) || "Done."}
-					</div>
-				</section>,
-			);
+			continue;
 		} else if (event.type === "error") {
 			rendered.push(
 				<section key={event.id} className="chat-bubble error message-error">
