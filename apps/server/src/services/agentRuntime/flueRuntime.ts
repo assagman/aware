@@ -228,6 +228,7 @@ export class FlueRuntime {
 		await this.log(run.id, "model", {
 			primary: agent.model,
 			provider,
+			thinking: agent.thinking ?? "off",
 			fallback: "zai/glm-5.1",
 			hasOpenAICodexAuth: provider === "openai-codex" && Boolean(runtimeApiKey),
 			hasKimiKey: Boolean(process.env.KIMI_API_KEY),

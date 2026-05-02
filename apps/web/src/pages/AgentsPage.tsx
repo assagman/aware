@@ -2,7 +2,18 @@ import type { AgentProfile } from "@agent-ide/shared";
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 
-type AgentForm = Pick<AgentProfile, "name" | "model" | "systemPrompt">;
+type ThinkingLevel =
+	| "off"
+	| "on"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
+type AgentForm = Pick<
+	AgentProfile,
+	"name" | "model" | "systemPrompt" | "thinking"
+>;
 type ProviderAuth = {
 	provider: string;
 	authenticated: boolean;
@@ -13,9 +24,30 @@ type ProviderAuth = {
 	login?: { running: boolean; url?: string; error?: string };
 };
 
+const openAIThinkingLevels: ThinkingLevel[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+];
+const binaryThinkingLevels: ThinkingLevel[] = ["off", "on"];
+
+function thinkingLevelsForProvider(provider: string) {
+	return provider === "openai-codex"
+		? openAIThinkingLevels
+		: binaryThinkingLevels;
+}
+
+function defaultThinkingForProvider(provider: string) {
+	return provider === "openai-codex" ? "medium" : "off";
+}
+
 const defaultForm: AgentForm = {
 	name: "Code",
 	model: "openai-codex/gpt-5.5",
+	thinking: "medium",
 	systemPrompt:
 		"You are a coding agent. Inspect first, make minimal focused edits, do not commit/push without approval.",
 };
@@ -28,6 +60,7 @@ function toForm(agent: AgentProfile): AgentForm {
 	return {
 		name: agent.name,
 		model: agent.model,
+		thinking: agent.thinking ?? "off",
 		systemPrompt: agent.systemPrompt,
 	};
 }
@@ -44,6 +77,12 @@ export function AgentsPage() {
 
 	const selectedProvider = providerFromModel(form.model);
 	const needsOAuth = selectedProvider === "openai-codex";
+	const thinkingOptions = thinkingLevelsForProvider(selectedProvider);
+	const selectedThinking = thinkingOptions.includes(
+		(form.thinking ?? "off") as ThinkingLevel,
+	)
+		? ((form.thinking ?? "off") as ThinkingLevel)
+		: defaultThinkingForProvider(selectedProvider);
 
 	const load = () => {
 		void apiGet<AgentProfile[]>("/agents").then(setItems);
@@ -59,6 +98,11 @@ export function AgentsPage() {
 	useEffect(() => {
 		loadAuth(selectedProvider);
 	}, [selectedProvider]);
+	useEffect(() => {
+		if (form.thinking !== selectedThinking) {
+			setForm((current) => ({ ...current, thinking: selectedThinking }));
+		}
+	}, [form.thinking, selectedThinking]);
 
 	const duplicate = items.find(
 		(agent) =>
@@ -74,6 +118,7 @@ export function AgentsPage() {
 		try {
 			const body = {
 				...form,
+				thinking: selectedThinking,
 				name: form.name.trim(),
 				provider: providerFromModel(form.model),
 			};
@@ -167,6 +212,18 @@ export function AgentsPage() {
 				</option>
 				<option value="zai/glm-5.1">zai/glm-5.1</option>
 			</select>
+			<select
+				value={selectedThinking}
+				onChange={(e) =>
+					setForm({ ...form, thinking: e.target.value as ThinkingLevel })
+				}
+			>
+				{thinkingOptions.map((level) => (
+					<option key={level} value={level}>
+						thinking: {level}
+					</option>
+				))}
+			</select>
 			<p>
 				{selectedProvider} auth: {auth?.authenticated ? "connected" : "missing"}
 				{auth?.source ? ` via ${auth.source}` : null}
@@ -212,7 +269,7 @@ export function AgentsPage() {
 			<ul>
 				{items.map((agent) => (
 					<li key={agent.id}>
-						{agent.name} — {agent.model}
+						{agent.name} — {agent.model} — thinking {agent.thinking ?? "off"}
 						<button type="button" onClick={() => edit(agent)}>
 							Edit
 						</button>

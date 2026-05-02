@@ -8,6 +8,7 @@ export const defaultAgentProfile = {
 	name: "Code",
 	provider: "openai-codex",
 	model: "openai-codex/gpt-5.5",
+	thinking: "medium",
 	systemPrompt:
 		"You are a careful coding agent. Inspect first, make minimal edits, explain changed files. Work only in selected worktree. Do not run git commit or git push without explicit approval.",
 	tools: ["read", "write", "edit", "bash", "grep", "glob", "task"],
