@@ -63,6 +63,7 @@ export type StartChatInput = {
 	message: string;
 	annotations: Annotation[];
 	annotationIds?: string[];
+	taskTitle?: string;
 };
 
 export class FlueRuntime {
@@ -71,7 +72,7 @@ export class FlueRuntime {
 			id: randomUUID(),
 			projectId: input.projectId,
 			worktreeId: input.worktreeId,
-			title: "Direct chat",
+			title: input.taskTitle ?? "Direct chat",
 			body: input.message,
 			status: "running",
 			createdAt: now(),

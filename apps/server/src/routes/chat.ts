@@ -20,6 +20,7 @@ chat.post("/", async (c) => {
 		? allAnnotations.filter((a) => ids.includes(a.id))
 		: allAnnotations;
 	const agents = await listAgentProfiles();
+	const isAnnotationSent = Boolean(ids?.length);
 	const run = await flueRuntime.startChat({
 		projectId: body.projectId || "local",
 		worktreeId: worktree.id,
@@ -31,6 +32,7 @@ chat.post("/", async (c) => {
 			"Use annotations.",
 		annotations,
 		annotationIds: annotations.map((a) => a.id),
+		taskTitle: isAnnotationSent ? "annotation-sent" : "Direct chat",
 	});
 	await markAnnotationsProcessing(
 		annotations.map((a) => a.id),
