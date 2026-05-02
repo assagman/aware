@@ -5,8 +5,8 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 type AgentForm = Pick<AgentProfile, "name" | "model" | "systemPrompt">;
 
 const defaultForm: AgentForm = {
-	name: "Kimi Coder",
-	model: "kimi-coding/k2p6",
+	name: "OpenAI Codex GPT",
+	model: "openai-codex/gpt-5.5",
 	systemPrompt:
 		"You are a coding agent. Inspect first, make minimal focused edits, do not commit/push without approval.",
 };
@@ -90,7 +90,8 @@ export function AgentsPage() {
 		<section id="agents" className="card">
 			<h2>Agents</h2>
 			<p>
-				Kimi uses KIMI_API_KEY. Fallback Z.AI uses Z_AI_API_KEY or ZAI_API_KEY.
+				OpenAI Codex uses subscription OAuth login. Kimi uses KIMI_API_KEY.
+				Fallback Z.AI uses Z_AI_API_KEY or ZAI_API_KEY.
 			</p>
 			<input
 				value={form.name}
@@ -101,6 +102,9 @@ export function AgentsPage() {
 				value={form.model}
 				onChange={(e) => setForm({ ...form, model: e.target.value })}
 			>
+				<option value="openai-codex/gpt-5.5">
+					openai-codex/gpt-5.5 (OpenAI subscription OAuth)
+				</option>
 				<option value="kimi-coding/k2p6">kimi-coding/k2p6</option>
 				<option value="kimi-coding/kimi-for-coding">
 					kimi-coding/kimi-for-coding

@@ -5,12 +5,16 @@ export const settings = new Hono();
 settings.get("/models", (c) =>
 	c.json({
 		primary: {
-			provider: "kimi-coding",
-			model: "k2p6",
-			flueModel: "kimi-coding/k2p6",
-			env: "KIMI_API_KEY",
+			provider: "openai-codex",
+			model: "gpt-5.5",
+			flueModel: "openai-codex/gpt-5.5",
+			env: "OpenAI subscription OAuth login",
 		},
-		aliases: ["kimi-coding/k2p6", "kimi-coding/kimi-for-coding"],
+		aliases: [
+			"openai-codex/gpt-5.5",
+			"kimi-coding/k2p6",
+			"kimi-coding/kimi-for-coding",
+		],
 		fallback: {
 			provider: "zai",
 			model: "glm-5.1",
@@ -18,6 +22,7 @@ settings.get("/models", (c) =>
 			env: "Z_AI_API_KEY or ZAI_API_KEY",
 		},
 		available: {
+			openaiCodex: true,
 			kimi: Boolean(process.env.KIMI_API_KEY),
 			zai: Boolean(process.env.Z_AI_API_KEY || process.env.ZAI_API_KEY),
 		},
