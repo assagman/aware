@@ -19,13 +19,28 @@ export async function listAgentProfiles() {
 	return [await createAgentProfile(defaultAgentProfile)];
 }
 
+function normalizeName(name: string) {
+	return name.trim().toLowerCase();
+}
+
+async function assertUniqueAgentName(name: string, excludeId?: string) {
+	const normalized = normalizeName(name);
+	if (!normalized) throw new Error("Agent name is required");
+	const duplicate = (await db.list<AgentProfile>("agentProfiles")).find(
+		(agent) =>
+			agent.id !== excludeId && normalizeName(agent.name) === normalized,
+	);
+	if (duplicate) throw new Error("Agent name already exists");
+}
+
 export async function createAgentProfile(
 	input: Pick<AgentProfile, "name" | "provider" | "model" | "systemPrompt"> &
 		Partial<AgentProfile>,
 ) {
+	await assertUniqueAgentName(input.name);
 	const row: AgentProfile = {
 		id: randomUUID(),
-		name: input.name,
+		name: input.name.trim(),
 		provider: input.provider,
 		model: input.model,
 		...(input.thinking ? { thinking: input.thinking } : {}),
@@ -41,8 +56,14 @@ export async function updateAgentProfile(
 	id: string,
 	patch: Partial<AgentProfile>,
 ) {
+	if (patch.name !== undefined) await assertUniqueAgentName(patch.name, id);
 	return db.update<AgentProfile>("agentProfiles", id, {
 		...patch,
+		...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
 		updatedAt: now(),
 	});
+}
+
+export async function deleteAgentProfile(id: string) {
+	await db.delete("agentProfiles", id);
 }
