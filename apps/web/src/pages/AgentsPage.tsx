@@ -5,7 +5,7 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 type AgentForm = Pick<AgentProfile, "name" | "model" | "systemPrompt">;
 
 const defaultForm: AgentForm = {
-	name: "OpenAI Codex GPT",
+	name: "Code",
 	model: "openai-codex/gpt-5.5",
 	systemPrompt:
 		"You are a coding agent. Inspect first, make minimal focused edits, do not commit/push without approval.",

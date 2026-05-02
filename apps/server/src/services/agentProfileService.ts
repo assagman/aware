@@ -5,7 +5,7 @@ import { db } from "../db/client";
 const now = () => new Date().toISOString();
 
 export const defaultAgentProfile = {
-	name: "OpenAI Codex GPT",
+	name: "Code",
 	provider: "openai-codex",
 	model: "openai-codex/gpt-5.5",
 	systemPrompt:
