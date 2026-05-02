@@ -1,11 +1,13 @@
 import type { Project, Worktree } from "@agent-ide/shared";
 import { useEffect, useState } from "react";
-import { apiGet } from "./api";
+import { apiGet, apiPost } from "./api";
 import {
 	getSelection,
 	setSelectedProjectId,
 	setSelectedWorktreeId,
 } from "./selection";
+
+const ADD_PROJECT = "__add_project__";
 
 export function TopSelection() {
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -16,13 +18,31 @@ export function TopSelection() {
 			!selection.selectedProjectId ||
 			w.projectId === selection.selectedProjectId,
 	);
-	const refresh = () => {
-		void apiGet<Project[]>("/projects").then(setProjects);
-		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
+	async function refresh() {
+		const [nextProjects, nextWorktrees] = await Promise.all([
+			apiGet<Project[]>("/projects"),
+			apiGet<Worktree[]>("/worktrees"),
+		]);
+		setProjects(nextProjects);
+		setWorktrees(nextWorktrees);
 		setSelection(getSelection());
-	};
+		return { projects: nextProjects, worktrees: nextWorktrees };
+	}
+	async function chooseProject(id: string) {
+		if (id !== ADD_PROJECT) {
+			setSelectedProjectId(id);
+			return;
+		}
+		const path = window.prompt("Project repo path");
+		if (!path?.trim()) return;
+		const project = await apiPost<Project>("/projects", { path: path.trim() });
+		const { worktrees } = await refresh();
+		setSelectedProjectId(project.id);
+		const firstWorktree = worktrees.find((w) => w.projectId === project.id);
+		if (firstWorktree) setSelectedWorktreeId(firstWorktree.id);
+	}
 	useEffect(() => {
-		refresh();
+		void refresh();
 		window.addEventListener("agent-ide-selection", refresh);
 		window.addEventListener("focus", refresh);
 		return () => {
@@ -36,9 +56,10 @@ export function TopSelection() {
 				Project{" "}
 				<select
 					value={selection.selectedProjectId}
-					onChange={(e) => setSelectedProjectId(e.target.value)}
+					onChange={(e) => void chooseProject(e.target.value)}
 				>
 					<option value="">select</option>
+					<option value={ADD_PROJECT}>+ add project…</option>
 					{projects.map((p) => (
 						<option key={p.id} value={p.id}>
 							{p.name}

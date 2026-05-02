@@ -2,19 +2,17 @@ import { useEffect, useState } from "react";
 import { AgentsPage } from "../pages/AgentsPage";
 import { DiffsPage } from "../pages/DiffsPage";
 import { FilesPage } from "../pages/FilesPage";
-import { ProjectsPage } from "../pages/ProjectsPage";
 import { RunDetailPage } from "../pages/RunDetailPage";
 import { TasksPage } from "../pages/TasksPage";
-import { WorktreesPage } from "../pages/WorktreesPage";
 import { TopSelection } from "./TopSelection";
 
-const pages = ["project", "agents", "tasks", "runs", "diffs"] as const;
+const pages = ["files", "agents", "tasks", "runs", "diffs"] as const;
 type Page = (typeof pages)[number];
 
 function currentPage(): Page {
 	const hash = window.location.hash.replace("#", "");
-	if (hash === "projects" || hash === "files") return "project";
-	return pages.includes(hash as Page) ? (hash as Page) : "project";
+	if (hash === "project" || hash === "projects") return "files";
+	return pages.includes(hash as Page) ? (hash as Page) : "files";
 }
 
 export function AppRouter() {
@@ -29,8 +27,8 @@ export function AppRouter() {
 			<header className="app-header">
 				<h1>Agent IDE</h1>
 				<nav className="tabs">
-					<a className={page === "project" ? "active" : ""} href="#project">
-						Project
+					<a className={page === "files" ? "active" : ""} href="#files">
+						Files
 					</a>
 					<a className={page === "agents" ? "active" : ""} href="#agents">
 						Agents
@@ -48,11 +46,7 @@ export function AppRouter() {
 				<TopSelection />
 			</header>
 			<section className="content">
-				<div className={page === "project" ? "page active" : "page"}>
-					<div className="project-config-grid">
-						<ProjectsPage />
-						<WorktreesPage />
-					</div>
+				<div className={page === "files" ? "page active" : "page"}>
 					<FilesPage />
 				</div>
 				<div className={page === "agents" ? "page active" : "page"}>

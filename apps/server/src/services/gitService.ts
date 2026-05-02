@@ -24,6 +24,14 @@ export async function currentBranch(path: string) {
 	return stdout.trim();
 }
 
+export async function worktreePaths(path: string) {
+	const { stdout } = await git(path, ["worktree", "list", "--porcelain"]);
+	return stdout
+		.split("\n")
+		.filter((line) => line.startsWith("worktree "))
+		.map((line) => line.slice("worktree ".length));
+}
+
 export async function statusShort(path: string) {
 	const { stdout } = await git(path, ["status", "--short"]);
 	return stdout;
