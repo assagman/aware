@@ -16,25 +16,46 @@ body {
 }
 
 .app-shell {
-	display: grid;
-	grid-template-columns: 240px 1fr;
+	display: flex;
+	flex-direction: column;
 	height: 100vh;
 	overflow: hidden;
 }
 
-.sidebar {
-	border-right: 1px solid #242832;
-	padding: 20px;
-}
-
-.sidebar nav {
+.app-header {
 	display: grid;
-	gap: 8px;
+	grid-template-columns: auto 1fr auto;
+	align-items: center;
+	gap: 16px;
+	padding: 10px 16px;
+	border-bottom: 1px solid #242832;
+	background: #0b0d10;
 }
 
-.sidebar a {
+.app-header h1 {
+	margin: 0;
+	font-size: 18px;
+}
+
+.tabs {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+
+.tabs a {
+	padding: 8px 12px;
+	border: 1px solid transparent;
+	border-radius: 999px;
 	color: #cbd5e1;
 	text-decoration: none;
+}
+
+.tabs a:hover,
+.tabs a.active {
+	background: #172033;
+	border-color: #334155;
+	color: #f8fafc;
 }
 
 .content {
@@ -53,16 +74,10 @@ body {
 }
 
 .top-select {
-	position: sticky;
-	top: 0;
-	z-index: 1;
 	display: flex;
 	gap: 12px;
-	padding: 12px;
-	margin-bottom: 16px;
-	background: #11151c;
-	border: 1px solid #242832;
-	border-radius: 10px;
+	padding: 0;
+	background: transparent;
 }
 
 .split {
@@ -120,8 +135,14 @@ pre {
 }
 
 .full-workspace {
-	height: calc(100vh - 112px);
+	height: calc(100vh - 150px);
 	min-height: 0;
+}
+
+.project-config-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(280px, 1fr));
+	gap: 16px;
 }
 
 .full-workspace > .card,

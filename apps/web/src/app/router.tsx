@@ -8,19 +8,13 @@ import { TasksPage } from "../pages/TasksPage";
 import { WorktreesPage } from "../pages/WorktreesPage";
 import { TopSelection } from "./TopSelection";
 
-const pages = [
-	"projects",
-	"agents",
-	"tasks",
-	"runs",
-	"files",
-	"diffs",
-] as const;
+const pages = ["project", "agents", "tasks", "runs", "diffs"] as const;
 type Page = (typeof pages)[number];
 
 function currentPage(): Page {
-	const hash = window.location.hash.replace("#", "") as Page;
-	return pages.includes(hash) ? hash : "projects";
+	const hash = window.location.hash.replace("#", "");
+	if (hash === "projects" || hash === "files") return "project";
+	return pages.includes(hash as Page) ? (hash as Page) : "project";
 }
 
 export function AppRouter() {
@@ -32,22 +26,34 @@ export function AppRouter() {
 	}, []);
 	return (
 		<main className="app-shell">
-			<aside className="sidebar">
+			<header className="app-header">
 				<h1>Agent IDE</h1>
-				<nav>
-					<a href="#projects">Projects + Worktrees</a>
-					<a href="#agents">Agents</a>
-					<a href="#tasks">Tasks</a>
-					<a href="#runs">Runs</a>
-					<a href="#files">Files</a>
-					<a href="#diffs">Diffs</a>
+				<nav className="tabs">
+					<a className={page === "project" ? "active" : ""} href="#project">
+						Project
+					</a>
+					<a className={page === "agents" ? "active" : ""} href="#agents">
+						Agents
+					</a>
+					<a className={page === "tasks" ? "active" : ""} href="#tasks">
+						Tasks
+					</a>
+					<a className={page === "runs" ? "active" : ""} href="#runs">
+						Runs
+					</a>
+					<a className={page === "diffs" ? "active" : ""} href="#diffs">
+						Diffs
+					</a>
 				</nav>
-			</aside>
-			<section className="content">
 				<TopSelection />
-				<div className={page === "projects" ? "page active" : "page"}>
-					<ProjectsPage />
-					<WorktreesPage />
+			</header>
+			<section className="content">
+				<div className={page === "project" ? "page active" : "page"}>
+					<div className="project-config-grid">
+						<ProjectsPage />
+						<WorktreesPage />
+					</div>
+					<FilesPage />
 				</div>
 				<div className={page === "agents" ? "page active" : "page"}>
 					<AgentsPage />
@@ -57,9 +63,6 @@ export function AppRouter() {
 				</div>
 				<div className={page === "runs" ? "page active" : "page"}>
 					<RunDetailPage />
-				</div>
-				<div className={page === "files" ? "page active" : "page"}>
-					<FilesPage />
 				</div>
 				<div className={page === "diffs" ? "page active" : "page"}>
 					<DiffsPage />
