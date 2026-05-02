@@ -15,6 +15,12 @@ settings.get("/models", (c) =>
 			"kimi-coding/k2p6",
 			"kimi-coding/kimi-for-coding",
 		],
+		openaiCodex: {
+			provider: "openai-codex",
+			model: "gpt-5.5",
+			flueModel: "openai-codex/gpt-5.5",
+			env: "OpenAI subscription OAuth login",
+		},
 		fallback: {
 			provider: "zai",
 			model: "glm-5.1",
