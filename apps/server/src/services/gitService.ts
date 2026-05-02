@@ -72,7 +72,8 @@ export async function commits(path: string, limit = 50): Promise<GitCommit[]> {
 		.split("\n")
 		.filter(Boolean)
 		.map((line) => {
-			const [sha = "", date = "", author = "", subject = ""] = line.split("\x1f");
+			const [sha = "", date = "", author = "", subject = ""] =
+				line.split("\x1f");
 			return { sha, date, author, subject };
 		});
 }

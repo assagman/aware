@@ -72,7 +72,7 @@ export class FlueRuntime {
 			id: randomUUID(),
 			projectId: input.projectId,
 			worktreeId: input.worktreeId,
-			title: input.taskTitle ?? "Direct chat",
+			title: input.taskTitle ?? "task",
 			body: input.message,
 			status: "running",
 			createdAt: now(),
@@ -125,11 +125,19 @@ export class FlueRuntime {
 			if (input.annotationIds?.length)
 				await markAnnotationsSent(input.annotationIds);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
+			await db.update("tasks", input.task.id, {
+				status: "done",
+				updatedAt: now(),
+			});
 		} catch (error) {
 			await this.log(run.id, "error", {
 				message: error instanceof Error ? error.message : String(error),
 			});
 			await db.update("runs", run.id, { status: "failed", endedAt: now() });
+			await db.update("tasks", input.task.id, {
+				status: "failed",
+				updatedAt: now(),
+			});
 		}
 	}
 
@@ -158,14 +166,26 @@ export class FlueRuntime {
 		});
 		await this.log(run.id, "prompt", { text: prompt });
 		try {
+			await db.update("tasks", input.task.id, {
+				status: "running",
+				updatedAt: now(),
+			});
 			const result = await this.runFlue(run, input, prompt);
 			await this.log(run.id, "result", result);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
+			await db.update("tasks", input.task.id, {
+				status: "done",
+				updatedAt: now(),
+			});
 		} catch (error) {
 			await this.log(run.id, "error", {
 				message: error instanceof Error ? error.message : String(error),
 			});
 			await db.update("runs", run.id, { status: "failed", endedAt: now() });
+			await db.update("tasks", input.task.id, {
+				status: "failed",
+				updatedAt: now(),
+			});
 		}
 		return (
 			(await db.list<AgentRun>("runs")).find((r) => r.id === run.id) ?? run
@@ -185,6 +205,10 @@ export class FlueRuntime {
 		const agents = await listAgentProfiles();
 		await this.log(run.id, "user_message", { text: message });
 		try {
+			await db.update("tasks", task?.id ?? run.taskId, {
+				status: "running",
+				updatedAt: now(),
+			});
 			const result = await this.runFlue(
 				run,
 				{
@@ -205,11 +229,19 @@ export class FlueRuntime {
 			);
 			await this.log(run.id, "result", result);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
+			await db.update("tasks", task?.id ?? run.taskId, {
+				status: "done",
+				updatedAt: now(),
+			});
 		} catch (error) {
 			await this.log(run.id, "error", {
 				message: error instanceof Error ? error.message : String(error),
 			});
 			await db.update("runs", run.id, { status: "failed", endedAt: now() });
+			await db.update("tasks", task?.id ?? run.taskId, {
+				status: "failed",
+				updatedAt: now(),
+			});
 		}
 	}
 

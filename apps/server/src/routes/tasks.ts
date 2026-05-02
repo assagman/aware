@@ -21,6 +21,8 @@ tasks.post("/:id/agents", async (c) => {
 tasks.post("/:id/start", async (c) => {
 	const task = (await listTasks()).find((t) => t.id === c.req.param("id"));
 	if (!task) return c.json({ error: "missing task" }, 404);
+	if (task.status === "done" || task.status === "running")
+		return c.json({ error: `task is ${task.status}` }, 409);
 	await updateTask(task.id, { status: "running" });
 	const worktree = await assertAllowedWorktree(task.worktreeId);
 	const agents = await listAgentProfiles();

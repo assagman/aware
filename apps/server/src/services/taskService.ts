@@ -1,11 +1,32 @@
 import { randomUUID } from "node:crypto";
-import type { Task, TaskAgent } from "@agent-ide/shared";
+import type {
+	AgentRun,
+	RunStatus,
+	Task,
+	TaskAgent,
+	TaskStatus,
+} from "@agent-ide/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();
 
+function taskStatusFromRun(status: RunStatus): TaskStatus {
+	return status === "cancelled" ? "failed" : status;
+}
+
 export async function listTasks() {
-	return db.list<Task>("tasks");
+	const tasks = await db.list<Task>("tasks");
+	const runs = await db.list<AgentRun>("runs");
+	return tasks.map((task) => {
+		const latestRun = runs
+			.filter((run) => run.taskId === task.id)
+			.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+		return {
+			...task,
+			title: task.title === "Direct chat" ? "task" : task.title,
+			status: latestRun ? taskStatusFromRun(latestRun.status) : task.status,
+		};
+	});
 }
 
 export async function createTask(

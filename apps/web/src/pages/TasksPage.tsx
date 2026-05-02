@@ -30,6 +30,7 @@ export function TasksPage() {
 	async function start(id: string) {
 		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {});
 		setSelectedRunId(run.id);
+		load();
 		alert(`run ${run.id}`);
 	}
 	return (
@@ -68,14 +69,19 @@ export function TasksPage() {
 				Create task
 			</button>
 			<ul>
-				{tasks.map((t) => (
-					<li key={t.id}>
-						<button type="button" onClick={() => start(t.id)}>
-							start
-						</button>{" "}
-						{t.title} — {t.status}
-					</li>
-				))}
+				{tasks.map((t) => {
+					const canStart = t.status !== "done" && t.status !== "running";
+					return (
+						<li key={t.id}>
+							{canStart ? (
+								<button type="button" onClick={() => start(t.id)}>
+									start
+								</button>
+							) : null}{" "}
+							{t.title} — {t.status}
+						</li>
+					);
+				})}
 			</ul>
 		</section>
 	);

@@ -32,7 +32,7 @@ chat.post("/", async (c) => {
 			"Use annotations.",
 		annotations,
 		annotationIds: annotations.map((a) => a.id),
-		taskTitle: isAnnotationSent ? "annotation-sent" : "Direct chat",
+		taskTitle: isAnnotationSent ? "annotation-sent" : "task",
 	});
 	await markAnnotationsProcessing(
 		annotations.map((a) => a.id),
