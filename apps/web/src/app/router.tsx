@@ -45,17 +45,25 @@ export function AppRouter() {
 			</aside>
 			<section className="content">
 				<TopSelection />
-				{page === "projects" ? (
-					<>
-						<ProjectsPage />
-						<WorktreesPage />
-					</>
-				) : null}
-				{page === "agents" ? <AgentsPage /> : null}
-				{page === "tasks" ? <TasksPage /> : null}
-				{page === "runs" ? <RunDetailPage /> : null}
-				{page === "files" ? <FilesPage /> : null}
-				{page === "diffs" ? <DiffsPage /> : null}
+				<div className={page === "projects" ? "page active" : "page"}>
+					<ProjectsPage />
+					<WorktreesPage />
+				</div>
+				<div className={page === "agents" ? "page active" : "page"}>
+					<AgentsPage />
+				</div>
+				<div className={page === "tasks" ? "page active" : "page"}>
+					<TasksPage />
+				</div>
+				<div className={page === "runs" ? "page active" : "page"}>
+					<RunDetailPage />
+				</div>
+				<div className={page === "files" ? "page active" : "page"}>
+					<FilesPage />
+				</div>
+				<div className={page === "diffs" ? "page active" : "page"}>
+					<DiffsPage />
+				</div>
 			</section>
 		</main>
 	);

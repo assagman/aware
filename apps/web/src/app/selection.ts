@@ -23,7 +23,10 @@ function read(): Selection {
 }
 
 function write(selection: Selection) {
-	localStorage.setItem(KEY, JSON.stringify(selection));
+	const before = JSON.stringify(read());
+	const after = JSON.stringify(selection);
+	if (before === after) return;
+	localStorage.setItem(KEY, after);
 	window.dispatchEvent(new Event("agent-ide-selection"));
 }
 
