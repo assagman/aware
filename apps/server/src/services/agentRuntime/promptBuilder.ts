@@ -15,6 +15,24 @@ export function buildPrompt(input: {
 	annotations: Annotation[];
 	message?: string;
 }) {
+	const isAnnotationSent = input.task.title === "annotation-sent";
+	const instructions = [
+		"Instructions:",
+		"- Work only in selected worktree.",
+		"- Keep changes minimal and focused.",
+		"- Respect exact file paths and line ranges in annotations.",
+		"- If line numbers seem stale, inspect nearby code before editing.",
+		"- Do not run git commit or git push unless user explicitly approves.",
+	];
+	if (isAnnotationSent) {
+		return [
+			serializeAnnotations(input.annotations) ||
+				input.message ||
+				input.task.body,
+			"",
+			...instructions,
+		].join("\n");
+	}
 	return [
 		`Task: ${input.task.title}`,
 		input.task.body,
@@ -25,11 +43,6 @@ export function buildPrompt(input: {
 		"Selected annotations:",
 		serializeAnnotations(input.annotations) || "(none)",
 		"",
-		"Instructions:",
-		"- Work only in selected worktree.",
-		"- Keep changes minimal and focused.",
-		"- Respect exact file paths and line ranges in annotations.",
-		"- If line numbers seem stale, inspect nearby code before editing.",
-		"- Do not run git commit or git push unless user explicitly approves.",
+		...instructions,
 	].join("\n");
 }

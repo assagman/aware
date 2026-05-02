@@ -32,4 +32,41 @@ describe("prompt builder", () => {
 		expect(text).toContain("Fix bug");
 		expect(text).toContain("note");
 	});
+
+	it("keeps annotation-sent prompts concise", () => {
+		const text = buildPrompt({
+			task: {
+				id: "t",
+				projectId: "p",
+				worktreeId: "w",
+				title: "annotation-sent",
+				body: "revert",
+				status: "draft",
+				createdAt: "",
+				updatedAt: "",
+			},
+			agents: [],
+			annotations: [
+				{
+					id: "a",
+					projectId: "p",
+					worktreeId: "w",
+					kind: "diff",
+					filePath: "x.ts",
+					startLine: 1,
+					endLine: 2,
+					text: "revert",
+					sent: false,
+					createdAt: "",
+					updatedAt: "",
+				},
+			],
+			message: "revert",
+		});
+		expect(text).not.toContain("Task:");
+		expect(text).not.toContain("User message:");
+		expect(text).not.toContain("Selected annotations:");
+		expect(text).toContain("- diff x.ts:1-2: revert");
+		expect(text).toContain("Instructions:");
+	});
 });
