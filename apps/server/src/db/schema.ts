@@ -9,6 +9,7 @@ export const tables = [
 	"runEvents",
 	"flueSessions",
 	"locks",
+	"authCredentials",
 ] as const;
 
 export type TableName = (typeof tables)[number];

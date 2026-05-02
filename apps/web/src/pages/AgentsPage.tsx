@@ -3,6 +3,15 @@ import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 
 type AgentForm = Pick<AgentProfile, "name" | "model" | "systemPrompt">;
+type ProviderAuth = {
+	provider: string;
+	authenticated: boolean;
+	source?: string;
+	type?: "oauth" | "api_key";
+	env?: string;
+	path: string;
+	login?: { running: boolean; url?: string; error?: string };
+};
 
 const defaultForm: AgentForm = {
 	name: "Code",
@@ -29,11 +38,27 @@ export function AgentsPage() {
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	const [auth, setAuth] = useState<ProviderAuth | null>(null);
+	const [apiKey, setApiKey] = useState("");
+	const [authBusy, setAuthBusy] = useState(false);
+
+	const selectedProvider = providerFromModel(form.model);
+	const needsOAuth = selectedProvider === "openai-codex";
 
 	const load = () => {
 		void apiGet<AgentProfile[]>("/agents").then(setItems);
 	};
-	useEffect(load, []);
+	const loadAuth = (provider = selectedProvider) => {
+		void apiGet<ProviderAuth>(`/settings/providers/${provider}/auth`).then(
+			setAuth,
+		);
+	};
+	useEffect(() => {
+		load();
+	}, []);
+	useEffect(() => {
+		loadAuth(selectedProvider);
+	}, [selectedProvider]);
 
 	const duplicate = items.find(
 		(agent) =>
@@ -86,12 +111,43 @@ export function AgentsPage() {
 		setError(null);
 	}
 
+	async function loginOpenAICodex() {
+		setAuthBusy(true);
+		setError(null);
+		try {
+			setAuth(await apiPost<ProviderAuth>("/settings/openai-codex/login", {}));
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "OpenAI Codex login failed",
+			);
+		} finally {
+			setAuthBusy(false);
+		}
+	}
+
+	async function saveApiKey() {
+		setAuthBusy(true);
+		setError(null);
+		try {
+			setAuth(
+				await apiPost<ProviderAuth>(
+					`/settings/providers/${selectedProvider}/api-key`,
+					{ key: apiKey },
+				),
+			);
+			setApiKey("");
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to save API key");
+		} finally {
+			setAuthBusy(false);
+		}
+	}
+
 	return (
 		<section id="agents" className="card">
 			<h2>Agents</h2>
 			<p>
-				OpenAI Codex uses subscription OAuth login. Kimi uses KIMI_API_KEY.
-				Fallback Z.AI uses Z_AI_API_KEY or ZAI_API_KEY.
+				OpenAI Codex uses subscription OAuth login. Kimi and Z.AI use API keys.
 			</p>
 			<input
 				value={form.name}
@@ -111,6 +167,34 @@ export function AgentsPage() {
 				</option>
 				<option value="zai/glm-5.1">zai/glm-5.1</option>
 			</select>
+			<p>
+				{selectedProvider} auth: {auth?.authenticated ? "connected" : "missing"}
+				{auth?.source ? ` via ${auth.source}` : null}
+				{auth?.env ? ` (${auth.env})` : null}
+			</p>
+			{!auth?.authenticated && needsOAuth ? (
+				<button type="button" onClick={loginOpenAICodex} disabled={authBusy}>
+					{authBusy ? "Waiting for OpenAI login..." : "Login with OpenAI"}
+				</button>
+			) : null}
+			{!auth?.authenticated && !needsOAuth ? (
+				<p>
+					<input
+						value={apiKey}
+						onChange={(e) => setApiKey(e.target.value)}
+						placeholder={`${selectedProvider} API key`}
+						type="password"
+					/>
+					<button type="button" onClick={saveApiKey} disabled={authBusy}>
+						Save API key
+					</button>
+				</p>
+			) : null}
+			{auth?.login?.url && !auth.authenticated ? (
+				<p>
+					Login URL: <a href={auth.login.url}>{auth.login.url}</a>
+				</p>
+			) : null}
 			<textarea
 				value={form.systemPrompt}
 				onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
