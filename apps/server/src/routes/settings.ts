@@ -47,9 +47,12 @@ settings.get("/providers/:provider/auth", async (c) =>
 settings.post("/providers/:provider/api-key", async (c) => {
 	try {
 		const body = (await c.req.json()) as { key?: string };
-		return c.json(await saveProviderApiKey(c.req.param("provider"), body.key ?? ""));
+		return c.json(
+			await saveProviderApiKey(c.req.param("provider"), body.key ?? ""),
+		);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : "Failed to save API key";
+		const message =
+			error instanceof Error ? error.message : "Failed to save API key";
 		return c.json({ error: message }, 400);
 	}
 });
@@ -58,7 +61,8 @@ settings.post("/openai-codex/login", async (c) => {
 	try {
 		return c.json(await startOpenAICodexLogin());
 	} catch (error) {
-		const message = error instanceof Error ? error.message : "OpenAI login failed";
+		const message =
+			error instanceof Error ? error.message : "OpenAI login failed";
 		return c.json({ error: message }, 500);
 	}
 });
