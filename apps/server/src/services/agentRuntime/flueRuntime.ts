@@ -13,9 +13,9 @@ import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
+import { revertDefaultBranchMutation } from "../defaultBranchGuard";
 import { assertAllowedWorktree } from "../projectService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
-import { publishRunEvent } from "../runEventBus";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
 
@@ -86,6 +86,7 @@ function normalizeToolPath() {
 
 export type StartRunInput = {
 	task: Task;
+	worktreeId: string;
 	worktreePath: string;
 	agents: AgentProfile[];
 };
@@ -142,6 +143,7 @@ export class FlueRuntime {
 		await this.log(run.id, "prompt", { text: prompt });
 		void this.executeRun(run, {
 			task,
+			worktreeId: input.worktreeId,
 			worktreePath: input.worktreePath,
 			agents: input.agents,
 			prompt,
@@ -156,6 +158,7 @@ export class FlueRuntime {
 	) {
 		try {
 			const result = await this.runFlue(run, input, input.prompt);
+			await this.guardDefaultBranch(run, input.worktreeId);
 			await this.log(run.id, "result", result);
 			if (input.annotationIds?.length)
 				await markAnnotationsSent(input.annotationIds);
@@ -181,7 +184,7 @@ export class FlueRuntime {
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: input.task.id,
-			worktreeId: input.task.worktreeId,
+			worktreeId: input.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),
 			...(mainAgent
@@ -206,6 +209,7 @@ export class FlueRuntime {
 				updatedAt: now(),
 			});
 			const result = await this.runFlue(run, input, prompt);
+			await this.guardDefaultBranch(run, input.worktreeId);
 			await this.log(run.id, "result", result);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", input.task.id, {
@@ -247,6 +251,7 @@ export class FlueRuntime {
 			const result = await this.runFlue(
 				run,
 				{
+					worktreeId: run.worktreeId,
 					task: task ?? {
 						id: run.taskId,
 						projectId: "local",
@@ -262,6 +267,7 @@ export class FlueRuntime {
 				},
 				message,
 			);
+			await this.guardDefaultBranch(run, run.worktreeId);
 			await this.log(run.id, "result", result);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", task?.id ?? run.taskId, {
@@ -334,7 +340,11 @@ export class FlueRuntime {
 				createLocalEnv,
 				defaultStore: flueSessionStore,
 			});
-			ctx.setEventCallback((event) => void this.log(run.id, event.type, event));
+			ctx.setEventCallback((event) => {
+				void this.log(run.id, event.type, event);
+				if (event.type.toLowerCase().includes("tool"))
+					void this.guardDefaultBranch(run, input.worktreeId);
+			});
 			const model = process.env.KIMI_API_KEY
 				? agent.model
 				: process.env.ZAI_API_KEY
@@ -350,6 +360,12 @@ export class FlueRuntime {
 		} finally {
 			process.chdir(previous);
 		}
+	}
+
+	private async guardDefaultBranch(run: AgentRun, worktreeId: string) {
+		const worktree = await assertAllowedWorktree(worktreeId);
+		const message = await revertDefaultBranchMutation(worktree);
+		if (message) await this.log(run.id, "user_message", { text: message });
 	}
 
 	async log(runId: string, type: string, payload: unknown) {

@@ -31,7 +31,7 @@ export type TaskStatus = "draft" | "queued" | "running" | "done" | "failed";
 export type Task = {
 	id: ID;
 	projectId: ID;
-	worktreeId: ID;
+	worktreeId?: ID;
 	title: string;
 	body: string;
 	status: TaskStatus;

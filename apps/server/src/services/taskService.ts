@@ -38,7 +38,7 @@ export async function listTasks(
 }
 
 export async function createTask(
-	input: Pick<Task, "projectId" | "worktreeId" | "title" | "body">,
+	input: Pick<Task, "projectId" | "title" | "body"> & { worktreeId?: string },
 ) {
 	const row: Task = {
 		...input,

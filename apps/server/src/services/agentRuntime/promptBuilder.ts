@@ -18,7 +18,8 @@ export function buildPrompt(input: {
 	const isAnnotationSent = input.task.title === "annotation-sent";
 	const instructions = [
 		"Instructions:",
-		"- Work only in selected worktree.",
+		"- Resolve worktree first. If selected worktree is main/master, create a new git worktree before mutating files.",
+		"- Work only in resolved non-default worktree.",
 		"- Keep changes minimal and focused.",
 		"- Respect exact file paths and line ranges in annotations.",
 		"- If line numbers seem stale, inspect nearby code before editing.",
@@ -26,7 +27,9 @@ export function buildPrompt(input: {
 	];
 	if (isAnnotationSent) {
 		return [
-			serializeAnnotations(input.annotations) || input.message || input.task.body,
+			serializeAnnotations(input.annotations) ||
+				input.message ||
+				input.task.body,
 			"",
 			...instructions,
 		].join("\n");

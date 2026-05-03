@@ -31,7 +31,7 @@ export const agentProfileSchema = z.object({
 export const taskSchema = z.object({
 	id: idSchema,
 	projectId: idSchema,
-	worktreeId: idSchema,
+	worktreeId: idSchema.optional(),
 	title: z.string(),
 	body: z.string(),
 	status: z.enum(["draft", "queued", "running", "done", "failed"]),

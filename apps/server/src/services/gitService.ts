@@ -24,6 +24,11 @@ export async function currentBranch(path: string) {
 	return stdout.trim();
 }
 
+export async function isBareRepository(path: string) {
+	const { stdout } = await git(path, ["rev-parse", "--is-bare-repository"]);
+	return stdout.trim() === "true";
+}
+
 export async function worktreePaths(path: string) {
 	const { stdout } = await git(path, ["worktree", "list", "--porcelain"]);
 	return stdout

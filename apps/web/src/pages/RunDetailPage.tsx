@@ -1,10 +1,22 @@
-import type { AgentRun, RunEvent } from "@aware/shared";
+import type { AgentRun, RunEvent, Worktree } from "@aware/shared";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
-import { getSelection, setSelectedRunId } from "../app/selection";
+import {
+	getPageState,
+	persistScroll,
+	restoreScroll,
+	setPageState,
+} from "../app/pageState";
+import {
+	getSelectedWorktreeId,
+	getSelection,
+	setSelectedRunId,
+	setSelectedWorktreeId,
+} from "../app/selection";
+import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type Payload = Record<string, unknown>;
 
@@ -763,15 +775,32 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 	return <div className="run-chat-timeline">{rendered}</div>;
 }
 
+const initialRunsState = getPageState("runs", { message: "" });
+
 export function RunDetailPage() {
 	const [runs, setRuns] = useState<AgentRun[]>([]);
+	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+	const [worktreeFilter, setWorktreeFilter] = useState(
+		getSelectedWorktreeId("runs") || "all",
+	);
 	const [runId, setRunId] = useState(getSelection().selectedRunId);
 	const [events, setEvents] = useState<RunEvent[]>([]);
-	const [message, setMessage] = useState("");
+	const [message, setMessage] = useState(initialRunsState.message);
 	const bottomRef = useRef<HTMLDivElement | null>(null);
+	const chatScrollRef = useRef<HTMLDivElement | null>(null);
 	const selectedRun = useMemo(
 		() => runs.find((r) => r.id === runId),
 		[runs, runId],
+	);
+	const worktreeNames = useMemo(
+		() =>
+			Object.fromEntries(
+				worktrees.map((w) => [
+					w.id,
+					w.path.split("/").filter(Boolean).at(-1) || w.path,
+				]),
+			),
+		[worktrees],
 	);
 	const activeAgent = useMemo(
 		() => activeAgentLabel(selectedRun, events),
@@ -785,25 +814,42 @@ export function RunDetailPage() {
 		() => [...events].reverse().find((event) => !isHiddenEvent(event)),
 		[events],
 	);
-	async function loadRuns() {
-		const rows = await apiGet<AgentRun[]>("/runs");
+	async function loadRuns(nextFilter = worktreeFilter) {
+		const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
 		setRuns(rows);
-		if (!runId && rows[0]) setRunId(rows[0].id);
+		if ((!runId || !rows.some((run) => run.id === runId)) && rows[0])
+			setRunId(rows[0].id);
+		if (!rows.length) {
+			setRunId("");
+			setEvents([]);
+		}
 	}
 	async function loadEvents(id = runId) {
 		if (!id) return;
 		setEvents(await apiGet<RunEvent[]>(`/runs/${id}/events`));
+		window.requestAnimationFrame(() =>
+			restoreScroll(`runs-chat-scroll:${id}`, chatScrollRef.current),
+		);
 		setSelectedRunId(id);
 	}
 	useEffect(() => {
 		void loadRuns();
+		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
 		const onSelection = () => {
+			const nextFilter = getSelectedWorktreeId("runs") || "all";
+			setWorktreeFilter(nextFilter);
+			void loadRuns(nextFilter);
 			const selectedRunId = getSelection().selectedRunId;
 			if (selectedRunId) setRunId(selectedRunId);
 		};
 		window.addEventListener("aware-selection", onSelection);
 		return () => window.removeEventListener("aware-selection", onSelection);
 	}, []);
+	function chooseWorktree(id: string) {
+		setSelectedWorktreeId(id, "runs");
+		setWorktreeFilter(id);
+		void loadRuns(id);
+	}
 	useEffect(() => {
 		if (!runId) return;
 		void loadEvents(runId);
@@ -817,8 +863,9 @@ export function RunDetailPage() {
 		return () => window.clearInterval(timer);
 	}, [runId, selectedRun?.status]);
 	useEffect(() => {
-		bottomRef.current?.scrollIntoView({ block: "end" });
-	}, [events.length]);
+		if (selectedRun?.status === "running")
+			bottomRef.current?.scrollIntoView({ block: "end" });
+	}, [events.length, selectedRun?.status]);
 	async function cancelRun() {
 		if (!runId) return;
 		await apiPost(`/runs/${runId}/cancel`, {});
@@ -829,66 +876,104 @@ export function RunDetailPage() {
 		if (!runId || !message.trim()) return;
 		await apiPost(`/runs/${runId}/messages`, { message });
 		setMessage("");
+		setPageState("runs", { message: "" });
 		await loadEvents(runId);
 	}
 	return (
 		<section id="runs" className="card run-page">
-			<div className="run-header">
-				<h2>Run chat</h2>
-				<select value={runId} onChange={(e) => setRunId(e.target.value)}>
-					<option value="">select run</option>
+			<aside className="runs-sidebar">
+				<div className="runs-sidebar-head">
+					<h2>Runs</h2>
+					<WorktreeSelect
+						value={worktreeFilter}
+						onChange={chooseWorktree}
+						allowAll
+					/>
+				</div>
+				<div className="runs-list" aria-label="Runs list">
+					{runs.length === 0 ? <p className="empty-state">No runs.</p> : null}
 					{runs.map((r) => (
-						<option key={r.id} value={r.id}>
-							{r.status} — {new Date(r.startedAt).toLocaleString()} —{" "}
-							{r.id.slice(0, 8)}
-						</option>
+						<button
+							key={r.id}
+							type="button"
+							className={r.id === runId ? "run-row selected" : "run-row"}
+							onClick={() => setRunId(r.id)}
+						>
+							<strong>{r.id.slice(0, 8)}</strong>
+							<span className={`task-status status-${r.status}`}>
+								{r.status}
+							</span>
+							<small>task {r.taskId.slice(0, 8)}</small>
+							<small>{worktreeNames[r.worktreeId] ?? "worktree"}</small>
+						</button>
 					))}
-				</select>
-				{selectedRun ? (
-					<>
-						<span>
-							Status: <strong>{selectedRun.status}</strong>
-						</span>
-						<span>
-							Main agent: <strong>{activeAgent}</strong>
-						</span>
-					</>
-				) : null}
-				<button
-					type="button"
-					onClick={cancelRun}
-					disabled={selectedRun?.status !== "running"}
+				</div>
+			</aside>
+			<div className="run-main">
+				<div className="run-header">
+					<div>
+						<h2>Run chat</h2>
+						{selectedRun ? (
+							<small>run {selectedRun.id}</small>
+						) : (
+							<small>No run selected</small>
+						)}
+					</div>
+					{selectedRun ? (
+						<>
+							<span>
+								Status: <strong>{selectedRun.status}</strong>
+							</span>
+							<span>
+								Main agent: <strong>{activeAgent}</strong>
+							</span>
+						</>
+					) : null}
+					<button
+						type="button"
+						onClick={cancelRun}
+						disabled={selectedRun?.status !== "running"}
+					>
+						Cancel
+					</button>
+					<ProcessIndicator live={selectedRun?.status === "running"} />
+				</div>
+				<div
+					className="run-chat-scroll"
+					ref={chatScrollRef}
+					onScroll={(e) =>
+						persistScroll(`runs-chat-scroll:${runId}`, e.currentTarget)
+					}
 				>
-					Cancel
-				</button>
-				<ProcessIndicator live={selectedRun?.status === "running"} />
-			</div>
-			<div className="run-chat-scroll">
-				<ChatTimeline events={events} />
-				{latestError && lastVisibleEvent?.id !== latestError.id ? (
-					<LatestErrorBox event={latestError} />
-				) : null}
-				<div ref={bottomRef} />
-			</div>
-			<div className="run-input-bar">
-				<textarea
-					value={message}
-					onChange={(e) => setMessage(e.target.value)}
-					placeholder="Steer this run..."
-					onKeyDown={(e) => {
-						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-							e.preventDefault();
-							void sendMessage();
-						}
-					}}
-				/>
-				<button
-					type="button"
-					onClick={sendMessage}
-					disabled={!message.trim() || !runId}
-				>
-					Send
-				</button>
+					<ChatTimeline events={events} />
+					{latestError && lastVisibleEvent?.id !== latestError.id ? (
+						<LatestErrorBox event={latestError} />
+					) : null}
+					<div ref={bottomRef} />
+				</div>
+				<div className="run-input-bar">
+					<textarea
+						value={message}
+						onChange={(e) => {
+							setMessage(e.target.value);
+							setPageState("runs", { message: e.target.value });
+						}}
+						placeholder="Steer this run..."
+						onKeyDown={(e) => {
+							if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+								e.preventDefault();
+								void sendMessage();
+							}
+						}}
+					/>
+					<button
+						type="button"
+						onClick={sendMessage}
+						disabled={!message.trim() || !runId}
+					>
+						Send
+					</button>
+				</div>
 			</div>
 		</section>
 	);

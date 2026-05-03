@@ -1,3 +1,4 @@
+import type { AgentRun } from "@aware/shared";
 import { Hono } from "hono";
 import { db } from "../db/client";
 import { flueRuntime } from "../services/agentRuntime/flueRuntime";
@@ -5,8 +6,16 @@ import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 export const runs = new Hono();
 
 runs.get("/", async (c) => {
-	const rows = await db.list("runs");
-	return c.json(rows.reverse());
+	const worktreeId = c.req.query("worktreeId");
+	const rows = await db.list<AgentRun>("runs");
+	return c.json(
+		rows
+			.filter(
+				(run) =>
+					!worktreeId || worktreeId === "all" || run.worktreeId === worktreeId,
+			)
+			.sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+	);
 });
 
 runs.get("/:id", async (c) => {

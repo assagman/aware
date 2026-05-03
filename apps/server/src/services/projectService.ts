@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import type { Project, Worktree } from "@aware/shared";
 import { db } from "../db/client";
-import { currentBranch, repoRoot, worktreePaths } from "./gitService";
+import {
+	currentBranch,
+	isBareRepository,
+	repoRoot,
+	worktreePaths,
+} from "./gitService";
 
 const now = () => new Date().toISOString();
 
@@ -61,7 +66,13 @@ async function listStoredWorktrees() {
 export async function listWorktrees() {
 	for (const project of await listProjects())
 		await syncProjectWorktrees(project);
-	return listStoredWorktrees();
+	const rows = await listStoredWorktrees();
+	const visible: Worktree[] = [];
+	for (const worktree of rows) {
+		if (await isBareRepository(worktree.path).catch(() => false)) continue;
+		visible.push(worktree);
+	}
+	return visible;
 }
 
 export async function assertAllowedWorktree(worktreeId: string) {

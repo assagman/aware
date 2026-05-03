@@ -1,15 +1,19 @@
 import type { AgentRun, Annotation } from "@aware/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
-import { getSelection, setSelectedRunId } from "../app/selection";
+import { setSelectedRunId } from "../app/selection";
 import { AgentPicker } from "./AgentPicker";
 import { RunLink } from "./RunLink";
 
 export function AnnotationsPanel({
 	annotations,
+	projectId,
+	worktreeId,
 	onRefresh,
 }: {
 	annotations: Annotation[];
+	projectId: string;
+	worktreeId: string;
 	onRefresh: () => void;
 }) {
 	const [bulkAgentId, setBulkAgentId] = useState("");
@@ -23,11 +27,10 @@ export function AnnotationsPanel({
 		return annotationAgentIds[annotation.id] || bulkAgentId;
 	}
 	async function sendAnnotation(annotation: Annotation) {
-		const { selectedProjectId, selectedWorktreeId } = getSelection();
-		if (!selectedWorktreeId) return;
+		if (!worktreeId) return;
 		const run = await apiPost<AgentRun>("/chat", {
-			projectId: selectedProjectId || annotation.projectId,
-			worktreeId: selectedWorktreeId,
+			projectId: projectId || annotation.projectId,
+			worktreeId,
 			agentProfileId: agentFor(annotation),
 			annotationIds: [annotation.id],
 			message: annotation.text,
@@ -36,11 +39,10 @@ export function AnnotationsPanel({
 		await onRefresh();
 	}
 	async function sendAllAnnotations() {
-		const { selectedProjectId, selectedWorktreeId } = getSelection();
-		if (!selectedWorktreeId || !sendableAnnotations.length) return;
+		if (!worktreeId || !sendableAnnotations.length) return;
 		const run = await apiPost<AgentRun>("/chat", {
-			projectId: selectedProjectId || sendableAnnotations[0]?.projectId,
-			worktreeId: selectedWorktreeId,
+			projectId: projectId || sendableAnnotations[0]?.projectId,
+			worktreeId,
 			agentProfileId: bulkAgentId,
 			annotationIds: sendableAnnotations.map((annotation) => annotation.id),
 			message: sendableAnnotations

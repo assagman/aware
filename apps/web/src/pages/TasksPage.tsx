@@ -1,12 +1,14 @@
 import type { AgentRun, Task, TaskStatus } from "@aware/shared";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "../app/api";
+import { getPageState, setPageState } from "../app/pageState";
 import {
 	getSelection,
 	setSelectedRunId,
 	setSelectedTaskId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
+import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type TaskFilter = "active" | "done" | "all";
 type TaskSort = "status-updated" | "updated" | "title";
@@ -19,42 +21,52 @@ const statusOrder: Record<TaskStatus, number> = {
 	done: 4,
 };
 
+const initialTasksState = getPageState("tasks", {
+	title: "",
+	body: "",
+	selectedTaskId: "",
+	agentProfileId: "",
+	taskFilter: "active" as TaskFilter,
+	taskSort: "status-updated" as TaskSort,
+	worktreeId: "",
+});
+
 export function TasksPage() {
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [projectId, setProjectId] = useState("");
-	const [worktreeId, setWorktreeId] = useState("");
-	const [title, setTitle] = useState("");
-	const [body, setBody] = useState("");
-	const [selectedTaskId, setSelectedTaskIdState] = useState("");
-	const [agentProfileId, setAgentProfileId] = useState("");
-	const [taskFilter, setTaskFilter] = useState<TaskFilter>("active");
-	const [taskSort, setTaskSort] = useState<TaskSort>("status-updated");
+	const [title, setTitle] = useState(initialTasksState.title);
+	const [body, setBody] = useState(initialTasksState.body);
+	const [taskWorktreeId, setTaskWorktreeId] = useState(
+		initialTasksState.worktreeId,
+	);
+	const [selectedTaskId, setSelectedTaskIdState] = useState(
+		getSelection().selectedTaskId || initialTasksState.selectedTaskId,
+	);
+	const [agentProfileId, setAgentProfileId] = useState(
+		initialTasksState.agentProfileId,
+	);
+	const [taskFilter, setTaskFilter] = useState<TaskFilter>(
+		initialTasksState.taskFilter,
+	);
+	const [taskSort, setTaskSort] = useState<TaskSort>(
+		initialTasksState.taskSort,
+	);
 	const load = () => {
-		const selection = getSelection();
-		const selectedProjectId = selection.selectedProjectId;
-		const selectedWorktreeId = selection.selectedWorktreeId;
+		const selectedProjectId = getSelection().selectedProjectId;
 		setProjectId(selectedProjectId);
-		setWorktreeId(selectedWorktreeId);
-		if (!selectedProjectId || !selectedWorktreeId) {
+		if (!selectedProjectId) {
 			setTasks([]);
 			return;
 		}
-		const params = new URLSearchParams({
-			projectId: selectedProjectId,
-			worktreeId: selectedWorktreeId,
-		});
-		void apiGet<Task[]>(`/tasks?${params}`).then(setTasks);
+		void apiGet<Task[]>(
+			`/tasks?${new URLSearchParams({ projectId: selectedProjectId })}`,
+		).then(setTasks);
 	};
 	useEffect(() => {
-		const reload = () => load();
-		const reloadSelection = () => {
-			newTask();
-			load();
-		};
-		reload();
+		const reloadSelection = () => load();
+		load();
 		window.addEventListener("aware-selection", reloadSelection);
-		return () =>
-			window.removeEventListener("aware-selection", reloadSelection);
+		return () => window.removeEventListener("aware-selection", reloadSelection);
 	}, []);
 	const visibleTasks = useMemo(() => {
 		return tasks
@@ -79,33 +91,50 @@ export function TasksPage() {
 		setSelectedTaskIdState("");
 		setTitle("");
 		setBody("");
+		setTaskWorktreeId("");
+		setPageState("tasks", {
+			selectedTaskId: "",
+			title: "",
+			body: "",
+			worktreeId: "",
+		});
 	}
 	function editTask(task: Task) {
 		setSelectedTaskIdState(task.id);
 		setSelectedTaskId(task.id);
 		setTitle(task.title);
 		setBody(task.body);
+		setTaskWorktreeId(task.worktreeId ?? "");
+		setPageState("tasks", {
+			selectedTaskId: task.id,
+			title: task.title,
+			body: task.body,
+			worktreeId: task.worktreeId ?? "",
+		});
+	}
+	function chooseTaskWorktree(id: string) {
+		setTaskWorktreeId(id);
+		setPageState("tasks", { worktreeId: id });
 	}
 	async function save() {
-		if (!projectId || !worktreeId || !title.trim()) return;
+		if (!projectId || !title.trim()) return;
+		const patch = { title, body, worktreeId: taskWorktreeId || null };
 		if (selectedTaskId) {
-			await apiPatch<Task>(`/tasks/${selectedTaskId}`, { title, body });
+			await apiPatch<Task>(`/tasks/${selectedTaskId}`, patch);
 			load();
 			return;
 		}
-		const task = await apiPost<Task>("/tasks", {
-			projectId,
-			worktreeId,
-			title,
-			body,
-		});
+		const task = await apiPost<Task>("/tasks", { projectId, ...patch });
 		setSelectedTaskId(task.id);
 		setSelectedTaskIdState(task.id);
+		setPageState("tasks", { selectedTaskId: task.id });
 		load();
 	}
 	async function start(id: string) {
+		const task = tasks.find((t) => t.id === id);
 		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
 			agentProfileId,
+			worktreeId: task?.worktreeId,
 		});
 		setSelectedRunId(run.id);
 		load();
@@ -116,20 +145,28 @@ export function TasksPage() {
 		newTask();
 		load();
 	}
-	const hasSelection = Boolean(projectId && worktreeId);
+	const hasSelection = Boolean(projectId);
 	return (
 		<section id="tasks" className="card tasks-page">
 			<div className="tasks-header">
 				<div>
 					<h2>Tasks</h2>
-					<p>Create and run tasks for the selected project/worktree.</p>
+					<p>
+						Project tasks. Attach worktree in task details; default is new
+						worktree.
+					</p>
 				</div>
-				<AgentPicker value={agentProfileId} onChange={setAgentProfileId} />
+				<AgentPicker
+					value={agentProfileId}
+					onChange={(id) => {
+						setAgentProfileId(id);
+						setPageState("tasks", { agentProfileId: id });
+					}}
+				/>
 			</div>
 			{!hasSelection ? (
 				<p className="tasks-empty">
-					Select a project and worktree from the top-right pickers to manage
-					tasks.
+					Select project from top-right picker to manage tasks.
 				</p>
 			) : null}
 			<div className="tasks-layout">
@@ -183,15 +220,33 @@ export function TasksPage() {
 						Title
 						<input
 							value={title}
-							onChange={(e) => setTitle(e.target.value)}
+							onChange={(e) => {
+								setTitle(e.target.value);
+								setPageState("tasks", { title: e.target.value });
+							}}
 							placeholder="Task title"
 						/>
 					</label>
+					<WorktreeSelect
+						value={taskWorktreeId}
+						onChange={chooseTaskWorktree}
+						label="Task worktree"
+						placeholder="new worktree"
+						excludeDefaultBranches
+					/>
+					<p className="task-worktree-note">
+						{taskWorktreeId
+							? "Agent will use this attached worktree."
+							: "Agent instructions will request creating a new non-default worktree before file mutations."}
+					</p>
 					<label className="task-body-field">
 						Details
 						<textarea
 							value={body}
-							onChange={(e) => setBody(e.target.value)}
+							onChange={(e) => {
+								setBody(e.target.value);
+								setPageState("tasks", { body: e.target.value });
+							}}
 							placeholder="Describe the work to be done..."
 						/>
 					</label>
@@ -207,7 +262,10 @@ export function TasksPage() {
 							Filter
 							<select
 								value={taskFilter}
-								onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}
+								onChange={(e) => {
+									setTaskFilter(e.target.value as TaskFilter);
+									setPageState("tasks", { taskFilter: e.target.value });
+								}}
 							>
 								<option value="active">Not done</option>
 								<option value="done">Done</option>
@@ -218,7 +276,10 @@ export function TasksPage() {
 							Sort
 							<select
 								value={taskSort}
-								onChange={(e) => setTaskSort(e.target.value as TaskSort)}
+								onChange={(e) => {
+									setTaskSort(e.target.value as TaskSort);
+									setPageState("tasks", { taskSort: e.target.value });
+								}}
 							>
 								<option value="status-updated">Status, updated</option>
 								<option value="updated">Updated time</option>
@@ -229,46 +290,48 @@ export function TasksPage() {
 					<div className="tasks-list" aria-label="Tasks list">
 						{visibleTasks.length === 0 ? (
 							<p className="tasks-empty">No tasks match current filters.</p>
-						) : (
-							visibleTasks.map((t) => {
-								const canStart = t.status !== "done" && t.status !== "running";
-								return (
-									<article
-										key={t.id}
-										className={
-											selectedTaskId === t.id ? "task-row selected" : "task-row"
-										}
-										role="button"
-										tabIndex={0}
-										onClick={() => editTask(t)}
-										onKeyDown={(e) => {
-											if (e.key === "Enter" || e.key === " ") editTask(t);
-										}}
-									>
-										<div className="task-row-main">
-											<strong>{t.title}</strong>
-											{t.body ? <p>{t.body}</p> : null}
-										</div>
-										<div className="task-row-actions">
-											<span className={`task-status status-${t.status}`}>
-												{t.status}
-											</span>
-											{canStart ? (
-												<button
-													type="button"
-													onClick={(e) => {
-														e.stopPropagation();
-														void start(t.id);
-													}}
-												>
-													Start
-												</button>
-											) : null}
-										</div>
-									</article>
-								);
-							})
-						)}
+						) : null}
+						{visibleTasks.map((t) => {
+							const canStart = t.status !== "done" && t.status !== "running";
+							return (
+								<article
+									key={t.id}
+									className={
+										selectedTaskId === t.id ? "task-row selected" : "task-row"
+									}
+									role="button"
+									tabIndex={0}
+									onClick={() => editTask(t)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") editTask(t);
+									}}
+								>
+									<div className="task-row-main">
+										<strong>{t.title}</strong>
+										{t.body ? <p>{t.body}</p> : null}
+										<small>
+											{t.worktreeId ? "attached worktree" : "new worktree"}
+										</small>
+									</div>
+									<div className="task-row-actions">
+										<span className={`task-status status-${t.status}`}>
+											{t.status}
+										</span>
+										{canStart ? (
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													void start(t.id);
+												}}
+											>
+												Start
+											</button>
+										) : null}
+									</div>
+								</article>
+							);
+						})}
 					</div>
 				</div>
 			</div>

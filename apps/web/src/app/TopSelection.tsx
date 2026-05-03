@@ -1,32 +1,18 @@
-import type { Project, Worktree } from "@aware/shared";
+import type { Project } from "@aware/shared";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "./api";
-import {
-	getSelection,
-	setSelectedProjectId,
-	setSelectedWorktreeId,
-} from "./selection";
+import { getSelection, setSelectedProjectId } from "./selection";
 
 const ADD_PROJECT = "__add_project__";
 
 export function TopSelection() {
 	const [projects, setProjects] = useState<Project[]>([]);
-	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 	const [selection, setSelection] = useState(getSelection());
-	const selectedWorktrees = worktrees.filter(
-		(w) =>
-			!selection.selectedProjectId ||
-			w.projectId === selection.selectedProjectId,
-	);
 	async function refresh() {
-		const [nextProjects, nextWorktrees] = await Promise.all([
-			apiGet<Project[]>("/projects"),
-			apiGet<Worktree[]>("/worktrees"),
-		]);
+		const nextProjects = await apiGet<Project[]>("/projects");
 		setProjects(nextProjects);
-		setWorktrees(nextWorktrees);
 		setSelection(getSelection());
-		return { projects: nextProjects, worktrees: nextWorktrees };
+		return { projects: nextProjects };
 	}
 	async function chooseProject(id: string) {
 		if (id !== ADD_PROJECT) {
@@ -36,10 +22,8 @@ export function TopSelection() {
 		const path = window.prompt("Project repo path");
 		if (!path?.trim()) return;
 		const project = await apiPost<Project>("/projects", { path: path.trim() });
-		const { worktrees } = await refresh();
+		await refresh();
 		setSelectedProjectId(project.id);
-		const firstWorktree = worktrees.find((w) => w.projectId === project.id);
-		if (firstWorktree) setSelectedWorktreeId(firstWorktree.id);
 	}
 	useEffect(() => {
 		void refresh();
@@ -63,20 +47,6 @@ export function TopSelection() {
 					{projects.map((p) => (
 						<option key={p.id} value={p.id}>
 							{p.name}
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Worktree{" "}
-				<select
-					value={selection.selectedWorktreeId}
-					onChange={(e) => setSelectedWorktreeId(e.target.value)}
-				>
-					<option value="">select</option>
-					{selectedWorktrees.map((w) => (
-						<option key={w.id} value={w.id}>
-							{w.branch || "worktree"} — {w.path}
 						</option>
 					))}
 				</select>

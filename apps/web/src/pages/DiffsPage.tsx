@@ -7,10 +7,21 @@ import type {
 } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
-import { getSelection } from "../app/selection";
+import {
+	getPageState,
+	persistScroll,
+	restoreScroll,
+	setPageState,
+} from "../app/pageState";
+import {
+	getSelectedWorktreeId,
+	getSelection,
+	setSelectedWorktreeId,
+} from "../app/selection";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
+import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type Ann = { text: string };
 type LocalDiffAnnotation = DiffLineAnnotation<Ann> & {
@@ -67,39 +78,53 @@ function forFile(
 		.map(({ filePath: _filePath, ...annotation }) => annotation);
 }
 
+const initialDiffState = getPageState("diffs", {
+	mode: "unstaged" as DiffMode,
+	commit: "",
+	comment: "",
+});
+
 export function DiffsPage() {
+	const diffScrollRef = useRef<HTMLDivElement | null>(null);
+	const [worktreeId, setWorktreeId] = useState(getSelectedWorktreeId("diffs"));
 	const [patch, setPatch] = useState("");
 	const [selected, setSelected] = useState<SelectedLineRange | null>(null);
 	const [selectedFile, setSelectedFile] = useState("");
 	const [annotations, setAnnotations] = useState<LocalDiffAnnotation[]>([]);
 	const [saved, setSaved] = useState<Annotation[]>([]);
-	const [comment, setComment] = useState("");
-	const [mode, setMode] = useState<DiffMode>("unstaged");
+	const [comment, setComment] = useState(initialDiffState.comment);
+	const [mode, setMode] = useState<DiffMode>(initialDiffState.mode);
 	const [commits, setCommits] = useState<GitCommit[]>([]);
-	const [commit, setCommit] = useState("");
+	const [commit, setCommit] = useState(initialDiffState.commit);
 	const files = useMemo(() => parseDiffFiles(patch), [patch]);
 	const fallbackFiles = useMemo(() => diffFiles(patch), [patch]);
 	const renderedAnnotations = useMemo(
 		() => [...saved.map(toDiffAnnotation), ...annotations],
 		[saved, annotations],
 	);
-	async function loadAnnotations() {
-		const id = getSelection().selectedWorktreeId;
+	async function loadAnnotations(id = worktreeId) {
 		if (id)
 			setSaved(await apiGet<Annotation[]>(`/annotations?worktreeId=${id}`));
 	}
-	async function load(nextMode = mode, nextCommit = commit) {
-		const id = getSelection().selectedWorktreeId;
+	async function load(
+		nextMode = mode,
+		nextCommit = commit,
+		nextId = worktreeId,
+	) {
+		const id = nextId;
 		if (!id) return;
 		const params = new URLSearchParams({ worktreeId: id, mode: nextMode });
 		if (nextMode === "commit" && nextCommit) params.set("commit", nextCommit);
 		setPatch(await fetch(`/api/diffs/git?${params}`).then((r) => r.text()));
+		window.requestAnimationFrame(() =>
+			restoreScroll("diffs-scroll", diffScrollRef.current),
+		);
 		setSelected(null);
 		setSelectedFile("");
-		await loadAnnotations();
+		await loadAnnotations(id);
 	}
-	async function loadCommits() {
-		const id = getSelection().selectedWorktreeId;
+	async function loadCommits(nextId = worktreeId) {
+		const id = nextId;
 		if (!id) return;
 		const nextCommits = await apiGet<GitCommit[]>(
 			`/diffs/commits?worktreeId=${id}`,
@@ -109,11 +134,13 @@ export function DiffsPage() {
 	}
 	function selectMode(nextMode: DiffMode) {
 		setMode(nextMode);
+		setPageState("diffs", { mode: nextMode });
 		void load(nextMode);
 	}
 	function selectCommit(nextCommit: string) {
 		setCommit(nextCommit);
 		setMode("commit");
+		setPageState("diffs", { commit: nextCommit, mode: "commit" });
 		void load("commit", nextCommit);
 	}
 	function selectLines(fileName: string, range: SelectedLineRange | null) {
@@ -130,14 +157,27 @@ export function DiffsPage() {
 	}
 	useEffect(() => {
 		const reload = () => {
-			setMode("unstaged");
-			void load("unstaged");
-			void loadCommits();
+			const nextId = getSelectedWorktreeId("diffs");
+			setWorktreeId(nextId);
+			const saved = getPageState("diffs", initialDiffState);
+			setMode(saved.mode);
+			setCommit(saved.commit);
+			setComment(saved.comment);
+			void load(saved.mode, saved.commit, nextId);
+			void loadCommits(nextId);
 		};
 		reload();
 		window.addEventListener("aware-selection", reload);
 		return () => window.removeEventListener("aware-selection", reload);
 	}, []);
+
+	function chooseWorktree(id: string) {
+		setSelectedWorktreeId(id, "diffs");
+		setWorktreeId(id);
+		setPatch("");
+		void load(mode, commit, id);
+		void loadCommits(id);
+	}
 
 	async function addComment() {
 		if (!selected || !comment.trim()) return;
@@ -147,12 +187,11 @@ export function DiffsPage() {
 			...prev,
 			{ filePath: selectedFile, side, lineNumber, metadata: { text: comment } },
 		]);
-		const { selectedProjectId, selectedWorktreeId, selectedTaskId } =
-			getSelection();
-		if (selectedWorktreeId)
+		const { selectedProjectId, selectedTaskId } = getSelection();
+		if (worktreeId)
 			await apiPost("/annotations", {
 				projectId: selectedProjectId || "local",
-				worktreeId: selectedWorktreeId,
+				worktreeId,
 				taskId: selectedTaskId || undefined,
 				kind: "diff",
 				filePath: selectedFile || undefined,
@@ -165,12 +204,16 @@ export function DiffsPage() {
 		setSelected(null);
 		setSelectedFile("");
 		setComment("");
+		setPageState("diffs", { comment: "" });
 		await loadAnnotations();
 	}
 	return (
 		<section id="diffs" className="three-pane diffs-layout full-workspace">
 			<div className="card control-pane">
-				<h2>Diffs</h2>
+				<div className="panel-head">
+					<h2>Diffs</h2>
+					<WorktreeSelect value={worktreeId} onChange={chooseWorktree} />
+				</div>
 				<button type="button" onClick={() => selectMode("unstaged")}>
 					unstaged
 				</button>
@@ -210,7 +253,10 @@ export function DiffsPage() {
 				)}
 				<textarea
 					value={comment}
-					onChange={(e) => setComment(e.target.value)}
+					onChange={(e) => {
+						setComment(e.target.value);
+						setPageState("diffs", { comment: e.target.value });
+					}}
 					onKeyDown={(e) => {
 						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
 							e.preventDefault();
@@ -223,7 +269,11 @@ export function DiffsPage() {
 					Annotate
 				</button>
 			</div>
-			<div className="card diff-pane">
+			<div
+				className="card diff-pane"
+				ref={diffScrollRef}
+				onScroll={(e) => persistScroll("diffs-scroll", e.currentTarget)}
+			>
 				{files.length ? (
 					files.map((file) => (
 						<FileDiff
@@ -253,7 +303,12 @@ export function DiffsPage() {
 					<pre>No diff loaded</pre>
 				)}
 			</div>
-			<AnnotationsPanel annotations={saved} onRefresh={loadAnnotations} />
+			<AnnotationsPanel
+				annotations={saved}
+				projectId={getSelection().selectedProjectId}
+				worktreeId={worktreeId}
+				onRefresh={loadAnnotations}
+			/>
 		</section>
 	);
 }
