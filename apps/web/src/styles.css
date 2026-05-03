@@ -15,6 +15,10 @@ body {
 	margin: 0;
 }
 
+* {
+	box-sizing: border-box;
+}
+
 .app-shell {
 	display: flex;
 	flex-direction: column;
@@ -59,7 +63,8 @@ body {
 }
 
 .content {
-	padding: 16px;
+	flex: 1;
+	padding: 0;
 	overflow: auto;
 	display: flex;
 	flex-direction: column;
@@ -69,8 +74,8 @@ body {
 .card {
 	border: 1px solid #242832;
 	border-radius: 10px;
-	padding: 16px;
-	margin-bottom: 16px;
+	padding: 10px;
+	margin-bottom: 0;
 }
 
 .top-select {
@@ -122,20 +127,21 @@ pre {
 .page.active {
 	display: block;
 	min-height: 0;
+	height: 100%;
 }
 
 .three-pane {
 	display: grid;
-	grid-template-columns: minmax(280px, 22vw) minmax(520px, 1fr) minmax(
-			280px,
+	grid-template-columns: minmax(220px, 20vw) minmax(360px, 1fr) minmax(
+			240px,
 			22vw
 		);
-	gap: 16px;
+	gap: 6px;
 	align-items: stretch;
 }
 
 .full-workspace {
-	height: calc(100vh - 150px);
+	height: 100%;
 	min-height: 0;
 }
 
@@ -159,15 +165,19 @@ pre {
 	grid-column: 1 / -1;
 	display: grid;
 	grid-template-columns: 1fr auto;
-	gap: 10px;
+	gap: 8px;
 	align-items: end;
 	overflow: visible;
+	padding: 8px;
 }
 
 .files-project-chat textarea {
-	width: calc(100% - 16px);
-	min-height: 56px;
-	resize: vertical;
+	width: 100%;
+	min-height: 34px;
+	max-height: 32vh;
+	resize: none;
+	overflow-y: auto;
+	line-height: 20px;
 }
 
 .files-project-chat-actions {
@@ -175,7 +185,7 @@ pre {
 	flex-direction: column;
 	align-items: flex-end;
 	gap: 6px;
-	min-width: 180px;
+	min-width: 140px;
 }
 
 .files-project-chat-actions p {
@@ -536,4 +546,53 @@ pre {
 .steer-box textarea {
 	width: calc(100% - 16px);
 	min-height: 80px;
+}
+
+@media (max-width: 1100px) {
+	.app-header {
+		grid-template-columns: 1fr;
+		align-items: stretch;
+		gap: 8px;
+	}
+
+	.tabs,
+	.top-select {
+		overflow-x: auto;
+		flex-wrap: nowrap;
+	}
+
+	.three-pane {
+		grid-template-columns: minmax(190px, 28vw) minmax(320px, 1fr);
+	}
+
+	.annotation-pane {
+		grid-column: 1 / -1;
+		min-height: 180px;
+	}
+}
+
+@media (max-width: 760px) {
+	.content {
+		padding: 0;
+		overflow: auto;
+	}
+
+	.three-pane {
+		grid-template-columns: 1fr;
+		height: auto;
+	}
+
+	.tree-pane,
+	.editor-pane,
+	.annotation-pane {
+		min-height: 320px;
+	}
+
+	.files-project-chat {
+		grid-template-columns: 1fr;
+	}
+
+	.files-project-chat-actions {
+		align-items: stretch;
+	}
 }

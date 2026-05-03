@@ -54,6 +54,7 @@ export function FilesPage() {
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const loadedWorktreeId = useRef("");
 	const noteRef = useRef<HTMLTextAreaElement>(null);
+	const projectChatRef = useRef<HTMLTextAreaElement>(null);
 	const lines = useMemo(() => content.split("\n"), [content]);
 	const fileAnnotations = annotations.filter((a) => a.filePath === file);
 	const wholeFileAnnotations = fileAnnotations.filter((a) => a.kind === "file");
@@ -99,6 +100,12 @@ export function FilesPage() {
 	useEffect(() => {
 		if (annotationMode) noteRef.current?.focus();
 	}, [annotationMode]);
+	useEffect(() => {
+		const input = projectChatRef.current;
+		if (!input) return;
+		input.style.height = "auto";
+		input.style.height = `${input.scrollHeight}px`;
+	}, [projectMessage]);
 
 	async function read(path: string) {
 		const id = getSelection().selectedWorktreeId;
@@ -316,6 +323,8 @@ export function FilesPage() {
 			</div>
 			<div className="card files-project-chat">
 				<textarea
+					ref={projectChatRef}
+					rows={1}
 					value={projectMessage}
 					onChange={(e) => setProjectMessage(e.target.value)}
 					placeholder="Chat about this project/worktree. No annotations, tasks, or diffs included."
