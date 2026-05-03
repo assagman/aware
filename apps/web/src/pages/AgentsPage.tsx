@@ -207,9 +207,6 @@ export function AgentsPage() {
 					openai-codex/gpt-5.5 (OpenAI subscription OAuth)
 				</option>
 				<option value="kimi-coding/k2p6">kimi-coding/k2p6</option>
-				<option value="kimi-coding/kimi-for-coding">
-					kimi-coding/kimi-for-coding
-				</option>
 				<option value="zai/glm-5.1">zai/glm-5.1</option>
 			</select>
 			<select

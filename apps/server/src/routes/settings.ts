@@ -18,7 +18,6 @@ settings.get("/models", async (c) =>
 		aliases: [
 			"openai-codex/gpt-5.5",
 			"kimi-coding/k2p6",
-			"kimi-coding/kimi-for-coding",
 		],
 		openaiCodex: {
 			provider: "openai-codex",

@@ -18,7 +18,7 @@ Default agent profile:
 
 Other built-in model choices:
 
-- `kimi-coding/k2p6` or `kimi-coding/kimi-for-coding` with `KIMI_API_KEY`
+- `kimi-coding/k2p6` with `KIMI_API_KEY`
 - `zai/glm-5.1` with `Z_AI_API_KEY` or `ZAI_API_KEY`
 
 If Kimi auth is missing but Z.AI auth is available, runs fall back to `zai/glm-5.1`.
