@@ -1,12 +1,18 @@
 import type { Annotation } from "@agent-ide/shared";
-import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
-import { PatchDiff } from "@pierre/diffs/react";
-import { useEffect, useState } from "react";
+import type {
+	DiffLineAnnotation,
+	FileDiffMetadata,
+	SelectedLineRange,
+} from "@pierre/diffs";
+import { parsePatchFiles } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
 import { getSelection } from "../app/selection";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 
 type Ann = { text: string };
+type LocalDiffAnnotation = DiffLineAnnotation<Ann> & { filePath?: string | undefined };
 type DiffMode = "unstaged" | "staged" | "main" | "last" | "commit";
 type GitCommit = {
 	sha: string;
@@ -19,21 +25,61 @@ function diffFiles(patch: string) {
 	return [...patch.matchAll(/^diff --git a\/(.*?) b\//gm)].map((m) => m[1]);
 }
 
-function diffFilePath(patch: string) {
-	const matches = diffFiles(patch);
-	return matches.length === 1 ? matches[0] : undefined;
+function parseDiffFiles(patch: string) {
+	try {
+		return parsePatchFiles(patch, "agent-ide-diff", false).flatMap(
+			(parsed) => parsed.files,
+		);
+	} catch {
+		return [];
+	}
+}
+
+function annotationSide(annotation: Annotation) {
+	return annotation.side === "deletions" || annotation.side === "old"
+		? "deletions"
+		: "additions";
+}
+
+function toDiffAnnotation(annotation: Annotation): LocalDiffAnnotation {
+	return {
+		filePath: annotation.filePath,
+		side: annotationSide(annotation),
+		lineNumber: Math.max(
+			annotation.startLine ?? 1,
+			annotation.endLine ?? annotation.startLine ?? 1,
+		),
+		metadata: { text: annotation.text },
+	};
+}
+
+function forFile(
+	file: FileDiffMetadata,
+	annotations: LocalDiffAnnotation[],
+): DiffLineAnnotation<Ann>[] {
+	return annotations
+		.filter(
+			(annotation) => !annotation.filePath || annotation.filePath === file.name,
+		)
+		.map(({ filePath: _filePath, ...annotation }) => annotation);
 }
 
 export function DiffsPage() {
 	const [patch, setPatch] = useState("");
 	const [selected, setSelected] = useState<SelectedLineRange | null>(null);
-	const [annotations, setAnnotations] = useState<DiffLineAnnotation<Ann>[]>([]);
+	const [selectedFile, setSelectedFile] = useState("");
+	const [annotations, setAnnotations] = useState<LocalDiffAnnotation[]>([]);
 	const [saved, setSaved] = useState<Annotation[]>([]);
 	const [comment, setComment] = useState("");
 	const [mode, setMode] = useState<DiffMode>("unstaged");
 	const [commits, setCommits] = useState<GitCommit[]>([]);
 	const [commit, setCommit] = useState("");
-	const files = diffFiles(patch);
+	const files = useMemo(() => parseDiffFiles(patch), [patch]);
+	const fallbackFiles = useMemo(() => diffFiles(patch), [patch]);
+	const renderedAnnotations = useMemo(
+		() => [...saved.map(toDiffAnnotation), ...annotations],
+		[saved, annotations],
+	);
 	async function loadAnnotations() {
 		const id = getSelection().selectedWorktreeId;
 		if (id)
@@ -45,6 +91,8 @@ export function DiffsPage() {
 		const params = new URLSearchParams({ worktreeId: id, mode: nextMode });
 		if (nextMode === "commit" && nextCommit) params.set("commit", nextCommit);
 		setPatch(await fetch(`/api/diffs/git?${params}`).then((r) => r.text()));
+		setSelected(null);
+		setSelectedFile("");
 		await loadAnnotations();
 	}
 	async function loadCommits() {
@@ -65,6 +113,10 @@ export function DiffsPage() {
 		setMode("commit");
 		void load("commit", nextCommit);
 	}
+	function selectLines(fileName: string, range: SelectedLineRange | null) {
+		setSelected(range);
+		setSelectedFile(range ? fileName : "");
+	}
 	useEffect(() => {
 		const reload = () => {
 			setMode("unstaged");
@@ -82,18 +134,17 @@ export function DiffsPage() {
 		const lineNumber = Math.max(selected.start, selected.end);
 		setAnnotations((prev) => [
 			...prev,
-			{ side, lineNumber, metadata: { text: comment } },
+			{ filePath: selectedFile, side, lineNumber, metadata: { text: comment } },
 		]);
 		const { selectedProjectId, selectedWorktreeId, selectedTaskId } =
 			getSelection();
-		const filePath = diffFilePath(patch);
 		if (selectedWorktreeId)
 			await apiPost("/annotations", {
 				projectId: selectedProjectId || "local",
 				worktreeId: selectedWorktreeId,
 				taskId: selectedTaskId || undefined,
 				kind: "diff",
-				filePath,
+				filePath: selectedFile || undefined,
 				side,
 				startLine: selected.start,
 				endLine: selected.end,
@@ -101,6 +152,7 @@ export function DiffsPage() {
 				sent: false,
 			});
 		setSelected(null);
+		setSelectedFile("");
 		setComment("");
 		await loadAnnotations();
 	}
@@ -139,7 +191,8 @@ export function DiffsPage() {
 				</p>
 				{selected ? (
 					<p>
-						selected {selected.start}-{selected.end}
+						selected {selectedFile ? `${selectedFile}:` : ""}
+						{selected.start}-{selected.end}
 					</p>
 				) : (
 					<p>Select diff lines to annotate.</p>
@@ -160,24 +213,27 @@ export function DiffsPage() {
 				</button>
 			</div>
 			<div className="card diff-pane">
-				{patch && files.length === 1 ? (
-					<PatchDiff
-						patch={patch}
-						disableWorkerPool
-						selectedLines={selected}
-						lineAnnotations={annotations}
-						renderAnnotation={(a) => (
-							<div className="annotation">{a.metadata.text}</div>
-						)}
-						options={{
-							enableLineSelection: true,
-							onLineSelectionEnd: setSelected,
-						}}
-					/>
+				{files.length ? (
+					files.map((file) => (
+						<FileDiff
+							key={`${file.name}-${file.prevName ?? ""}`}
+							fileDiff={file}
+							disableWorkerPool
+							selectedLines={selectedFile === file.name ? selected : null}
+							lineAnnotations={forFile(file, renderedAnnotations)}
+							renderAnnotation={(a) => (
+								<div className="annotation">{a.metadata.text}</div>
+							)}
+							options={{
+								enableLineSelection: true,
+								onLineSelectionEnd: (range) => selectLines(file.name, range),
+							}}
+						/>
+					))
 				) : patch ? (
 					<pre>
-						{files.length
-							? `Diff spans ${files.length} files. Open a single-file diff to annotate lines.\n\n${patch}`
+						{fallbackFiles.length
+							? `Unable to render parsed diff for ${fallbackFiles.length} files.\n\n${patch}`
 							: patch}
 					</pre>
 				) : (
