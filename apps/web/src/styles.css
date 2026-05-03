@@ -182,7 +182,8 @@ pre {
 
 .files-project-chat-actions,
 .prompt-actions,
-.annotation-actions {
+.annotation-actions,
+.annotation-bulk-actions {
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
@@ -648,7 +649,8 @@ pre {
 
 	.files-project-chat-actions,
 	.prompt-actions,
-	.annotation-actions {
+	.annotation-actions,
+	.annotation-bulk-actions {
 		align-items: stretch;
 		justify-content: stretch;
 	}
@@ -657,6 +659,7 @@ pre {
 	.agent-picker select,
 	.prompt-actions button,
 	.annotation-actions button,
+	.annotation-bulk-actions button,
 	.files-project-chat-actions button {
 		width: 100%;
 	}

@@ -46,7 +46,6 @@ export function FilesPage() {
 	const [anchorLine, setAnchorLine] = useState<number | null>(null);
 	const [endLine, setEndLine] = useState<number | null>(null);
 	const [note, setNote] = useState("");
-	const [annotationAgentId, setAnnotationAgentId] = useState("");
 	const [annotationMode, setAnnotationMode] = useState<
 		"file" | "selection" | null
 	>(null);
@@ -132,7 +131,7 @@ export function FilesPage() {
 		if (annotationMode !== "selection") setNote("");
 		setAnnotationMode("selection");
 	}
-	async function saveAnnotation(kind: "file" | "line" | "range", send = false) {
+	async function saveAnnotation(kind: "file" | "line" | "range") {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
 		if (!selectedWorktreeId || !file || !note.trim()) return;
 		const body = {
@@ -146,30 +145,17 @@ export function FilesPage() {
 			sent: false,
 			status: "pending",
 		};
-		const annotation = await apiPost<Annotation>("/annotations", body);
-		if (send) {
-			const run = await apiPost<AgentRun>("/chat", {
-				projectId: selectedProjectId || annotation.projectId,
-				worktreeId: selectedWorktreeId,
-				agentProfileId: annotationAgentId,
-				annotationIds: [annotation.id],
-				message: annotation.text,
-			});
-			setSelectedRunId(run.id);
-		}
+		await apiPost<Annotation>("/annotations", body);
 		setNote("");
 		setAnchorLine(null);
 		setEndLine(null);
 		setAnnotationMode(null);
 		await loadAnnotations();
 	}
-	function saveActiveAnnotation(send = false) {
-		if (annotationMode === "file") return saveAnnotation("file", send);
+	function saveActiveAnnotation() {
+		if (annotationMode === "file") return saveAnnotation("file");
 		if (!selectedStart) return;
-		return saveAnnotation(
-			selectedStart === selectedEnd ? "line" : "range",
-			send,
-		);
+		return saveAnnotation(selectedStart === selectedEnd ? "line" : "range");
 	}
 	async function sendProjectChat() {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
@@ -252,10 +238,6 @@ export function FilesPage() {
 							placeholder="Write annotation. Cmd+Enter saves."
 						/>
 						<div className="popover-actions">
-							<AgentPicker
-								value={annotationAgentId}
-								onChange={setAnnotationAgentId}
-							/>
 							<button
 								type="button"
 								disabled={
@@ -265,16 +247,6 @@ export function FilesPage() {
 								onClick={() => void saveActiveAnnotation()}
 							>
 								Save
-							</button>
-							<button
-								type="button"
-								disabled={
-									!note.trim() ||
-									(annotationMode === "selection" && !selectedStart)
-								}
-								onClick={() => void saveActiveAnnotation(true)}
-							>
-								Save & Send
 							</button>
 							<button
 								type="button"

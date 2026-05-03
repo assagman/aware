@@ -12,16 +12,40 @@ export function AnnotationsPanel({
 	annotations: Annotation[];
 	onRefresh: () => void;
 }) {
-	const [agentProfileId, setAgentProfileId] = useState("");
+	const [bulkAgentId, setBulkAgentId] = useState("");
+	const [annotationAgentIds, setAnnotationAgentIds] = useState<
+		Record<string, string>
+	>({});
+	const sendableAnnotations = annotations.filter(
+		(annotation) => annotation.status !== "processing",
+	);
+	function agentFor(annotation: Annotation) {
+		return annotationAgentIds[annotation.id] || bulkAgentId;
+	}
 	async function sendAnnotation(annotation: Annotation) {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
 		if (!selectedWorktreeId) return;
 		const run = await apiPost<AgentRun>("/chat", {
 			projectId: selectedProjectId || annotation.projectId,
 			worktreeId: selectedWorktreeId,
-			agentProfileId,
+			agentProfileId: agentFor(annotation),
 			annotationIds: [annotation.id],
 			message: annotation.text,
+		});
+		setSelectedRunId(run.id);
+		await onRefresh();
+	}
+	async function sendAllAnnotations() {
+		const { selectedProjectId, selectedWorktreeId } = getSelection();
+		if (!selectedWorktreeId || !sendableAnnotations.length) return;
+		const run = await apiPost<AgentRun>("/chat", {
+			projectId: selectedProjectId || sendableAnnotations[0]?.projectId,
+			worktreeId: selectedWorktreeId,
+			agentProfileId: bulkAgentId,
+			annotationIds: sendableAnnotations.map((annotation) => annotation.id),
+			message: sendableAnnotations
+				.map((annotation) => annotation.text)
+				.join("\n\n"),
 		});
 		setSelectedRunId(run.id);
 		await onRefresh();
@@ -34,7 +58,20 @@ export function AnnotationsPanel({
 					refresh
 				</button>
 			</div>
-			{annotations.length === 0 ? <p>None yet. Select lines/ranges.</p> : null}
+			{annotations.length ? (
+				<div className="annotation-bulk-actions">
+					<AgentPicker value={bulkAgentId} onChange={setBulkAgentId} />
+					<button
+						type="button"
+						disabled={!sendableAnnotations.length}
+						onClick={() => void sendAllAnnotations()}
+					>
+						Send All
+					</button>
+				</div>
+			) : (
+				<p>None yet. Select lines/ranges.</p>
+			)}
 			<ul>
 				{annotations.map((a) => (
 					<li
@@ -49,8 +86,13 @@ export function AnnotationsPanel({
 						{a.runId ? <RunLink runId={a.runId} /> : null}
 						<div className="annotation-actions">
 							<AgentPicker
-								value={agentProfileId}
-								onChange={setAgentProfileId}
+								value={agentFor(a)}
+								onChange={(agentId) =>
+									setAnnotationAgentIds((current) => ({
+										...current,
+										[a.id]: agentId,
+									}))
+								}
 							/>
 							<button
 								type="button"
