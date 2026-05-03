@@ -153,7 +153,8 @@ pre {
 
 .tree-pane,
 .editor-pane,
-.diff-pane {
+.diff-pane,
+.annotation-pane {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
@@ -220,6 +221,9 @@ pre {
 }
 
 .annotations-panel {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
 	border: 1px solid #242832;
 	border-radius: 10px;
 	padding: 16px;
@@ -271,6 +275,12 @@ pre {
 	background: #11151c;
 	border: 1px solid #242832;
 	border-radius: 8px;
+}
+
+.file-annotation-composer p {
+	margin: 4px 0 8px;
+	font-size: 12px;
+	color: #cbd5e1;
 }
 
 .diff-pane {

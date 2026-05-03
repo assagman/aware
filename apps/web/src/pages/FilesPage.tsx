@@ -143,51 +143,6 @@ export function FilesPage() {
 				<div className="panel-head">
 					<h2>{file || "Open file"}</h2>
 				</div>
-				{file ? (
-					<div className="file-annotation-composer">
-						<p>
-							Select line. Shift-click another line for range. Write annotation,
-							then save. Same flow as Diffs.
-						</p>
-						{selectedStart ? (
-							<p>
-								Selected lines {selectedStart}-{selectedEnd}
-							</p>
-						) : (
-							<p>No line selected. Use "Annotate file" for file-level note.</p>
-						)}
-						<textarea
-							value={note}
-							onChange={(e) => setNote(e.target.value)}
-							placeholder="comment on selected file lines"
-						/>
-						<button
-							type="button"
-							disabled={!note.trim() || !selectedStart}
-							onClick={() =>
-								saveAnnotation(selectedStart === selectedEnd ? "line" : "range")
-							}
-						>
-							Annotate selected lines
-						</button>
-						<button
-							type="button"
-							disabled={!note.trim()}
-							onClick={() => saveAnnotation("file")}
-						>
-							Annotate file
-						</button>
-						<button
-							type="button"
-							onClick={() => {
-								setAnchorLine(null);
-								setEndLine(null);
-							}}
-						>
-							clear selection
-						</button>
-					</div>
-				) : null}
 				{wholeFileAnnotations.map((a) => (
 					<div
 						key={a.id}
@@ -244,7 +199,52 @@ export function FilesPage() {
 					})}
 				</div>
 			</div>
-			<div>
+			<div className="annotation-pane">
+				{file ? (
+					<div className="file-annotation-composer">
+						<p>
+							Select line. Shift-click another line for range. Write annotation,
+							then save.
+						</p>
+						{selectedStart ? (
+							<p>
+								Selected lines {selectedStart}-{selectedEnd}
+							</p>
+						) : (
+							<p>No line selected. Use "Annotate file" for file-level note.</p>
+						)}
+						<textarea
+							value={note}
+							onChange={(e) => setNote(e.target.value)}
+							placeholder="comment on selected file lines"
+						/>
+						<button
+							type="button"
+							disabled={!note.trim() || !selectedStart}
+							onClick={() =>
+								saveAnnotation(selectedStart === selectedEnd ? "line" : "range")
+							}
+						>
+							Annotate selected lines
+						</button>
+						<button
+							type="button"
+							disabled={!note.trim()}
+							onClick={() => saveAnnotation("file")}
+						>
+							Annotate file
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								setAnchorLine(null);
+								setEndLine(null);
+							}}
+						>
+							clear selection
+						</button>
+					</div>
+				) : null}
 				<AnnotationsPanel
 					annotations={file ? fileAnnotations : annotations}
 					onRefresh={loadAnnotations}
