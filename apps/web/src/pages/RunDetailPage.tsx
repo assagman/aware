@@ -103,7 +103,10 @@ function isToolEndEvent(event: RunEvent) {
 function isHiddenEvent(event: RunEvent) {
 	const type = eventType(event);
 	return (
-		type === "system" || type === "turn_end" || type.includes("system_message")
+		type === "system" ||
+		type === "turn_end" ||
+		type === "idle" ||
+		type.includes("system_message")
 	);
 }
 
