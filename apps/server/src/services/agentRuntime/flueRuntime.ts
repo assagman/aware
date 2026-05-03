@@ -14,7 +14,8 @@ import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import { revertDefaultBranchMutation } from "../defaultBranchGuard";
-import { assertAllowedWorktree } from "../projectService";
+import { worktreeRoot } from "../gitService";
+import { assertAllowedWorktree, listProjects } from "../projectService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
@@ -43,7 +44,7 @@ async function readGlobalAgentInstructions() {
 	}
 }
 
-function systemPromptWithGlobalInstructions(
+function agentProfileRoleInstructions(
 	agentPrompt: string,
 	globalInstructions: string,
 ) {
@@ -54,7 +55,9 @@ function systemPromptWithGlobalInstructions(
 					globalInstructions,
 				].join("\n")
 			: "",
-		agentPrompt,
+		agentPrompt
+			? ["Aware agent profile instructions:", agentPrompt].join("\n")
+			: "",
 	]
 		.filter(Boolean)
 		.join("\n\n");
@@ -310,56 +313,67 @@ export class FlueRuntime {
 			hasZaiKey: Boolean(process.env.ZAI_API_KEY),
 			hasGlobalInstructions: Boolean(globalInstructions),
 		});
-		const previous = process.cwd();
-		process.chdir(input.worktreePath);
-		try {
-			const { createDefaultEnv, createLocalEnv } = await import(
-				"../../flue/sandbox/localWorktreeSandbox"
-			);
-			const resolveRuntimeModel = (modelRef: string) => {
-				const resolved = resolveModel(modelRef);
-				return provider === "openai-codex" && runtimeApiKey
-					? { ...resolved, provider: "openai" }
-					: resolved;
-			};
-			const ctx = createFlueContext({
-				id: run.id,
-				payload: {},
-				env: process.env,
-				agentConfig: {
-					systemPrompt: systemPromptWithGlobalInstructions(
-						agent.systemPrompt,
-						globalInstructions,
-					),
-					skills: {},
-					roles: {},
-					model: undefined,
-					resolveModel: resolveRuntimeModel,
+		const { createDefaultEnv, createLocalEnv, createLocalWorktreeSandbox } =
+			await import("../../flue/sandbox/localWorktreeSandbox");
+		const project = (await listProjects()).find(
+			(project) => project.id === input.task.projectId,
+		);
+		const workspaceRoot = await worktreeRoot(
+			project?.rootPath ?? input.worktreePath,
+		);
+		const sandbox = await createLocalWorktreeSandbox({
+			workspaceRoot,
+			cwd: input.worktreePath,
+		});
+		const profileRole = "aware-agent-profile";
+		const resolveRuntimeModel = (modelRef: string) => {
+			const resolved = resolveModel(modelRef);
+			return provider === "openai-codex" && runtimeApiKey
+				? { ...resolved, provider: "openai" }
+				: resolved;
+		};
+		const ctx = createFlueContext({
+			id: run.id,
+			payload: {},
+			env: process.env,
+			agentConfig: {
+				systemPrompt: "",
+				skills: {},
+				roles: {
+					[profileRole]: {
+						name: profileRole,
+						description: "Aware-selected agent profile instructions.",
+						instructions: agentProfileRoleInstructions(
+							agent.systemPrompt,
+							globalInstructions,
+						),
+					},
 				},
-				createDefaultEnv,
-				createLocalEnv,
-				defaultStore: flueSessionStore,
-			});
-			ctx.setEventCallback((event) => {
-				void this.log(run.id, event.type, event);
-				if (event.type.toLowerCase().includes("tool"))
-					void this.guardDefaultBranch(run, input.worktreeId);
-			});
-			const model = process.env.KIMI_API_KEY
-				? agent.model
-				: process.env.ZAI_API_KEY
-					? "zai/glm-5.1"
-					: agent.model;
-			const flueAgent = await ctx.init({
-				sandbox: "local",
-				model,
-				persist: flueSessionStore,
-			});
-			const session = await flueAgent.session(run.sessionId);
-			return await session.prompt(prompt);
-		} finally {
-			process.chdir(previous);
-		}
+				model: undefined,
+				resolveModel: resolveRuntimeModel,
+			},
+			createDefaultEnv,
+			createLocalEnv,
+			defaultStore: flueSessionStore,
+		});
+		ctx.setEventCallback((event) => {
+			void this.log(run.id, event.type, event);
+			if (event.type.toLowerCase().includes("tool"))
+				void this.guardDefaultBranch(run, input.worktreeId);
+		});
+		const model = process.env.KIMI_API_KEY
+			? agent.model
+			: process.env.ZAI_API_KEY
+				? "zai/glm-5.1"
+				: agent.model;
+		const flueAgent = await ctx.init({
+			sandbox,
+			model,
+			persist: flueSessionStore,
+			role: profileRole,
+		});
+		const session = await flueAgent.session(run.sessionId);
+		return await session.prompt(prompt);
 	}
 
 	private async guardDefaultBranch(run: AgentRun, worktreeId: string) {

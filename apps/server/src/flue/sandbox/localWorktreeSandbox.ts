@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
+import type { BashFactory } from "@flue/sdk/client";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
 import {
 	Bash,
@@ -19,11 +21,16 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-function hostCommand(name: string, bin = name) {
+type WorkspaceSandboxOptions = {
+	workspaceRoot: string;
+	cwd: string;
+};
+
+function hostCommand(workspaceRoot: string, name: string, bin = name) {
 	return defineCommand(name, async (args, ctx) => {
 		const cwd = isSandboxWorkspacePath(ctx.cwd)
-			? sandboxToHostPath(ctx.cwd)
-			: process.cwd();
+			? sandboxToHostPath(ctx.cwd, workspaceRoot)
+			: workspaceRoot;
 		try {
 			const { stdout, stderr } = await execFileAsync(bin, args, {
 				cwd,
@@ -44,20 +51,39 @@ function hostCommand(name: string, bin = name) {
 	});
 }
 
-const hostCommands = [
-	hostCommand("git"),
-	hostCommand("node"),
-	hostCommand("npm"),
-	hostCommand("npx"),
-	hostCommand("pnpm"),
-	hostCommand("corepack"),
-	hostCommand("bun"),
-	hostCommand("python"),
-	hostCommand("python3", "python3"),
-];
+function hostCommands(workspaceRoot: string) {
+	return [
+		hostCommand(workspaceRoot, "git"),
+		hostCommand(workspaceRoot, "node"),
+		hostCommand(workspaceRoot, "npm"),
+		hostCommand(workspaceRoot, "npx"),
+		hostCommand(workspaceRoot, "pnpm"),
+		hostCommand(workspaceRoot, "corepack"),
+		hostCommand(workspaceRoot, "bun"),
+		hostCommand(workspaceRoot, "python"),
+		hostCommand(workspaceRoot, "python3", "python3"),
+	];
+}
 
-export function createLocalWorktreeSandbox(worktreePath: string) {
-	return { kind: "local-worktree", worktreePath };
+export async function createLocalWorktreeSandbox({
+	workspaceRoot,
+	cwd,
+}: WorkspaceSandboxOptions): Promise<BashFactory> {
+	const root = resolve(workspaceRoot);
+	const hostCwd = await assertHostWorkspacePath(cwd, root);
+	const sandboxCwd = hostToSandboxPath(hostCwd, root);
+	const fs = new MountableFs({ base: new InMemoryFs() });
+	fs.mount(SANDBOX_WORKSPACE_ROOT, new ReadWriteFs({ root }));
+	const customCommands = hostCommands(root);
+	return () =>
+		new Bash({
+			fs,
+			cwd: sandboxCwd,
+			env: process.env as Record<string, string>,
+			customCommands,
+			python: true,
+			network: { dangerouslyAllowFullInternetAccess: true },
+		});
 }
 
 export async function createDefaultEnv() {
@@ -67,7 +93,7 @@ export async function createDefaultEnv() {
 			new Bash({
 				fs,
 				env: process.env as Record<string, string>,
-				customCommands: hostCommands,
+				customCommands: hostCommands(HOST_WORKSPACE_ROOT),
 				python: true,
 				network: { dangerouslyAllowFullInternetAccess: true },
 			}),
@@ -75,33 +101,10 @@ export async function createDefaultEnv() {
 }
 
 export async function createLocalEnv() {
-	const hostCwd = await assertHostWorkspacePath(process.cwd());
-	const cwd = hostToSandboxPath(hostCwd);
-	const rwfs = new ReadWriteFs({ root: HOST_WORKSPACE_ROOT });
-	const fs = new MountableFs({ base: new InMemoryFs() });
-	fs.mount(SANDBOX_WORKSPACE_ROOT, rwfs);
 	return bashFactoryToSessionEnv(
-		() =>
-			new Bash({
-				fs,
-				cwd,
-				env: process.env as Record<string, string>,
-				customCommands: hostCommands,
-				python: true,
-				network: { dangerouslyAllowFullInternetAccess: true },
-			}),
+		await createLocalWorktreeSandbox({
+			workspaceRoot: HOST_WORKSPACE_ROOT,
+			cwd: process.cwd(),
+		}),
 	);
-}
-
-export async function runInWorktree<T>(
-	worktreePath: string,
-	fn: () => Promise<T>,
-) {
-	const previous = process.cwd();
-	process.chdir(worktreePath);
-	try {
-		return await fn();
-	} finally {
-		process.chdir(previous);
-	}
 }

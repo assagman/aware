@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -35,6 +37,32 @@ export async function worktreePaths(path: string) {
 		.split("\n")
 		.filter((line) => line.startsWith("worktree "))
 		.map((line) => line.slice("worktree ".length));
+}
+
+async function realpathOrResolve(path: string) {
+	try {
+		return await realpath(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+export async function worktreeRoot(path: string) {
+	const { stdout } = await git(path, ["rev-parse", "--git-common-dir"]);
+	const commonDir = stdout.trim();
+	const absoluteCommonDir = isAbsolute(commonDir)
+		? commonDir
+		: resolve(path, commonDir);
+	if (await isBareRepository(absoluteCommonDir).catch(() => false))
+		return realpathOrResolve(absoluteCommonDir);
+	const paths = await worktreePaths(path).catch(() => []);
+	const primaryWorktree = paths.find(
+		(path) => !path.endsWith(" (bare)") && path !== absoluteCommonDir,
+	);
+	const topLevel = primaryWorktree
+		? await repoRoot(primaryWorktree)
+		: await repoRoot(path);
+	return realpathOrResolve(dirname(topLevel));
 }
 
 export async function statusShort(path: string) {

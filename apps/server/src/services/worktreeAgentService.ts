@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Project, Task, Worktree } from "@aware/shared";
 import { worktreePrompt } from "../flue/agents/worktree";
-import { git } from "./gitService";
+import { git, worktreeRoot } from "./gitService";
 import { addWorktree, listWorktrees } from "./projectService";
 import {
 	SANDBOX_WORKSPACE_ROOT,
@@ -61,9 +61,10 @@ export async function ensureTaskWorktree(
 		const category = classifyTaskChange(task);
 		const slug = slugifyTask(task);
 		let lastError: unknown;
+		const root = await worktreeRoot(project.rootPath);
 		for (let attempt = 0; attempt < 5; attempt++) {
 			const branch = await uniqueBranch(project, category, slug);
-			const path = worktreePathForBranch(branch);
+			const path = worktreePathForBranch(branch, root);
 			try {
 				await mkdir(dirname(path), { recursive: true });
 				await git(project.rootPath, ["worktree", "add", "-b", branch, path]);
