@@ -102,7 +102,9 @@ function isToolEndEvent(event: RunEvent) {
 
 function isHiddenEvent(event: RunEvent) {
 	const type = eventType(event);
-	return type === "system" || type.includes("system_message");
+	return (
+		type === "system" || type === "turn_end" || type.includes("system_message")
+	);
 }
 
 function jsonText(value: unknown) {
