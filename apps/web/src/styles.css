@@ -387,6 +387,43 @@ pre {
 	border-bottom: 1px solid #242832;
 }
 
+.run-process-indicator {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 1px solid #334155;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.run-process-indicator span {
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: currentColor;
+}
+
+.run-process-indicator.live {
+	color: #86efac;
+	background: #052e16;
+	border-color: #16a34a;
+}
+
+.run-process-indicator.idle {
+	color: #cbd5e1;
+	background: #111827;
+	border-color: #475569;
+}
+
+.latest-error {
+	margin-top: 12px;
+}
+
 .run-chat-scroll {
 	flex: 1;
 	min-height: 0;

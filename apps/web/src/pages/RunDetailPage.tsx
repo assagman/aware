@@ -9,6 +9,7 @@ import { getSelection, setSelectedRunId } from "../app/selection";
 type Payload = Record<string, unknown>;
 
 function textOf(payload: unknown) {
+	if (!payload || typeof payload !== "object") return "";
 	const p = payload as Payload;
 	if (typeof p.text === "string") return p.text;
 	if (typeof p.delta === "string") return p.delta;
@@ -32,8 +33,82 @@ function textOf(payload: unknown) {
 	return "";
 }
 
+function eventType(event: RunEvent) {
+	return event.type.toLowerCase().replace(/[.:]/g, "_");
+}
+
+function extractTextDeep(value: unknown): string {
+	const direct = textOf(value);
+	if (direct) return direct;
+	if (Array.isArray(value))
+		return value.map(extractTextDeep).filter(Boolean).join("");
+	const p = asPayload(value);
+	for (const key of [
+		"assistant",
+		"message",
+		"delta",
+		"chunk",
+		"data",
+		"result",
+		"response",
+		"output",
+	]) {
+		if (p[key] === value) continue;
+		const text = extractTextDeep(p[key]);
+		if (text) return text;
+	}
+	return "";
+}
+
+function isAssistantEvent(event: RunEvent) {
+	const type = eventType(event);
+	if (isThinkingEvent(event)) return false;
+	if (type.includes("tool")) return false;
+	return (
+		type === "text_delta" ||
+		type.includes("assistant") ||
+		type.includes("message_delta") ||
+		type.includes("content_delta") ||
+		type.includes("response_delta") ||
+		type === "result"
+	);
+}
+
+function isThinkingEvent(event: RunEvent) {
+	const type = eventType(event);
+	return type.includes("thinking") || type.includes("reason");
+}
+
+function isToolStartEvent(event: RunEvent) {
+	const type = eventType(event);
+	return (
+		(type === "tool_start" ||
+			type.includes("tool_call") ||
+			type.includes("tool_use") ||
+			type.includes("tool_start")) &&
+		!isToolEndEvent(event)
+	);
+}
+
+function isToolEndEvent(event: RunEvent) {
+	const type = eventType(event);
+	return (
+		type === "tool_end" ||
+		type.includes("tool_result") ||
+		type.includes("tool_response") ||
+		type.includes("tool_end")
+	);
+}
+
+function isHiddenEvent(event: RunEvent) {
+	const type = eventType(event);
+	return type === "system" || type.includes("system_message");
+}
+
 function jsonText(value: unknown) {
-	return typeof value === "string" ? value : JSON.stringify(value ?? {}, null, 2);
+	return typeof value === "string"
+		? value
+		: JSON.stringify(value ?? {}, null, 2);
 }
 
 function jsonPreview(value: unknown, max = 200) {
@@ -242,6 +317,28 @@ function activeAgentLabel(run: AgentRun | undefined, _events: RunEvent[]) {
 	return run.mainAgentName ?? "Main agent";
 }
 
+function errorText(payload: unknown) {
+	return textOf(payload) || jsonPreview(payload, 4000);
+}
+
+function ProcessIndicator({ live }: { live: boolean }) {
+	return (
+		<span className={`run-process-indicator ${live ? "live" : "idle"}`}>
+			<span aria-hidden="true" />
+			{live ? "Live" : "Idle"}
+		</span>
+	);
+}
+
+function LatestErrorBox({ event }: { event: RunEvent }) {
+	return (
+		<section className="chat-bubble error message-error latest-error">
+			<strong>Latest error</strong>
+			<MarkdownText text={errorText(event.payload)} />
+		</section>
+	);
+}
+
 function toolName(payload: unknown, fallback: string) {
 	const p = asPayload(payload);
 	return String(p.toolName ?? p.name ?? p.tool ?? fallback);
@@ -255,7 +352,8 @@ function toolArgs(payload: unknown) {
 function argText(value: unknown) {
 	if (value === undefined || value === null) return undefined;
 	if (typeof value === "string") return value;
-	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	if (typeof value === "number" || typeof value === "boolean")
+		return String(value);
 	return undefined;
 }
 
@@ -266,7 +364,8 @@ function lineRange(args: Payload) {
 	const end = Number(args.endLine);
 	const limit = Number(args.limit);
 	if (Number.isFinite(start) && Number.isFinite(end)) return `${start}-${end}`;
-	if (Number.isFinite(start) && Number.isFinite(limit)) return `${start}-${start + limit - 1}`;
+	if (Number.isFinite(start) && Number.isFinite(limit))
+		return `${start}-${start + limit - 1}`;
 	if (Number.isFinite(start)) return String(start);
 	return undefined;
 }
@@ -290,7 +389,9 @@ function toolArgsSummary(name: string, args: unknown) {
 		return path ?? "";
 	}
 	if (normalized.includes("grep") || normalized.includes("search")) {
-		return [argText(p.pattern ?? p.query), path, argText(p.include)].filter(Boolean).join(" ");
+		return [argText(p.pattern ?? p.query), path, argText(p.include)]
+			.filter(Boolean)
+			.join(" ");
 	}
 	if (normalized.includes("glob") || normalized.includes("find")) {
 		return [argText(p.pattern), path].filter(Boolean).join(" ");
@@ -497,9 +598,9 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	const resultPatch = end ? patchFromPayload(end.payload) : undefined;
 	const toolPatch = isEditError
 		? undefined
-		: resultPatch ??
+		: (resultPatch ??
 			(isEdit ? buildEditPatch(args) : undefined) ??
-			(isWrite ? buildWritePatch(args) : undefined);
+			(isWrite ? buildWritePatch(args) : undefined));
 	return (
 		<details
 			className={`chat-bubble tool-event tool-${status} ${toolColorClass(name)}`}
@@ -514,7 +615,9 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 				<section className="tool-details-grid">
 					<div>
 						<strong>Error</strong>
-						<pre>{fullToolDetail(end ? toolOutput(end.payload) : "Edit failed")}</pre>
+						<pre>
+							{fullToolDetail(end ? toolOutput(end.payload) : "Edit failed")}
+						</pre>
 					</div>
 				</section>
 			) : showsDiffOnly ? null : (
@@ -539,7 +642,7 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
 	const toolEnds = new Map<string, RunEvent>();
 	for (const event of ordered) {
-		if (event.type === "tool_end") toolEnds.set(toolKey(event), event);
+		if (isToolEndEvent(event)) toolEnds.set(toolKey(event), event);
 	}
 	const rendered: ReactNode[] = [];
 	let assistantBuffer = "";
@@ -573,14 +676,18 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 		thinkingBuffer = "";
 	}
 	for (const event of ordered) {
-		if (event.type === "text_delta") {
-			flushThinking();
-			assistantKey ||= event.id;
-			assistantBuffer += textOf(event.payload);
-			continue;
+		if (isHiddenEvent(event)) continue;
+		if (isAssistantEvent(event)) {
+			const text = extractTextDeep(event.payload);
+			if (text) {
+				flushThinking();
+				assistantKey ||= event.id;
+				assistantBuffer += text;
+				continue;
+			}
 		}
-		if (event.type.includes("thinking") || event.type.includes("reason")) {
-			const text = textOf(event.payload);
+		if (isThinkingEvent(event)) {
+			const text = extractTextDeep(event.payload);
 			if (!text) continue;
 			flushAssistant();
 			thinkingKey ||= event.id;
@@ -589,7 +696,7 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 		}
 		flushAssistant();
 		flushThinking();
-		if (event.type === "tool_end") continue;
+		if (isToolEndEvent(event)) continue;
 		if (event.type === "user_message") {
 			rendered.push(
 				<section
@@ -609,7 +716,7 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 					<pre>{textOf(event.payload)}</pre>
 				</details>,
 			);
-		} else if (event.type === "tool_start") {
+		} else if (isToolStartEvent(event)) {
 			const end = toolEnds.get(toolKey(event));
 			rendered.push(
 				end ? (
@@ -619,12 +726,30 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 				),
 			);
 		} else if (event.type === "result") {
+			const text = extractTextDeep(event.payload);
+			if (text)
+				rendered.push(
+					<section
+						key={event.id}
+						className="chat-bubble assistant-message message-assistant"
+					>
+						<strong>Assistant</strong>
+						<MarkdownText text={text} />
+					</section>,
+				);
 		} else if (event.type === "error") {
 			rendered.push(
 				<section key={event.id} className="chat-bubble error message-error">
 					<strong>Error</strong>
-					<MarkdownText text={textOf(event.payload)} />
+					<MarkdownText text={errorText(event.payload)} />
 				</section>,
+			);
+		} else {
+			rendered.push(
+				<details key={event.id} className="chat-bubble message-result">
+					<summary>{event.type}</summary>
+					<pre>{jsonPreview(event.payload, 4000)}</pre>
+				</details>,
 			);
 		}
 	}
@@ -646,6 +771,14 @@ export function RunDetailPage() {
 	const activeAgent = useMemo(
 		() => activeAgentLabel(selectedRun, events),
 		[selectedRun, events],
+	);
+	const latestError = useMemo(
+		() => [...events].reverse().find((event) => event.type === "error"),
+		[events],
+	);
+	const lastVisibleEvent = useMemo(
+		() => [...events].reverse().find((event) => !isHiddenEvent(event)),
+		[events],
 	);
 	async function loadRuns() {
 		const rows = await apiGet<AgentRun[]>("/runs");
@@ -723,9 +856,13 @@ export function RunDetailPage() {
 				>
 					Cancel
 				</button>
+				<ProcessIndicator live={selectedRun?.status === "running"} />
 			</div>
 			<div className="run-chat-scroll">
 				<ChatTimeline events={events} />
+				{latestError && lastVisibleEvent?.id !== latestError.id ? (
+					<LatestErrorBox event={latestError} />
+				) : null}
 				<div ref={bottomRef} />
 			</div>
 			<div className="run-input-bar">
