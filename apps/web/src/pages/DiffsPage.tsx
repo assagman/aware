@@ -2,6 +2,7 @@ import type { Annotation } from "@agent-ide/shared";
 import type {
 	DiffLineAnnotation,
 	FileDiffMetadata,
+	OnDiffLineClickProps,
 	SelectedLineRange,
 } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
@@ -12,7 +13,9 @@ import { getSelection } from "../app/selection";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 
 type Ann = { text: string };
-type LocalDiffAnnotation = DiffLineAnnotation<Ann> & { filePath?: string | undefined };
+type LocalDiffAnnotation = DiffLineAnnotation<Ann> & {
+	filePath?: string | undefined;
+};
 type DiffMode = "unstaged" | "staged" | "main" | "last" | "commit";
 type GitCommit = {
 	sha: string;
@@ -117,6 +120,14 @@ export function DiffsPage() {
 		setSelected(range);
 		setSelectedFile(range ? fileName : "");
 	}
+	function selectLine(fileName: string, line: OnDiffLineClickProps) {
+		selectLines(fileName, {
+			start: line.lineNumber,
+			end: line.lineNumber,
+			side: line.annotationSide,
+			endSide: line.annotationSide,
+		});
+	}
 	useEffect(() => {
 		const reload = () => {
 			setMode("unstaged");
@@ -195,7 +206,7 @@ export function DiffsPage() {
 						{selected.start}-{selected.end}
 					</p>
 				) : (
-					<p>Select diff lines to annotate.</p>
+					<p>Click a diff line or line number to annotate.</p>
 				)}
 				<textarea
 					value={comment}
@@ -226,6 +237,8 @@ export function DiffsPage() {
 							)}
 							options={{
 								enableLineSelection: true,
+								onLineClick: (line) => selectLine(file.name, line),
+								onLineNumberClick: (line) => selectLine(file.name, line),
 								onLineSelectionEnd: (range) => selectLines(file.name, range),
 							}}
 						/>
