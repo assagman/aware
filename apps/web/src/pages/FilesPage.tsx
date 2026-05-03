@@ -7,6 +7,48 @@ import { AgentPicker } from "../components/AgentPicker";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 import { RunLink } from "../components/RunLink";
 
+function directoryPaths(paths: string[]) {
+	const dirs = new Set<string>();
+	for (const path of paths) {
+		const parts = path.split("/").filter(Boolean);
+		const limit = path.endsWith("/") ? parts.length : parts.length - 1;
+		for (let i = 1; i <= limit; i += 1) {
+			dirs.add(`${parts.slice(0, i).join("/")}/`);
+		}
+	}
+	return [...dirs];
+}
+
+function oneDepthDirectoryPaths(paths: string[]) {
+	return directoryPaths(paths).filter((path) => path.slice(0, -1).includes("/") === false);
+}
+
+function fzfScore(path: string, query: string) {
+	const haystack = path.toLowerCase();
+	const needle = query.toLowerCase().replace(/\s+/g, "");
+	if (!needle) return 0;
+	let score = 0;
+	let lastIndex = -1;
+	for (const char of needle) {
+		const index = haystack.indexOf(char, lastIndex + 1);
+		if (index === -1) return null;
+		score += index === lastIndex + 1 ? 3 : 1;
+		if (index === 0 || "/-_ .".includes(haystack[index - 1] ?? "")) score += 2;
+		lastIndex = index;
+	}
+	return score - haystack.length / 1000;
+}
+
+function fzfFilterPaths(paths: string[], query: string) {
+	const trimmed = query.trim();
+	if (!trimmed) return paths;
+	return paths
+		.map((path) => ({ path, score: fzfScore(path, trimmed) }))
+		.filter((entry): entry is { path: string; score: number } => entry.score !== null)
+		.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+		.map((entry) => entry.path);
+}
+
 function Tree({
 	paths,
 	onOpen,
@@ -14,25 +56,55 @@ function Tree({
 	paths: string[];
 	onOpen: (path: string) => void;
 }) {
+	const [searchQuery, setSearchQuery] = useState("");
+	const [expansion, setExpansion] = useState<"one" | "none" | "all">("one");
+	const onOpenRef = useRef(onOpen);
+	onOpenRef.current = onOpen;
+	const visiblePaths = useMemo(
+		() => fzfFilterPaths(paths, searchQuery),
+		[paths, searchQuery],
+	);
+	const expandedPaths = useMemo(() => {
+		if (expansion === "none") return [];
+		if (expansion === "all" || searchQuery.trim()) return directoryPaths(visiblePaths);
+		return oneDepthDirectoryPaths(visiblePaths);
+	}, [expansion, searchQuery, visiblePaths]);
 	const { model } = useFileTree({
-		paths,
-		search: true,
-		initialExpansion: "open",
+		paths: visiblePaths,
+		search: false,
+		initialExpansion: 1,
+		initialExpandedPaths: expandedPaths,
+		onSelectionChange: (selectedPaths) => {
+			const selected = selectedPaths.find((path) => !path.endsWith("/"));
+			if (selected) onOpenRef.current(selected);
+		},
 	});
 	useEffect(() => {
-		const handler = () => {
-			const selected = model.getSelectedPaths().find((p) => !p.endsWith("/"));
-			if (selected) onOpen(selected);
-		};
-		const el = document.querySelector("#file-tree-host");
-		el?.addEventListener("click", handler);
-		return () => el?.removeEventListener("click", handler);
-	}, [model, onOpen]);
+		model.resetPaths(visiblePaths, { initialExpandedPaths: expandedPaths });
+	}, [expandedPaths, model, visiblePaths]);
 	return (
 		<FileTree
 			id="file-tree-host"
 			model={model}
-			header="Files"
+			header={
+				<div className="file-tree-header">
+					<div className="file-tree-actions">
+						<button type="button" onClick={() => setExpansion("none")}>
+							Collapse all
+						</button>
+						<button type="button" onClick={() => setExpansion("all")}>
+							Expand all
+						</button>
+					</div>
+					<input
+						type="search"
+						value={searchQuery}
+						onChange={(event) => setSearchQuery(event.target.value)}
+						placeholder="fzf search files"
+						aria-label="fzf search files"
+					/>
+				</div>
+			}
 			style={{ height: "100%" }}
 		/>
 	);
