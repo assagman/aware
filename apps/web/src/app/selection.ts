@@ -1,4 +1,4 @@
-const KEY = "agent-ide-selection";
+const KEY = "aware-selection";
 
 type Selection = {
 	selectedProjectId: string;
@@ -27,7 +27,7 @@ function write(selection: Selection) {
 	const after = JSON.stringify(selection);
 	if (before === after) return;
 	localStorage.setItem(KEY, after);
-	window.dispatchEvent(new Event("agent-ide-selection"));
+	window.dispatchEvent(new Event("aware-selection"));
 }
 
 export function getSelection() {

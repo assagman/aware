@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentProfile } from "@agent-ide/shared";
+import type { AgentProfile } from "@aware/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();

@@ -31,5 +31,5 @@ app.route("/api/chat", chat);
 const port = Number(process.env.PORT ?? 8787);
 
 serve({ fetch: app.fetch, port }, () => {
-	console.log(`agent-ide server listening on http://127.0.0.1:${port}`);
+	console.log(`aware server listening on http://127.0.0.1:${port}`);
 });

@@ -14,8 +14,8 @@
     "exactOptionalPropertyTypes": true,
     "baseUrl": ".",
     "paths": {
-      "@agent-ide/shared": ["packages/shared/src/index.ts"],
-      "@agent-ide/shared/*": ["packages/shared/src/*"]
+      "@aware/shared": ["packages/shared/src/index.ts"],
+      "@aware/shared/*": ["packages/shared/src/*"]
     }
   }
 }

@@ -1,4 +1,4 @@
-import type { Project } from "@agent-ide/shared";
+import type { Project } from "@aware/shared";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
 

@@ -1,4 +1,4 @@
-import type { AgentProfile, Annotation, Task } from "@agent-ide/shared";
+import type { AgentProfile, Annotation, Task } from "@aware/shared";
 
 function serializeAnnotations(annotations: Annotation[]) {
 	return annotations

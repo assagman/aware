@@ -5,7 +5,7 @@ import type {
 	Task,
 	TaskAgent,
 	TaskStatus,
-} from "@agent-ide/shared";
+} from "@aware/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-ide/server",
+  "name": "@aware/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@agent-ide/shared": "workspace:*",
+    "@aware/shared": "workspace:*",
     "@flue/sdk": "^0.3.6",
     "@hono/node-server": "^1.14.0",
     "@mariozechner/pi-ai": "0.72.1",

@@ -1,4 +1,4 @@
-import type { AgentRun, Task, TaskStatus } from "@agent-ide/shared";
+import type { AgentRun, Task, TaskStatus } from "@aware/shared";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "../app/api";
 import {
@@ -52,9 +52,9 @@ export function TasksPage() {
 			load();
 		};
 		reload();
-		window.addEventListener("agent-ide-selection", reloadSelection);
+		window.addEventListener("aware-selection", reloadSelection);
 		return () =>
-			window.removeEventListener("agent-ide-selection", reloadSelection);
+			window.removeEventListener("aware-selection", reloadSelection);
 	}, []);
 	const visibleTasks = useMemo(() => {
 		return tasks

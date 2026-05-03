@@ -1,4 +1,4 @@
-import type { AgentRun, Annotation } from "@agent-ide/shared";
+import type { AgentRun, Annotation } from "@aware/shared";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
@@ -159,7 +159,7 @@ export function FilesPage() {
 			try {
 				setPaths(await apiGet<string[]>(`/files/tree?worktreeId=${id}`));
 				await loadAnnotations();
-				const savedFile = localStorage.getItem(`agent-ide-open-file:${id}`);
+				const savedFile = localStorage.getItem(`aware-open-file:${id}`);
 				if (savedFile) await read(savedFile);
 				setError("");
 			} catch (error) {
@@ -168,8 +168,8 @@ export function FilesPage() {
 		}
 		void loadTree(true);
 		const onSelection = () => void loadTree(false);
-		window.addEventListener("agent-ide-selection", onSelection);
-		return () => window.removeEventListener("agent-ide-selection", onSelection);
+		window.addEventListener("aware-selection", onSelection);
+		return () => window.removeEventListener("aware-selection", onSelection);
 	}, []);
 	useEffect(() => {
 		if (annotationMode) noteRef.current?.focus();
@@ -186,7 +186,7 @@ export function FilesPage() {
 		const text = await fetch(
 			`/api/files/read?worktreeId=${id}&path=${encodeURIComponent(path)}`,
 		).then((r) => r.text());
-		if (id) localStorage.setItem(`agent-ide-open-file:${id}`, path);
+		if (id) localStorage.setItem(`aware-open-file:${id}`, path);
 		setFile(path);
 		setContent(text);
 		setAnchorLine(null);

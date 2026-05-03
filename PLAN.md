@@ -1,4 +1,4 @@
-# Agent IDE Local Web App Plan
+# aware Local Web App Plan
 
 ## Context
 
@@ -193,7 +193,7 @@ settings(key, value_json)
 Optional project metadata:
 
 ```txt
-.agent-ide/project.json
+.aware/project.json
 ```
 
 Only write this if user opts in. SQLite remains source of truth.

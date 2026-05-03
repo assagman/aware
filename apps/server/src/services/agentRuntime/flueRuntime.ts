@@ -8,7 +8,7 @@ import type {
 	Annotation,
 	RunEvent,
 	Task,
-} from "@agent-ide/shared";
+} from "@aware/shared";
 import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";

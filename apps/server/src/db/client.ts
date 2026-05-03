@@ -6,7 +6,7 @@ import type { TableName } from "./schema";
 type Row = { id: string; [key: string]: unknown };
 
 const dbPath =
-	process.env.AGENT_IDE_DB ?? join(process.cwd(), ".agent-ide", "db.sqlite");
+	process.env.AWARE_DB ?? join(process.cwd(), ".aware", "db.sqlite");
 
 export class SqliteDb {
 	private db: DatabaseSync;

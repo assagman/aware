@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Annotation } from "@agent-ide/shared";
+import type { Annotation } from "@aware/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import type { Project, Worktree } from "@agent-ide/shared";
+import type { Project, Worktree } from "@aware/shared";
 import { db } from "../db/client";
 import { currentBranch, repoRoot, worktreePaths } from "./gitService";
 

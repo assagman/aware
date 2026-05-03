@@ -1,4 +1,4 @@
-import type { Annotation } from "@agent-ide/shared";
+import type { Annotation } from "@aware/shared";
 import type {
 	DiffLineAnnotation,
 	FileDiffMetadata,
@@ -30,7 +30,7 @@ function diffFiles(patch: string) {
 
 function parseDiffFiles(patch: string) {
 	try {
-		return parsePatchFiles(patch, "agent-ide-diff", false).flatMap(
+		return parsePatchFiles(patch, "aware-diff", false).flatMap(
 			(parsed) => parsed.files,
 		);
 	} catch {
@@ -135,8 +135,8 @@ export function DiffsPage() {
 			void loadCommits();
 		};
 		reload();
-		window.addEventListener("agent-ide-selection", reload);
-		return () => window.removeEventListener("agent-ide-selection", reload);
+		window.addEventListener("aware-selection", reload);
+		return () => window.removeEventListener("aware-selection", reload);
 	}, []);
 
 	async function addComment() {

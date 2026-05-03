@@ -1,4 +1,4 @@
-# Agent IDE
+# aware
 
 Local-first web app for agent-driven coding on existing git repos/worktrees.
 
@@ -32,7 +32,7 @@ pnpm dev
 
 The local API listens on `http://127.0.0.1:8787` and the web app opens at `http://127.0.0.1:5173`.
 
-Data is stored in SQLite at `.agent-ide/db.sqlite` under the server working directory by default. Set `AGENT_IDE_DB=/path/to/db.sqlite` to override it.
+Data is stored in SQLite at `.aware/db.sqlite` under the server working directory by default. Set `AWARE_DB=/path/to/db.sqlite` to override it.
 
 ## Flow
 

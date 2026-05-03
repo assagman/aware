@@ -14,7 +14,7 @@ importers:
 
   apps/server:
     dependencies:
-      '@agent-ide/shared':
+      '@aware/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@flue/sdk':
@@ -51,7 +51,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@agent-ide/shared':
+      '@aware/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@pierre/diffs':

@@ -1,4 +1,4 @@
-import type { AgentRun, RunEvent } from "@agent-ide/shared";
+import type { AgentRun, RunEvent } from "@aware/shared";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { ReactNode } from "react";
@@ -801,8 +801,8 @@ export function RunDetailPage() {
 			const selectedRunId = getSelection().selectedRunId;
 			if (selectedRunId) setRunId(selectedRunId);
 		};
-		window.addEventListener("agent-ide-selection", onSelection);
-		return () => window.removeEventListener("agent-ide-selection", onSelection);
+		window.addEventListener("aware-selection", onSelection);
+		return () => window.removeEventListener("aware-selection", onSelection);
 	}, []);
 	useEffect(() => {
 		if (!runId) return;

@@ -1,4 +1,4 @@
-import type { AgentProfile } from "@agent-ide/shared";
+import type { AgentProfile } from "@aware/shared";
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 

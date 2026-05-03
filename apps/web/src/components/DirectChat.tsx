@@ -1,4 +1,4 @@
-import type { AgentRun } from "@agent-ide/shared";
+import type { AgentRun } from "@aware/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";

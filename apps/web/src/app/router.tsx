@@ -25,7 +25,7 @@ export function AppRouter() {
 	return (
 		<main className="app-shell">
 			<header className="app-header">
-				<h1>Agent IDE</h1>
+				<h1>aware</h1>
 				<nav className="tabs">
 					<a className={page === "files" ? "active" : ""} href="#files">
 						Files

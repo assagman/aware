@@ -1,4 +1,4 @@
-import type { Project, Worktree } from "@agent-ide/shared";
+import type { Project, Worktree } from "@aware/shared";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "./api";
 import {
@@ -43,10 +43,10 @@ export function TopSelection() {
 	}
 	useEffect(() => {
 		void refresh();
-		window.addEventListener("agent-ide-selection", refresh);
+		window.addEventListener("aware-selection", refresh);
 		window.addEventListener("focus", refresh);
 		return () => {
-			window.removeEventListener("agent-ide-selection", refresh);
+			window.removeEventListener("aware-selection", refresh);
 			window.removeEventListener("focus", refresh);
 		};
 	}, []);

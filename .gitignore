@@ -11,7 +11,7 @@ coverage/
 .DS_Store
 .pi/
 
-.agent-ide/
+.aware/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

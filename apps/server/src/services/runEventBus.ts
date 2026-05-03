@@ -1,4 +1,4 @@
-import type { RunEvent } from "@agent-ide/shared";
+import type { RunEvent } from "@aware/shared";
 
 type Listener = (event: RunEvent) => void;
 
