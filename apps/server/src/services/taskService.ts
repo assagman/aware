@@ -19,6 +19,8 @@ export async function listTasks(
 ) {
 	const tasks = (await db.list<Task>("tasks")).filter(
 		(task) =>
+			!task.archivedAt &&
+			!task.deletedAt &&
 			(!filter.projectId || task.projectId === filter.projectId) &&
 			(!filter.worktreeId || task.worktreeId === filter.worktreeId),
 	);

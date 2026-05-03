@@ -35,6 +35,8 @@ export type Task = {
 	title: string;
 	body: string;
 	status: TaskStatus;
+	archivedAt?: string;
+	deletedAt?: string;
 	createdAt: string;
 	updatedAt: string;
 };

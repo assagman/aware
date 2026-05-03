@@ -35,6 +35,8 @@ export const taskSchema = z.object({
 	title: z.string(),
 	body: z.string(),
 	status: z.enum(["draft", "queued", "running", "done", "failed"]),
+	archivedAt: z.string().optional(),
+	deletedAt: z.string().optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
