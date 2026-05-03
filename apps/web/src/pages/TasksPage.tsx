@@ -8,6 +8,7 @@ import {
 	setSelectedTaskId,
 	setSelectedWorktreeId,
 } from "../app/selection";
+import { AgentPicker } from "../components/AgentPicker";
 
 export function TasksPage() {
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -17,6 +18,7 @@ export function TasksPage() {
 	const [worktreeId, setWorktreeId] = useState("");
 	const [title, setTitle] = useState("");
 	const [body, setBody] = useState("");
+	const [agentProfileId, setAgentProfileId] = useState("");
 	const filteredWorktrees = worktrees.filter(
 		(w) => !projectId || w.projectId === projectId,
 	);
@@ -66,7 +68,9 @@ export function TasksPage() {
 		load(projectId, worktreeId);
 	}
 	async function start(id: string) {
-		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {});
+		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
+			agentProfileId,
+		});
 		setSelectedRunId(run.id);
 		load(projectId, worktreeId);
 		alert(`run ${run.id}`);
@@ -110,6 +114,7 @@ export function TasksPage() {
 			>
 				Create task
 			</button>
+			<AgentPicker value={agentProfileId} onChange={setAgentProfileId} />
 			<ul>
 				{tasks.map((t) => {
 					const canStart = t.status !== "done" && t.status !== "running";

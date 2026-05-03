@@ -1,6 +1,8 @@
 import type { AgentRun, Annotation } from "@agent-ide/shared";
+import { useState } from "react";
 import { apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";
+import { AgentPicker } from "./AgentPicker";
 import { RunLink } from "./RunLink";
 
 export function AnnotationsPanel({
@@ -10,12 +12,14 @@ export function AnnotationsPanel({
 	annotations: Annotation[];
 	onRefresh: () => void;
 }) {
+	const [agentProfileId, setAgentProfileId] = useState("");
 	async function sendAnnotation(annotation: Annotation) {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
 		if (!selectedWorktreeId) return;
 		const run = await apiPost<AgentRun>("/chat", {
 			projectId: selectedProjectId || annotation.projectId,
 			worktreeId: selectedWorktreeId,
+			agentProfileId,
 			annotationIds: [annotation.id],
 			message: annotation.text,
 		});
@@ -43,13 +47,19 @@ export function AnnotationsPanel({
 							: ""}
 						<p>{a.text}</p>
 						{a.runId ? <RunLink runId={a.runId} /> : null}
-						<button
-							type="button"
-							disabled={a.status === "processing"}
-							onClick={() => void sendAnnotation(a)}
-						>
-							{a.status === "processing" ? "processing" : "send"}
-						</button>
+						<div className="annotation-actions">
+							<AgentPicker
+								value={agentProfileId}
+								onChange={setAgentProfileId}
+							/>
+							<button
+								type="button"
+								disabled={a.status === "processing"}
+								onClick={() => void sendAnnotation(a)}
+							>
+								{a.status === "processing" ? "processing" : "send"}
+							</button>
+						</div>
 					</li>
 				))}
 			</ul>

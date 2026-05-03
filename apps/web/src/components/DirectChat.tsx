@@ -2,12 +2,14 @@ import type { AgentRun } from "@agent-ide/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";
+import { AgentPicker } from "./AgentPicker";
 import { RunLink } from "./RunLink";
 
 export function DirectChat({ onSent }: { onSent?: () => void }) {
 	const [message, setMessage] = useState("");
 	const [status, setStatus] = useState("");
 	const [runId, setRunId] = useState("");
+	const [agentProfileId, setAgentProfileId] = useState("");
 	async function send() {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
 		if (!selectedWorktreeId || !message.trim()) return;
@@ -15,6 +17,7 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 		const run = await apiPost<AgentRun>("/chat", {
 			projectId: selectedProjectId,
 			worktreeId: selectedWorktreeId,
+			agentProfileId,
 			message,
 		});
 		setSelectedRunId(run.id);
@@ -41,9 +44,12 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 				}}
 				placeholder="Tell agents what to do with saved annotations..."
 			/>
-			<button type="button" onClick={send} disabled={!message.trim()}>
-				Send to agents
-			</button>
+			<div className="prompt-actions">
+				<AgentPicker value={agentProfileId} onChange={setAgentProfileId} />
+				<button type="button" onClick={send} disabled={!message.trim()}>
+					Send
+				</button>
+			</div>
 			{status ? (
 				<p>
 					{status}

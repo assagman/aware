@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listAgentProfiles } from "../services/agentProfileService";
+import { listAgentProfilesForRun } from "../services/agentProfileService";
 import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 import {
 	listAnnotations,
@@ -19,7 +19,7 @@ chat.post("/", async (c) => {
 	const annotations = ids
 		? allAnnotations.filter((a) => ids.includes(a.id))
 		: allAnnotations;
-	const agents = await listAgentProfiles();
+	const agents = await listAgentProfilesForRun(body.agentProfileId);
 	const isAnnotationSent = Boolean(ids?.length);
 	const run = await flueRuntime.startChat({
 		projectId: body.projectId || "local",

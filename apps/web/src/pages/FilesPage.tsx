@@ -3,6 +3,7 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
 import { getSelection, setSelectedRunId } from "../app/selection";
+import { AgentPicker } from "../components/AgentPicker";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 import { RunLink } from "../components/RunLink";
 
@@ -49,6 +50,7 @@ export function FilesPage() {
 		"file" | "selection" | null
 	>(null);
 	const [projectMessage, setProjectMessage] = useState("");
+	const [projectChatAgentId, setProjectChatAgentId] = useState("");
 	const [projectChatRun, setProjectChatRun] = useState<AgentRun | null>(null);
 	const [projectChatStatus, setProjectChatStatus] = useState("");
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -162,6 +164,7 @@ export function FilesPage() {
 		const run = await apiPost<AgentRun>("/chat", {
 			projectId: selectedProjectId,
 			worktreeId: selectedWorktreeId,
+			agentProfileId: projectChatAgentId,
 			message: projectMessage,
 			annotationIds: [],
 		});
@@ -336,6 +339,10 @@ export function FilesPage() {
 					placeholder="Chat about this project/worktree. No annotations, tasks, or diffs included."
 				/>
 				<div className="files-project-chat-actions">
+					<AgentPicker
+						value={projectChatAgentId}
+						onChange={setProjectChatAgentId}
+					/>
 					<button
 						type="button"
 						disabled={!projectMessage.trim()}

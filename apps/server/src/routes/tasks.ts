@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listAgentProfiles } from "../services/agentProfileService";
+import { listAgentProfilesForRun } from "../services/agentProfileService";
 import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 import { assertAllowedWorktree } from "../services/projectService";
 import {
@@ -32,7 +32,8 @@ tasks.post("/:id/start", async (c) => {
 		return c.json({ error: `task is ${task.status}` }, 409);
 	await updateTask(task.id, { status: "running" });
 	const worktree = await assertAllowedWorktree(task.worktreeId);
-	const agents = await listAgentProfiles();
+	const body = await c.req.json().catch(() => ({}));
+	const agents = await listAgentProfilesForRun(body.agentProfileId);
 	return c.json(
 		await flueRuntime.startRun({ task, worktreePath: worktree.path, agents }),
 	);

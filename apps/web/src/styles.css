@@ -180,12 +180,26 @@ pre {
 	line-height: 20px;
 }
 
-.files-project-chat-actions {
+.files-project-chat-actions,
+.prompt-actions,
+.annotation-actions {
 	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 6px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
 	min-width: 140px;
+}
+
+.agent-picker {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: #94a3b8;
+}
+
+.agent-picker select {
+	max-width: 160px;
 }
 
 .files-project-chat-actions p {
@@ -592,7 +606,18 @@ pre {
 		grid-template-columns: 1fr;
 	}
 
-	.files-project-chat-actions {
+	.files-project-chat-actions,
+	.prompt-actions,
+	.annotation-actions {
 		align-items: stretch;
+		justify-content: stretch;
+	}
+
+	.agent-picker,
+	.agent-picker select,
+	.prompt-actions button,
+	.annotation-actions button,
+	.files-project-chat-actions button {
+		width: 100%;
 	}
 }
