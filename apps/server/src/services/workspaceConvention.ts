@@ -1,24 +1,52 @@
 import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 
-export const WORKSPACE_ROOT = "/workspace";
+export const SANDBOX_WORKSPACE_ROOT = "/workspace";
+export const HOST_WORKSPACE_ROOT = resolve(
+	process.env.AWARE_WORKSPACE_ROOT ?? dirname(process.cwd()),
+);
 
-export function isWorkspacePath(path: string) {
+export function isHostWorkspacePath(path: string) {
 	const resolved = resolve(path);
 	return (
-		resolved === WORKSPACE_ROOT || resolved.startsWith(`${WORKSPACE_ROOT}/`)
+		resolved === HOST_WORKSPACE_ROOT ||
+		resolved.startsWith(`${HOST_WORKSPACE_ROOT}/`)
 	);
 }
 
-export async function assertWorkspacePath(path: string) {
+export function isSandboxWorkspacePath(path: string) {
 	const resolved = resolve(path);
-	if (isWorkspacePath(resolved)) return resolved;
+	return (
+		resolved === SANDBOX_WORKSPACE_ROOT ||
+		resolved.startsWith(`${SANDBOX_WORKSPACE_ROOT}/`)
+	);
+}
+
+export async function assertHostWorkspacePath(path: string) {
+	const resolved = resolve(path);
+	if (isHostWorkspacePath(resolved)) return resolved;
 	const real = await realpath(path);
-	if (!isWorkspacePath(real))
-		throw new Error(`Worktrees must live under ${WORKSPACE_ROOT}`);
+	if (!isHostWorkspacePath(real))
+		throw new Error(`Worktrees must live under ${HOST_WORKSPACE_ROOT}`);
 	return real;
 }
 
+export function hostToSandboxPath(path: string) {
+	const resolved = resolve(path);
+	if (!isHostWorkspacePath(resolved))
+		throw new Error(`Path must live under ${HOST_WORKSPACE_ROOT}`);
+	const rel = relative(HOST_WORKSPACE_ROOT, resolved);
+	return rel ? `${SANDBOX_WORKSPACE_ROOT}/${rel}` : SANDBOX_WORKSPACE_ROOT;
+}
+
+export function sandboxToHostPath(path: string) {
+	const resolved = resolve(path);
+	if (!isSandboxWorkspacePath(resolved))
+		throw new Error(`Path must live under ${SANDBOX_WORKSPACE_ROOT}`);
+	const rel = relative(SANDBOX_WORKSPACE_ROOT, resolved);
+	return rel ? resolve(HOST_WORKSPACE_ROOT, rel) : HOST_WORKSPACE_ROOT;
+}
+
 export function worktreePathForBranch(branch: string) {
-	return `${WORKSPACE_ROOT}/${branch}`;
+	return `${HOST_WORKSPACE_ROOT}/${branch}`;
 }

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { isWorkspacePath, worktreePathForBranch } from "./workspaceConvention";
+import {
+	HOST_WORKSPACE_ROOT,
+	hostToSandboxPath,
+	isHostWorkspacePath,
+	isSandboxWorkspacePath,
+	SANDBOX_WORKSPACE_ROOT,
+	sandboxToHostPath,
+	worktreePathForBranch,
+} from "./workspaceConvention";
 import { classifyTaskChange, slugifyTask } from "./worktreeNaming";
 
 describe("Worktree agent", () => {
@@ -36,11 +44,17 @@ describe("Worktree agent", () => {
 		).toBe("behavior-when-starting-new");
 	});
 
-	it("maps branch into workspace convention", () => {
-		expect(worktreePathForBranch("fix/worktree-behavior")).toBe(
-			"/workspace/fix/worktree-behavior",
+	it("maps branches to host paths and sandbox paths separately", () => {
+		const hostPath = `${HOST_WORKSPACE_ROOT}/fix/worktree-behavior`;
+		expect(worktreePathForBranch("fix/worktree-behavior")).toBe(hostPath);
+		expect(isHostWorkspacePath(hostPath)).toBe(true);
+		expect(isHostWorkspacePath("/tmp/main")).toBe(false);
+		expect(isSandboxWorkspacePath("/workspace/main")).toBe(true);
+		expect(hostToSandboxPath(hostPath)).toBe(
+			`${SANDBOX_WORKSPACE_ROOT}/fix/worktree-behavior`,
 		);
-		expect(isWorkspacePath("/workspace/main")).toBe(true);
-		expect(isWorkspacePath("/tmp/main")).toBe(false);
+		expect(sandboxToHostPath("/workspace/fix/worktree-behavior")).toBe(
+			hostPath,
+		);
 	});
 });

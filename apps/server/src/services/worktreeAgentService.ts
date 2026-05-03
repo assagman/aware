@@ -4,7 +4,10 @@ import type { Project, Task, Worktree } from "@aware/shared";
 import { worktreePrompt } from "../flue/agents/worktree";
 import { git } from "./gitService";
 import { addWorktree, listWorktrees } from "./projectService";
-import { WORKSPACE_ROOT, worktreePathForBranch } from "./workspaceConvention";
+import {
+	SANDBOX_WORKSPACE_ROOT,
+	worktreePathForBranch,
+} from "./workspaceConvention";
 import { withQueuedLock } from "./worktreeLock";
 import {
 	type ChangeCategory,
@@ -78,6 +81,6 @@ export async function ensureTaskWorktree(
 export const worktreeAgent = {
 	name: "Worktree",
 	prompt: worktreePrompt,
-	workspaceRoot: WORKSPACE_ROOT,
+	workspaceRoot: SANDBOX_WORKSPACE_ROOT,
 	ensureTaskWorktree,
 };

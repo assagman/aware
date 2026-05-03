@@ -237,7 +237,7 @@ export function TasksPage() {
 					<p className="task-worktree-note">
 						{taskWorktreeId
 							? "Agent will use this attached worktree."
-							: "Worktree agent will create /workspace/<category>/<slug> before run start."}
+							: "Worktree agent will create a host worktree; agents see it as /workspace/<category>/<slug>."}
 					</p>
 					<label className="task-body-field">
 						Details

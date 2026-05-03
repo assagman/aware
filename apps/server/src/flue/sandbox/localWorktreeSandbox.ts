@@ -9,15 +9,21 @@ import {
 	ReadWriteFs,
 } from "just-bash";
 import {
-	isWorkspacePath,
-	WORKSPACE_ROOT,
+	assertHostWorkspacePath,
+	HOST_WORKSPACE_ROOT,
+	hostToSandboxPath,
+	isSandboxWorkspacePath,
+	SANDBOX_WORKSPACE_ROOT,
+	sandboxToHostPath,
 } from "../../services/workspaceConvention";
 
 const execFileAsync = promisify(execFile);
 
 function hostCommand(name: string, bin = name) {
 	return defineCommand(name, async (args, ctx) => {
-		const cwd = ctx.cwd.startsWith(WORKSPACE_ROOT) ? ctx.cwd : process.cwd();
+		const cwd = isSandboxWorkspacePath(ctx.cwd)
+			? sandboxToHostPath(ctx.cwd)
+			: process.cwd();
 		try {
 			const { stdout, stderr } = await execFileAsync(bin, args, {
 				cwd,
@@ -69,12 +75,11 @@ export async function createDefaultEnv() {
 }
 
 export async function createLocalEnv() {
-	const cwd = process.cwd();
-	if (!isWorkspacePath(cwd))
-		throw new Error(`Local sandbox cwd must be under ${WORKSPACE_ROOT}`);
-	const rwfs = new ReadWriteFs({ root: WORKSPACE_ROOT });
+	const hostCwd = await assertHostWorkspacePath(process.cwd());
+	const cwd = hostToSandboxPath(hostCwd);
+	const rwfs = new ReadWriteFs({ root: HOST_WORKSPACE_ROOT });
 	const fs = new MountableFs({ base: new InMemoryFs() });
-	fs.mount(WORKSPACE_ROOT, rwfs);
+	fs.mount(SANDBOX_WORKSPACE_ROOT, rwfs);
 	return bashFactoryToSessionEnv(
 		() =>
 			new Bash({
