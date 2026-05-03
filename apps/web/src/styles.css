@@ -413,7 +413,7 @@ pre {
 	overflow: hidden;
 }
 
-.diff-pane {
+.full-workspace > .diff-pane {
 	min-height: 0;
 	height: 100%;
 	overflow: auto;
