@@ -15,10 +15,12 @@ type GitCommit = {
 	date: string;
 };
 
+function diffFiles(patch: string) {
+	return [...patch.matchAll(/^diff --git a\/(.*?) b\//gm)].map((m) => m[1]);
+}
+
 function diffFilePath(patch: string) {
-	const matches = [...patch.matchAll(/^diff --git a\/(.*?) b\//gm)].map(
-		(m) => m[1],
-	);
+	const matches = diffFiles(patch);
 	return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -31,6 +33,7 @@ export function DiffsPage() {
 	const [mode, setMode] = useState<DiffMode>("unstaged");
 	const [commits, setCommits] = useState<GitCommit[]>([]);
 	const [commit, setCommit] = useState("");
+	const files = diffFiles(patch);
 	async function loadAnnotations() {
 		const id = getSelection().selectedWorktreeId;
 		if (id)
@@ -157,7 +160,7 @@ export function DiffsPage() {
 				</button>
 			</div>
 			<div className="card diff-pane">
-				{patch ? (
+				{patch && files.length === 1 ? (
 					<PatchDiff
 						patch={patch}
 						disableWorkerPool
@@ -171,6 +174,12 @@ export function DiffsPage() {
 							onLineSelectionEnd: setSelected,
 						}}
 					/>
+				) : patch ? (
+					<pre>
+						{files.length
+							? `Diff spans ${files.length} files. Open a single-file diff to annotate lines.\n\n${patch}`
+							: patch}
+					</pre>
 				) : (
 					<pre>No diff loaded</pre>
 				)}
