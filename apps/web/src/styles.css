@@ -400,7 +400,8 @@ pre {
 }
 
 .chat-bubble {
-	max-width: 980px;
+	width: 100%;
+	max-width: none;
 	padding: 12px;
 	border-radius: 10px;
 }
@@ -537,11 +538,32 @@ pre {
 	border-radius: 8px;
 }
 
+
 .tool-event summary {
 	cursor: pointer;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+.tool-details-grid {
+	display: grid;
+	gap: 10px;
+	margin-top: 10px;
+}
+
+.tool-details-grid pre {
+	max-height: 42vh;
+	margin: 6px 0 0;
+}
+
+.tool-diff-visual {
+	max-height: 60vh;
+	margin-top: 10px;
+	overflow: auto;
+	border: 1px solid #334155;
+	border-radius: 8px;
+	background: #07090c;
 }
 
 .tool-read {

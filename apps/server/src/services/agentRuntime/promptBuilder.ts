@@ -26,9 +26,7 @@ export function buildPrompt(input: {
 	];
 	if (isAnnotationSent) {
 		return [
-			serializeAnnotations(input.annotations) ||
-				input.message ||
-				input.task.body,
+			serializeAnnotations(input.annotations) || input.message || input.task.body,
 			"",
 			...instructions,
 		].join("\n");

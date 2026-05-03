@@ -1,4 +1,6 @@
 import type { AgentRun, RunEvent } from "@agent-ide/shared";
+import { parsePatchFiles } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
@@ -30,10 +32,21 @@ function textOf(payload: unknown) {
 	return "";
 }
 
+function jsonText(value: unknown) {
+	return typeof value === "string" ? value : JSON.stringify(value ?? {}, null, 2);
+}
+
 function jsonPreview(value: unknown, max = 200) {
-	const text =
-		typeof value === "string" ? value : JSON.stringify(value ?? {}, null, 2);
+	const text = jsonText(value);
 	return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function fullToolDetail(value: unknown) {
+	if (typeof value === "string") {
+		const parsed = asPayload(value);
+		return Object.keys(parsed).length ? JSON.stringify(parsed, null, 2) : value;
+	}
+	return jsonText(value);
 }
 
 function isSafeHref(href: string) {
@@ -230,17 +243,69 @@ function activeAgentLabel(run: AgentRun | undefined, _events: RunEvent[]) {
 }
 
 function toolName(payload: unknown, fallback: string) {
-	const p = payload as Payload;
+	const p = asPayload(payload);
 	return String(p.toolName ?? p.name ?? p.tool ?? fallback);
 }
 
 function toolArgs(payload: unknown) {
-	const p = payload as Payload;
+	const p = asPayload(payload);
 	return p.args ?? p.arguments ?? p.input ?? p.params ?? p.parameters ?? {};
 }
 
+function argText(value: unknown) {
+	if (value === undefined || value === null) return undefined;
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return undefined;
+}
+
+function lineRange(args: Payload) {
+	const direct = argText(args.range ?? args.lineRange ?? args.lines);
+	if (direct) return direct;
+	const start = Number(args.startLine ?? args.line ?? args.offset);
+	const end = Number(args.endLine);
+	const limit = Number(args.limit);
+	if (Number.isFinite(start) && Number.isFinite(end)) return `${start}-${end}`;
+	if (Number.isFinite(start) && Number.isFinite(limit)) return `${start}-${start + limit - 1}`;
+	if (Number.isFinite(start)) return String(start);
+	return undefined;
+}
+
+function toolArgsSummary(name: string, args: unknown) {
+	if (typeof args === "string") {
+		const parsed = asPayload(args);
+		if (!Object.keys(parsed).length) return args;
+		args = parsed;
+	}
+	const p = asPayload(args);
+	const normalized = name.toLowerCase();
+	const path = argText(p.path ?? p.filePath ?? p.file_path ?? p.filename);
+	if (normalized.includes("bash") || normalized.includes("shell")) {
+		return argText(p.command ?? p.cmd ?? p.script ?? p.input) ?? "";
+	}
+	if (normalized.includes("read")) {
+		return [path, lineRange(p)].filter(Boolean).join(" ");
+	}
+	if (normalized.includes("edit") || normalized.includes("write")) {
+		return path ?? "";
+	}
+	if (normalized.includes("grep") || normalized.includes("search")) {
+		return [argText(p.pattern ?? p.query), path, argText(p.include)].filter(Boolean).join(" ");
+	}
+	if (normalized.includes("glob") || normalized.includes("find")) {
+		return [argText(p.pattern), path].filter(Boolean).join(" ");
+	}
+	const entries = Object.entries(p)
+		.map(([key, value]) => {
+			const text = argText(value);
+			return text ? `${key}=${text}` : undefined;
+		})
+		.filter(Boolean);
+	return entries.join(" ");
+}
+
 function toolKey(event: RunEvent) {
-	const p = event.payload as Payload;
+	const p = asPayload(event.payload);
 	return String(
 		p.toolCallId ??
 			p.callId ??
@@ -258,6 +323,122 @@ function toolFailed(payload: unknown) {
 function toolOutput(payload: unknown) {
 	const p = payload as Payload;
 	return p.result ?? p.output ?? p.error ?? p;
+}
+
+function asPayload(value: unknown): Payload {
+	if (typeof value === "string") {
+		try {
+			const parsed = JSON.parse(value) as unknown;
+			return parsed && typeof parsed === "object" ? (parsed as Payload) : {};
+		} catch {
+			return {};
+		}
+	}
+	return value && typeof value === "object" ? (value as Payload) : {};
+}
+
+function stringifyArg(value: unknown) {
+	return typeof value === "string" ? value : undefined;
+}
+
+function firstString(payload: unknown, keys: string[]) {
+	const p = asPayload(payload);
+	for (const key of keys) {
+		const value = p[key];
+		if (typeof value === "string") return value;
+	}
+	return undefined;
+}
+
+function splitPatchLines(text: string) {
+	if (!text) return [];
+	const lines = text.replace(/\r\n/g, "\n").split("\n");
+	if (lines.at(-1) === "") lines.pop();
+	return lines;
+}
+
+function prefixedPatchLines(prefix: string, text: string) {
+	return splitPatchLines(text).map((line) => `${prefix}${line}`);
+}
+
+function buildEditPatch(args: unknown) {
+	const p = asPayload(args);
+	const path = firstString(p, ["path", "filePath", "file_path", "filename"]);
+	const oldText =
+		firstString(p, ["oldText", "old_text", "oldString", "old_string"]) ??
+		stringifyArg(p.old);
+	const newText =
+		firstString(p, [
+			"newText",
+			"new_text",
+			"newString",
+			"new_string",
+			"replacement",
+		]) ?? stringifyArg(p.new);
+	if (!path || oldText === undefined || newText === undefined) return undefined;
+	const oldLines = splitPatchLines(oldText);
+	const newLines = splitPatchLines(newText);
+	const oldCount = oldLines.length;
+	const newCount = newLines.length;
+	return [
+		`diff --git a/${path} b/${path}`,
+		`--- a/${path}`,
+		`+++ b/${path}`,
+		`@@ -1,${oldCount} +1,${newCount} @@`,
+		...prefixedPatchLines("-", oldText),
+		...prefixedPatchLines("+", newText),
+		"",
+	].join("\n");
+}
+
+function buildWritePatch(args: unknown) {
+	const p = asPayload(args);
+	const path = firstString(p, ["path", "filePath", "file_path", "filename"]);
+	const content =
+		firstString(p, ["content", "text", "data", "newText", "new_text"]) ??
+		stringifyArg(p.input);
+	if (!path || content === undefined) return undefined;
+	const newLines = splitPatchLines(content);
+	return [
+		`diff --git a/${path} b/${path}`,
+		"--- /dev/null",
+		`+++ b/${path}`,
+		`@@ -0,0 +1,${newLines.length} @@`,
+		...prefixedPatchLines("+", content),
+		"",
+	].join("\n");
+}
+
+function patchFromPayload(value: unknown): string | undefined {
+	const direct = firstString(value, ["patch", "diff"]);
+	if (direct) return direct;
+	return firstString(toolOutput(value), ["patch", "diff"]);
+}
+
+function parsePatch(patch: string) {
+	try {
+		return parsePatchFiles(patch, "tool-edit-diff", false).flatMap(
+			(parsed) => parsed.files,
+		);
+	} catch {
+		return [];
+	}
+}
+
+function ToolDiff({ patch }: { patch: string }) {
+	const files = useMemo(() => parsePatch(patch), [patch]);
+	if (!files.length) return <pre>{patch}</pre>;
+	return (
+		<div className="tool-diff-visual">
+			{files.map((file) => (
+				<FileDiff
+					key={`${file.name}-${file.prevName ?? ""}`}
+					fileDiff={file}
+					disableWorkerPool
+				/>
+			))}
+		</div>
+	);
 }
 
 function AnnotationSummary({ event }: { event: RunEvent }) {
@@ -304,18 +485,52 @@ function toolColorClass(name: string) {
 
 function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	const name = toolName(start.payload, "tool");
+	const args = toolArgs(start.payload);
+	const argsSummary = toolArgsSummary(name, args);
 	const failed = end ? toolFailed(end.payload) : false;
 	const status = end ? (failed ? "failed" : "success") : "running";
+	const normalizedName = name.toLowerCase();
+	const isEdit = normalizedName.includes("edit");
+	const isWrite = normalizedName.includes("write");
+	const showsDiffOnly = isEdit || isWrite;
+	const isEditError = isEdit && failed;
+	const resultPatch = end ? patchFromPayload(end.payload) : undefined;
+	const toolPatch = isEditError
+		? undefined
+		: resultPatch ??
+			(isEdit ? buildEditPatch(args) : undefined) ??
+			(isWrite ? buildWritePatch(args) : undefined);
 	return (
 		<details
 			className={`chat-bubble tool-event tool-${status} ${toolColorClass(name)}`}
-			open={!end}
+			open={!end || showsDiffOnly}
 		>
 			<summary>
-				<strong>{name}</strong> &gt; {jsonPreview(toolArgs(start.payload))}
+				<strong>{name}</strong>
+				{argsSummary ? <> &gt; {argsSummary}</> : null}
 			</summary>
-			<pre>{jsonPreview(toolArgs(start.payload), 4000)}</pre>
-			{end ? <pre>{jsonPreview(toolOutput(end.payload), 4000)}</pre> : null}
+			{toolPatch ? <ToolDiff patch={toolPatch} /> : null}
+			{isEditError ? (
+				<section className="tool-details-grid">
+					<div>
+						<strong>Error</strong>
+						<pre>{fullToolDetail(end ? toolOutput(end.payload) : "Edit failed")}</pre>
+					</div>
+				</section>
+			) : showsDiffOnly ? null : (
+				<section className="tool-details-grid">
+					<div>
+						<strong>Arguments</strong>
+						<pre>{jsonPreview(args, 4000)}</pre>
+					</div>
+					{end ? (
+						<div>
+							<strong>Result</strong>
+							<pre>{jsonPreview(toolOutput(end.payload), 4000)}</pre>
+						</div>
+					) : null}
+				</section>
+			)}
 		</details>
 	);
 }
