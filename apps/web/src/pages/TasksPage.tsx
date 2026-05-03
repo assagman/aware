@@ -132,13 +132,25 @@ export function TasksPage() {
 	}
 	async function start(id: string) {
 		const task = tasks.find((t) => t.id === id);
-		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
-			agentProfileId,
-			worktreeId: task?.worktreeId,
-		});
-		setSelectedRunId(run.id);
-		load();
-		alert(`run ${run.id}`);
+		setTasks((current) =>
+			current.map((task) =>
+				task.id === id
+					? { ...task, status: "running", updatedAt: new Date().toISOString() }
+					: task,
+			),
+		);
+		try {
+			const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
+				agentProfileId,
+				worktreeId: task?.worktreeId,
+			});
+			setSelectedRunId(run.id);
+			load();
+			alert(`run ${run.id}`);
+		} catch (error) {
+			load();
+			throw error;
+		}
 	}
 	async function softUpdate(id: string, patch: Partial<Task>) {
 		await apiPatch<Task>(`/tasks/${id}`, patch);
