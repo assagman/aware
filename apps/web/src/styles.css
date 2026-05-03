@@ -760,7 +760,7 @@ pre {
 }
 
 .task-composer,
-.tasks-list {
+.tasks-list-panel {
 	min-height: 0;
 	padding: 14px;
 	background: #0f131a;
@@ -772,6 +772,51 @@ pre {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
+}
+
+.task-composer-head,
+.task-detail-actions,
+.tasks-list-tools,
+.tasks-list-tools label,
+.tasks-list-panel {
+	display: flex;
+}
+
+.task-composer-head {
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.task-detail-actions {
+	align-items: center;
+	gap: 8px;
+}
+
+.tasks-list-panel {
+	flex-direction: column;
+	gap: 10px;
+}
+
+.tasks-list-tools {
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
+.tasks-list-tools label {
+	align-items: center;
+	gap: 6px;
+	color: #94a3b8;
+	font-size: 12px;
+}
+
+.tasks-list-tools select {
+	margin: 0;
+	background: #07090c;
+	border: 1px solid #334155;
+	border-radius: 8px;
+	color: #f8fafc;
 }
 
 .task-composer label {
@@ -810,7 +855,9 @@ pre {
 }
 
 .tasks-list {
+	min-height: 0;
 	display: flex;
+	flex: 1;
 	flex-direction: column;
 	gap: 10px;
 	overflow: auto;
@@ -875,6 +922,13 @@ pre {
 		grid-template-columns: 1fr;
 	}
 
+	.task-composer-head,
+	.tasks-list-tools {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.task-detail-actions,
 	.task-row-actions {
 		justify-content: space-between;
 	}

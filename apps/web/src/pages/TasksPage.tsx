@@ -1,5 +1,5 @@
-import type { AgentRun, Task } from "@agent-ide/shared";
-import { useEffect, useState } from "react";
+import type { AgentRun, Task, TaskStatus } from "@agent-ide/shared";
+import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "../app/api";
 import {
 	getSelection,
@@ -7,6 +7,17 @@ import {
 	setSelectedTaskId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
+
+type TaskFilter = "active" | "done" | "all";
+type TaskSort = "status-updated" | "updated" | "title";
+
+const statusOrder: Record<TaskStatus, number> = {
+	running: 0,
+	queued: 1,
+	failed: 2,
+	draft: 3,
+	done: 4,
+};
 
 export function TasksPage() {
 	const [tasks, setTasks] = useState<Task[]>([]);
@@ -16,6 +27,8 @@ export function TasksPage() {
 	const [body, setBody] = useState("");
 	const [selectedTaskId, setSelectedTaskIdState] = useState("");
 	const [agentProfileId, setAgentProfileId] = useState("");
+	const [taskFilter, setTaskFilter] = useState<TaskFilter>("active");
+	const [taskSort, setTaskSort] = useState<TaskSort>("status-updated");
 	const load = () => {
 		const selection = getSelection();
 		const selectedProjectId = selection.selectedProjectId;
@@ -40,8 +53,28 @@ export function TasksPage() {
 		};
 		reload();
 		window.addEventListener("agent-ide-selection", reloadSelection);
-		return () => window.removeEventListener("agent-ide-selection", reloadSelection);
+		return () =>
+			window.removeEventListener("agent-ide-selection", reloadSelection);
 	}, []);
+	const visibleTasks = useMemo(() => {
+		return tasks
+			.filter((task) => {
+				if (task.archivedAt || task.deletedAt) return false;
+				if (taskFilter === "active") return task.status !== "done";
+				if (taskFilter === "done") return task.status === "done";
+				return true;
+			})
+			.sort((a, b) => {
+				if (taskSort === "updated")
+					return b.updatedAt.localeCompare(a.updatedAt);
+				if (taskSort === "title") return a.title.localeCompare(b.title);
+				return (
+					statusOrder[a.status] - statusOrder[b.status] ||
+					b.updatedAt.localeCompare(a.updatedAt)
+				);
+			});
+	}, [tasks, taskFilter, taskSort]);
+	const selectedTask = tasks.find((task) => task.id === selectedTaskId);
 	function newTask() {
 		setSelectedTaskIdState("");
 		setTitle("");
@@ -78,6 +111,11 @@ export function TasksPage() {
 		load();
 		alert(`run ${run.id}`);
 	}
+	async function softUpdate(id: string, patch: Partial<Task>) {
+		await apiPatch<Task>(`/tasks/${id}`, patch);
+		newTask();
+		load();
+	}
 	const hasSelection = Boolean(projectId && worktreeId);
 	return (
 		<section id="tasks" className="card tasks-page">
@@ -103,10 +141,43 @@ export function TasksPage() {
 					}}
 				>
 					<div className="task-composer-head">
-						<h3>{selectedTaskId ? "Edit task" : "New task"}</h3>
-						<button type="button" onClick={newTask}>
-							New
-						</button>
+						<div>
+							<h3>{selectedTaskId ? "Edit task" : "New task"}</h3>
+							{selectedTask ? (
+								<span className={`task-status status-${selectedTask.status}`}>
+									{selectedTask.status}
+								</span>
+							) : null}
+						</div>
+						<div className="task-detail-actions">
+							{selectedTask ? (
+								<>
+									<button
+										type="button"
+										onClick={() =>
+											void softUpdate(selectedTask.id, {
+												archivedAt: new Date().toISOString(),
+											})
+										}
+									>
+										Archive
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											void softUpdate(selectedTask.id, {
+												deletedAt: new Date().toISOString(),
+											})
+										}
+									>
+										Delete
+									</button>
+								</>
+							) : null}
+							<button type="button" onClick={newTask}>
+								New
+							</button>
+						</div>
 					</div>
 					<label>
 						Title
@@ -130,49 +201,75 @@ export function TasksPage() {
 						</button>
 					</div>
 				</form>
-				<div className="tasks-list" aria-label="Tasks list">
-					{tasks.length === 0 ? (
-						<p className="tasks-empty">No tasks yet for this selection.</p>
-					) : (
-						tasks.map((t) => {
-							const canStart = t.status !== "done" && t.status !== "running";
-							return (
-								<article
-									key={t.id}
-									className={
-										selectedTaskId === t.id ? "task-row selected" : "task-row"
-									}
-									role="button"
-									tabIndex={0}
-									onClick={() => editTask(t)}
-									onKeyDown={(e) => {
-										if (e.key === "Enter" || e.key === " ") editTask(t);
-									}}
-								>
-									<div className="task-row-main">
-										<strong>{t.title}</strong>
-										{t.body ? <p>{t.body}</p> : null}
-									</div>
-									<div className="task-row-actions">
-										<span className={`task-status status-${t.status}`}>
-											{t.status}
-										</span>
-										{canStart ? (
-											<button
-												type="button"
-												onClick={(e) => {
-													e.stopPropagation();
-													void start(t.id);
-												}}
-											>
-												Start
-											</button>
-										) : null}
-									</div>
-								</article>
-							);
-						})
-					)}
+				<div className="tasks-list-panel">
+					<div className="tasks-list-tools">
+						<label>
+							Filter
+							<select
+								value={taskFilter}
+								onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}
+							>
+								<option value="active">Not done</option>
+								<option value="done">Done</option>
+								<option value="all">All active</option>
+							</select>
+						</label>
+						<label>
+							Sort
+							<select
+								value={taskSort}
+								onChange={(e) => setTaskSort(e.target.value as TaskSort)}
+							>
+								<option value="status-updated">Status, updated</option>
+								<option value="updated">Updated time</option>
+								<option value="title">Title</option>
+							</select>
+						</label>
+					</div>
+					<div className="tasks-list" aria-label="Tasks list">
+						{visibleTasks.length === 0 ? (
+							<p className="tasks-empty">No tasks match current filters.</p>
+						) : (
+							visibleTasks.map((t) => {
+								const canStart = t.status !== "done" && t.status !== "running";
+								return (
+									<article
+										key={t.id}
+										className={
+											selectedTaskId === t.id ? "task-row selected" : "task-row"
+										}
+										role="button"
+										tabIndex={0}
+										onClick={() => editTask(t)}
+										onKeyDown={(e) => {
+											if (e.key === "Enter" || e.key === " ") editTask(t);
+										}}
+									>
+										<div className="task-row-main">
+											<strong>{t.title}</strong>
+											{t.body ? <p>{t.body}</p> : null}
+										</div>
+										<div className="task-row-actions">
+											<span className={`task-status status-${t.status}`}>
+												{t.status}
+											</span>
+											{canStart ? (
+												<button
+													type="button"
+													onClick={(e) => {
+														e.stopPropagation();
+														void start(t.id);
+													}}
+												>
+													Start
+												</button>
+											) : null}
+										</div>
+									</article>
+								);
+							})
+						)}
+					</div>
 				</div>
 			</div>
 		</section>

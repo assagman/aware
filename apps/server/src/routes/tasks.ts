@@ -21,12 +21,12 @@ tasks.get("/", async (c) => {
 tasks.post("/", async (c) => c.json(await createTask(await c.req.json())));
 tasks.patch("/:id", async (c) => {
 	const body = await c.req.json();
-	return c.json(
-		await updateTask(c.req.param("id"), {
-			title: body.title,
-			body: body.body,
-		}),
+	const patch = Object.fromEntries(
+		["title", "body", "archivedAt", "deletedAt"]
+			.filter((key) => key in body)
+			.map((key) => [key, body[key]]),
 	);
+	return c.json(await updateTask(c.req.param("id"), patch));
 });
 tasks.post("/:id/agents", async (c) => {
 	const body = await c.req.json();
