@@ -45,8 +45,12 @@ export function FilesPage() {
 	const [anchorLine, setAnchorLine] = useState<number | null>(null);
 	const [endLine, setEndLine] = useState<number | null>(null);
 	const [note, setNote] = useState("");
+	const [annotationMode, setAnnotationMode] = useState<
+		"file" | "selection" | null
+	>(null);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const loadedWorktreeId = useRef("");
+	const noteRef = useRef<HTMLTextAreaElement>(null);
 	const lines = useMemo(() => content.split("\n"), [content]);
 	const fileAnnotations = annotations.filter((a) => a.filePath === file);
 	const wholeFileAnnotations = fileAnnotations.filter((a) => a.kind === "file");
@@ -89,6 +93,10 @@ export function FilesPage() {
 		window.addEventListener("agent-ide-selection", onSelection);
 		return () => window.removeEventListener("agent-ide-selection", onSelection);
 	}, []);
+	useEffect(() => {
+		if (annotationMode) noteRef.current?.focus();
+	}, [annotationMode]);
+
 	async function read(path: string) {
 		const id = getSelection().selectedWorktreeId;
 		const text = await fetch(
@@ -100,6 +108,7 @@ export function FilesPage() {
 		setAnchorLine(null);
 		setEndLine(null);
 		setNote("");
+		setAnnotationMode(null);
 	}
 	function selectLine(line: number, extend: boolean) {
 		if (extend && anchorLine) setEndLine(line);
@@ -107,6 +116,8 @@ export function FilesPage() {
 			setAnchorLine(line);
 			setEndLine(line);
 		}
+		if (annotationMode !== "selection") setNote("");
+		setAnnotationMode("selection");
 	}
 	async function saveAnnotation(kind: "file" | "line" | "range") {
 		const { selectedProjectId, selectedWorktreeId } = getSelection();
@@ -126,7 +137,13 @@ export function FilesPage() {
 		setNote("");
 		setAnchorLine(null);
 		setEndLine(null);
+		setAnnotationMode(null);
 		await loadAnnotations();
+	}
+	function saveActiveAnnotation() {
+		if (annotationMode === "file") return saveAnnotation("file");
+		if (!selectedStart) return;
+		return saveAnnotation(selectedStart === selectedEnd ? "line" : "range");
 	}
 	return (
 		<section id="files" className="three-pane full-workspace">
@@ -142,7 +159,76 @@ export function FilesPage() {
 			<div className="card editor-pane">
 				<div className="panel-head">
 					<h2>{file || "Open file"}</h2>
+					{file ? (
+						<button
+							type="button"
+							className="annotate-file-button"
+							onClick={() => {
+								setNote("");
+								setAnnotationMode("file");
+							}}
+						>
+							Annotate file
+						</button>
+					) : null}
 				</div>
+				{annotationMode ? (
+					<div className="annotation-popover">
+						<div className="panel-head">
+							<strong>
+								{annotationMode === "file"
+									? "Annotate file"
+									: selectedStart
+										? `Annotate lines ${selectedStart}-${selectedEnd}`
+										: "Annotate selection"}
+							</strong>
+							<button
+								type="button"
+								onClick={() => {
+									setNote("");
+									setAnnotationMode(null);
+								}}
+							>
+								×
+							</button>
+						</div>
+						<textarea
+							ref={noteRef}
+							value={note}
+							onChange={(e) => setNote(e.target.value)}
+							onKeyDown={(e) => {
+								if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+									e.preventDefault();
+									void saveActiveAnnotation();
+								}
+							}}
+							placeholder="Write annotation. Cmd+Enter saves."
+						/>
+						<div className="popover-actions">
+							<button
+								type="button"
+								disabled={
+									!note.trim() ||
+									(annotationMode === "selection" && !selectedStart)
+								}
+								onClick={() => void saveActiveAnnotation()}
+							>
+								Save
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									setNote("");
+									setAnchorLine(null);
+									setEndLine(null);
+									setAnnotationMode(null);
+								}}
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
+				) : null}
 				{wholeFileAnnotations.map((a) => (
 					<div
 						key={a.id}
@@ -200,51 +286,6 @@ export function FilesPage() {
 				</div>
 			</div>
 			<div className="annotation-pane">
-				{file ? (
-					<div className="file-annotation-composer">
-						<p>
-							Select line. Shift-click another line for range. Write annotation,
-							then save.
-						</p>
-						{selectedStart ? (
-							<p>
-								Selected lines {selectedStart}-{selectedEnd}
-							</p>
-						) : (
-							<p>No line selected. Use "Annotate file" for file-level note.</p>
-						)}
-						<textarea
-							value={note}
-							onChange={(e) => setNote(e.target.value)}
-							placeholder="comment on selected file lines"
-						/>
-						<button
-							type="button"
-							disabled={!note.trim() || !selectedStart}
-							onClick={() =>
-								saveAnnotation(selectedStart === selectedEnd ? "line" : "range")
-							}
-						>
-							Annotate selected lines
-						</button>
-						<button
-							type="button"
-							disabled={!note.trim()}
-							onClick={() => saveAnnotation("file")}
-						>
-							Annotate file
-						</button>
-						<button
-							type="button"
-							onClick={() => {
-								setAnchorLine(null);
-								setEndLine(null);
-							}}
-						>
-							clear selection
-						</button>
-					</div>
-				) : null}
 				<AnnotationsPanel
 					annotations={file ? fileAnnotations : annotations}
 					onRefresh={loadAnnotations}

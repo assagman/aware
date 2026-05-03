@@ -164,6 +164,34 @@ pre {
 	position: relative;
 }
 
+.annotate-file-button {
+	margin-left: auto;
+}
+
+.annotation-popover {
+	position: absolute;
+	top: 56px;
+	right: 16px;
+	z-index: 3;
+	width: min(420px, calc(100% - 32px));
+	padding: 10px;
+	background: #11151c;
+	border: 1px solid #334155;
+	border-radius: 10px;
+	box-shadow: 0 16px 40px rgb(0 0 0 / 45%);
+}
+
+.annotation-popover textarea {
+	width: calc(100% - 16px);
+	min-height: 96px;
+}
+
+.popover-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
 .panel-head {
 	display: flex;
 	align-items: center;
