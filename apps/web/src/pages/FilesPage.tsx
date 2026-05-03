@@ -1,8 +1,8 @@
-import type { Annotation } from "@agent-ide/shared";
+import type { AgentRun, Annotation } from "@agent-ide/shared";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../app/api";
-import { getSelection } from "../app/selection";
+import { getSelection, setSelectedRunId } from "../app/selection";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 import { RunLink } from "../components/RunLink";
 
@@ -48,6 +48,9 @@ export function FilesPage() {
 	const [annotationMode, setAnnotationMode] = useState<
 		"file" | "selection" | null
 	>(null);
+	const [projectMessage, setProjectMessage] = useState("");
+	const [projectChatRun, setProjectChatRun] = useState<AgentRun | null>(null);
+	const [projectChatStatus, setProjectChatStatus] = useState("");
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const loadedWorktreeId = useRef("");
 	const noteRef = useRef<HTMLTextAreaElement>(null);
@@ -145,8 +148,28 @@ export function FilesPage() {
 		if (!selectedStart) return;
 		return saveAnnotation(selectedStart === selectedEnd ? "line" : "range");
 	}
+	async function sendProjectChat() {
+		const { selectedProjectId, selectedWorktreeId } = getSelection();
+		if (!selectedWorktreeId || !projectMessage.trim()) return;
+		setProjectChatStatus("starting agent run...");
+		const run = await apiPost<AgentRun>("/chat", {
+			projectId: selectedProjectId,
+			worktreeId: selectedWorktreeId,
+			message: projectMessage,
+			annotationIds: [],
+		});
+		setProjectMessage("");
+		setProjectChatRun(run);
+		setProjectChatStatus(`run ${run.id} ${run.status}`);
+	}
+	function openProjectChatRun(run: AgentRun) {
+		setProjectMessage("");
+		setProjectChatRun(null);
+		setProjectChatStatus("");
+		setSelectedRunId(run.id);
+	}
 	return (
-		<section id="files" className="three-pane full-workspace">
+		<section id="files" className="three-pane full-workspace files-workspace">
 			<div className="card tree-pane">
 				<h2>Files</h2>
 				{error ? <p className="error">{error}</p> : null}
@@ -290,6 +313,38 @@ export function FilesPage() {
 					annotations={file ? fileAnnotations : annotations}
 					onRefresh={loadAnnotations}
 				/>
+			</div>
+			<div className="card files-project-chat">
+				<textarea
+					value={projectMessage}
+					onChange={(e) => setProjectMessage(e.target.value)}
+					placeholder="Chat about this project/worktree. No annotations, tasks, or diffs included."
+				/>
+				<div className="files-project-chat-actions">
+					<button
+						type="button"
+						disabled={!projectMessage.trim()}
+						onClick={() => void sendProjectChat()}
+					>
+						Send
+					</button>
+					{projectChatStatus ? (
+						<p>
+							{projectChatStatus}
+							{projectChatRun ? (
+								<>
+									{" — "}
+									<a
+										href="#runs"
+										onClick={() => openProjectChatRun(projectChatRun)}
+									>
+										open run
+									</a>
+								</>
+							) : null}
+						</p>
+					) : null}
+				</div>
 			</div>
 		</section>
 	);

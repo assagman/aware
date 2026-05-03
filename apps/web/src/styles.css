@@ -139,6 +139,10 @@ pre {
 	min-height: 0;
 }
 
+.files-workspace {
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
 .project-config-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(280px, 1fr));
@@ -149,6 +153,34 @@ pre {
 .full-workspace > div {
 	min-height: 0;
 	overflow: hidden;
+}
+
+.files-project-chat {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 10px;
+	align-items: end;
+	overflow: visible;
+}
+
+.files-project-chat textarea {
+	width: calc(100% - 16px);
+	min-height: 56px;
+	resize: vertical;
+}
+
+.files-project-chat-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	min-width: 180px;
+}
+
+.files-project-chat-actions p {
+	margin: 0;
+	font-size: 12px;
 }
 
 .tree-pane,

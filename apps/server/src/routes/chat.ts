@@ -16,7 +16,7 @@ chat.post("/", async (c) => {
 	const ids = Array.isArray(body.annotationIds)
 		? body.annotationIds
 		: undefined;
-	const annotations = ids?.length
+	const annotations = ids
 		? allAnnotations.filter((a) => ids.includes(a.id))
 		: allAnnotations;
 	const agents = await listAgentProfiles();
