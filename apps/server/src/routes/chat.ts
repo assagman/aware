@@ -12,6 +12,8 @@ export const chat = new Hono();
 chat.post("/", async (c) => {
 	const body = await c.req.json();
 	const worktree = await assertAllowedWorktree(body.worktreeId);
+	if (body.projectId && body.projectId !== worktree.projectId)
+		return c.json({ error: "worktree does not belong to chat project" }, 400);
 	const allAnnotations = await listAnnotations({ worktreeId: worktree.id });
 	const ids = Array.isArray(body.annotationIds)
 		? body.annotationIds
@@ -22,7 +24,7 @@ chat.post("/", async (c) => {
 	const agents = await listAgentProfilesForRun(body.agentProfileId);
 	const isAnnotationSent = Boolean(ids?.length);
 	const run = await flueRuntime.startChat({
-		projectId: body.projectId || "local",
+		projectId: worktree.projectId,
 		worktreeId: worktree.id,
 		worktreePath: worktree.path,
 		agents,

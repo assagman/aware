@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
 import type { Project, Worktree } from "@aware/shared";
 import { db } from "../db/client";
 import {
@@ -8,11 +7,12 @@ import {
 	repoRoot,
 	worktreePaths,
 } from "./gitService";
+import { assertWorkspacePath } from "./workspaceConvention";
 
 const now = () => new Date().toISOString();
 
 export async function addProject(path: string): Promise<Project> {
-	const rootPath = await realpath(await repoRoot(path));
+	const rootPath = await assertWorkspacePath(await repoRoot(path));
 	const existing = (await listProjects()).find((p) => p.rootPath === rootPath);
 	const project =
 		existing ??
@@ -31,10 +31,10 @@ async function listedExistingWorktreePaths(project: Project) {
 	const paths = new Set<string>();
 	for (const path of await worktreePaths(project.rootPath)) {
 		try {
-			paths.add(await realpath(path));
+			paths.add(await assertWorkspacePath(path));
 		} catch {
-			// Ignore prunable/missing worktrees; active state must only include paths
-			// that still exist on disk and are reported by `git worktree list`.
+			// Ignore prunable/missing/non-workspace worktrees; active state must only
+			// include valid paths reported by `git worktree list`.
 		}
 	}
 	return paths;
@@ -59,7 +59,7 @@ export async function addWorktree(
 ): Promise<Worktree> {
 	const project = (await listProjects()).find((p) => p.id === projectId);
 	if (!project) throw new Error("Project not found");
-	const real = await realpath(path);
+	const real = await assertWorkspacePath(path);
 	if (!(await listedExistingWorktreePaths(project)).has(real))
 		throw new Error("Worktree not listed by git worktree list");
 	const branch = await currentBranch(real);

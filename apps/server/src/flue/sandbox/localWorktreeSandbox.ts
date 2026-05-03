@@ -8,15 +8,16 @@ import {
 	MountableFs,
 	ReadWriteFs,
 } from "just-bash";
+import {
+	isWorkspacePath,
+	WORKSPACE_ROOT,
+} from "../../services/workspaceConvention";
 
 const execFileAsync = promisify(execFile);
 
 function hostCommand(name: string, bin = name) {
 	return defineCommand(name, async (args, ctx) => {
-		const root = process.cwd();
-		const cwd = ctx.cwd.startsWith("/workspace")
-			? `${root}${ctx.cwd.slice("/workspace".length)}`
-			: root;
+		const cwd = ctx.cwd.startsWith(WORKSPACE_ROOT) ? ctx.cwd : process.cwd();
 		try {
 			const { stdout, stderr } = await execFileAsync(bin, args, {
 				cwd,
@@ -68,14 +69,17 @@ export async function createDefaultEnv() {
 }
 
 export async function createLocalEnv() {
-	const rwfs = new ReadWriteFs({ root: process.cwd() });
+	const cwd = process.cwd();
+	if (!isWorkspacePath(cwd))
+		throw new Error(`Local sandbox cwd must be under ${WORKSPACE_ROOT}`);
+	const rwfs = new ReadWriteFs({ root: WORKSPACE_ROOT });
 	const fs = new MountableFs({ base: new InMemoryFs() });
-	fs.mount("/workspace", rwfs);
+	fs.mount(WORKSPACE_ROOT, rwfs);
 	return bashFactoryToSessionEnv(
 		() =>
 			new Bash({
 				fs,
-				cwd: "/workspace",
+				cwd,
 				env: process.env as Record<string, string>,
 				customCommands: hostCommands,
 				python: true,
