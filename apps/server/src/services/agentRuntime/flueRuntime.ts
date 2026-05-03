@@ -33,8 +33,10 @@ function normalizeToolPath() {
 	const pathParts = [
 		process.env.PATH ?? "",
 		home ? `${home}/.local/share/mise/shims` : "",
+		miseInstalls ? `${miseInstalls}/node/24.11.1/bin` : "",
 		miseInstalls ? `${miseInstalls}/bun/1.3.8/bin` : "",
 		miseInstalls ? `${miseInstalls}/python/3.14.2/bin` : "",
+		home ? `${home}/Library/pnpm` : "",
 		home ? `${home}/.bun/bin` : "",
 		"/opt/homebrew/bin",
 		"/opt/homebrew/sbin",

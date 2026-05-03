@@ -39,6 +39,11 @@ function hostCommand(name: string, bin = name) {
 
 const hostCommands = [
 	hostCommand("git"),
+	hostCommand("node"),
+	hostCommand("npm"),
+	hostCommand("npx"),
+	hostCommand("pnpm"),
+	hostCommand("corepack"),
 	hostCommand("bun"),
 	hostCommand("python"),
 	hostCommand("python3", "python3"),
