@@ -19,6 +19,15 @@ tasks.get("/", async (c) => {
 	return c.json(await listTasks(filter));
 });
 tasks.post("/", async (c) => c.json(await createTask(await c.req.json())));
+tasks.patch("/:id", async (c) => {
+	const body = await c.req.json();
+	return c.json(
+		await updateTask(c.req.param("id"), {
+			title: body.title,
+			body: body.body,
+		}),
+	);
+});
 tasks.post("/:id/agents", async (c) => {
 	const body = await c.req.json();
 	return c.json(

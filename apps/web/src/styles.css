@@ -664,3 +664,160 @@ pre {
 		width: 100%;
 	}
 }
+
+.tasks-page {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px;
+	overflow: hidden;
+}
+
+.tasks-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid #242832;
+}
+
+.tasks-header h2,
+.tasks-header p {
+	margin: 0;
+}
+
+.tasks-header p,
+.tasks-empty {
+	color: #94a3b8;
+}
+
+.tasks-layout {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(320px, 42%) minmax(360px, 1fr);
+	gap: 16px;
+}
+
+.task-composer,
+.tasks-list {
+	min-height: 0;
+	padding: 14px;
+	background: #0f131a;
+	border: 1px solid #242832;
+	border-radius: 10px;
+}
+
+.task-composer {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.task-composer label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-weight: 700;
+	color: #cbd5e1;
+}
+
+.task-composer input,
+.task-composer textarea {
+	width: 100%;
+	margin: 0;
+	background: #07090c;
+	border: 1px solid #334155;
+	border-radius: 8px;
+	color: #f8fafc;
+}
+
+.task-body-field {
+	flex: 1;
+	min-height: 0;
+}
+
+.task-body-field textarea {
+	flex: 1;
+	min-height: 280px;
+	resize: vertical;
+	line-height: 1.5;
+}
+
+.task-composer-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.tasks-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	overflow: auto;
+}
+
+.task-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 12px;
+	align-items: flex-start;
+	padding: 12px;
+	background: #11151c;
+	border: 1px solid #242832;
+	border-radius: 10px;
+}
+
+.task-row-main p {
+	margin: 6px 0 0;
+	color: #cbd5e1;
+	white-space: pre-wrap;
+}
+
+.task-row-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.task-status {
+	padding: 3px 8px;
+	border-radius: 999px;
+	background: #172033;
+	border: 1px solid #334155;
+	color: #cbd5e1;
+	font-size: 12px;
+	text-transform: capitalize;
+}
+
+.status-running,
+.status-queued {
+	border-color: #eab308;
+	color: #fde68a;
+}
+
+.status-done {
+	border-color: #22c55e;
+	color: #bbf7d0;
+}
+
+.status-failed {
+	border-color: #ef4444;
+	color: #fecaca;
+}
+
+@media (max-width: 900px) {
+	.tasks-page {
+		overflow: auto;
+	}
+
+	.tasks-layout,
+	.task-row {
+		grid-template-columns: 1fr;
+	}
+
+	.task-row-actions {
+		justify-content: space-between;
+	}
+}

@@ -1,35 +1,27 @@
-import type { AgentRun, Project, Task, Worktree } from "@agent-ide/shared";
+import type { AgentRun, Task } from "@agent-ide/shared";
 import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../app/api";
+import { apiGet, apiPatch, apiPost } from "../app/api";
 import {
 	getSelection,
-	setSelectedProjectId,
 	setSelectedRunId,
 	setSelectedTaskId,
-	setSelectedWorktreeId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
 
 export function TasksPage() {
-	const [projects, setProjects] = useState<Project[]>([]);
-	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [projectId, setProjectId] = useState("");
 	const [worktreeId, setWorktreeId] = useState("");
 	const [title, setTitle] = useState("");
 	const [body, setBody] = useState("");
+	const [selectedTaskId, setSelectedTaskIdState] = useState("");
 	const [agentProfileId, setAgentProfileId] = useState("");
-	const filteredWorktrees = worktrees.filter(
-		(w) => !projectId || w.projectId === projectId,
-	);
-	const load = (nextProjectId?: string, nextWorktreeId?: string) => {
+	const load = () => {
 		const selection = getSelection();
-		const selectedProjectId = nextProjectId ?? selection.selectedProjectId;
-		const selectedWorktreeId = nextWorktreeId ?? selection.selectedWorktreeId;
+		const selectedProjectId = selection.selectedProjectId;
+		const selectedWorktreeId = selection.selectedWorktreeId;
 		setProjectId(selectedProjectId);
 		setWorktreeId(selectedWorktreeId);
-		void apiGet<Project[]>("/projects").then(setProjects);
-		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
 		if (!selectedProjectId || !selectedWorktreeId) {
 			setTasks([]);
 			return;
@@ -42,22 +34,32 @@ export function TasksPage() {
 	};
 	useEffect(() => {
 		const reload = () => load();
+		const reloadSelection = () => {
+			newTask();
+			load();
+		};
 		reload();
-		window.addEventListener("agent-ide-selection", reload);
-		return () => window.removeEventListener("agent-ide-selection", reload);
+		window.addEventListener("agent-ide-selection", reloadSelection);
+		return () => window.removeEventListener("agent-ide-selection", reloadSelection);
 	}, []);
-	function chooseProject(id: string) {
-		setProjectId(id);
-		setWorktreeId("");
-		setSelectedProjectId(id);
-		load(id, "");
+	function newTask() {
+		setSelectedTaskIdState("");
+		setTitle("");
+		setBody("");
 	}
-	function chooseWorktree(id: string) {
-		setWorktreeId(id);
-		setSelectedWorktreeId(id);
-		load(projectId, id);
+	function editTask(task: Task) {
+		setSelectedTaskIdState(task.id);
+		setSelectedTaskId(task.id);
+		setTitle(task.title);
+		setBody(task.body);
 	}
-	async function create() {
+	async function save() {
+		if (!projectId || !worktreeId || !title.trim()) return;
+		if (selectedTaskId) {
+			await apiPatch<Task>(`/tasks/${selectedTaskId}`, { title, body });
+			load();
+			return;
+		}
 		const task = await apiPost<Task>("/tasks", {
 			projectId,
 			worktreeId,
@@ -65,71 +67,114 @@ export function TasksPage() {
 			body,
 		});
 		setSelectedTaskId(task.id);
-		load(projectId, worktreeId);
+		setSelectedTaskIdState(task.id);
+		load();
 	}
 	async function start(id: string) {
 		const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
 			agentProfileId,
 		});
 		setSelectedRunId(run.id);
-		load(projectId, worktreeId);
+		load();
 		alert(`run ${run.id}`);
 	}
+	const hasSelection = Boolean(projectId && worktreeId);
 	return (
-		<section id="tasks" className="card">
-			<h2>Tasks</h2>
-			<select value={projectId} onChange={(e) => chooseProject(e.target.value)}>
-				<option value="">project</option>
-				{projects.map((p) => (
-					<option key={p.id} value={p.id}>
-						{p.name}
-					</option>
-				))}
-			</select>
-			<select
-				value={worktreeId}
-				onChange={(e) => chooseWorktree(e.target.value)}
-			>
-				<option value="">worktree</option>
-				{filteredWorktrees.map((w) => (
-					<option key={w.id} value={w.id}>
-						{w.branch}
-					</option>
-				))}
-			</select>
-			<input
-				value={title}
-				onChange={(e) => setTitle(e.target.value)}
-				placeholder="task title"
-			/>
-			<textarea
-				value={body}
-				onChange={(e) => setBody(e.target.value)}
-				placeholder="task details"
-			/>
-			<button
-				type="button"
-				onClick={create}
-				disabled={!projectId || !worktreeId || !title.trim()}
-			>
-				Create task
-			</button>
-			<AgentPicker value={agentProfileId} onChange={setAgentProfileId} />
-			<ul>
-				{tasks.map((t) => {
-					const canStart = t.status !== "done" && t.status !== "running";
-					return (
-						<li key={t.id}>
-							{canStart ? (
-								<button type="button" onClick={() => start(t.id)}>
-									start
-								</button>
-							) : null}{" "}
-							{t.title} — {t.status}
-						</li>
-					);
-				})}
-			</ul>
+		<section id="tasks" className="card tasks-page">
+			<div className="tasks-header">
+				<div>
+					<h2>Tasks</h2>
+					<p>Create and run tasks for the selected project/worktree.</p>
+				</div>
+				<AgentPicker value={agentProfileId} onChange={setAgentProfileId} />
+			</div>
+			{!hasSelection ? (
+				<p className="tasks-empty">
+					Select a project and worktree from the top-right pickers to manage
+					tasks.
+				</p>
+			) : null}
+			<div className="tasks-layout">
+				<form
+					className="task-composer"
+					onSubmit={(e) => {
+						e.preventDefault();
+						void save();
+					}}
+				>
+					<div className="task-composer-head">
+						<h3>{selectedTaskId ? "Edit task" : "New task"}</h3>
+						<button type="button" onClick={newTask}>
+							New
+						</button>
+					</div>
+					<label>
+						Title
+						<input
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+							placeholder="Task title"
+						/>
+					</label>
+					<label className="task-body-field">
+						Details
+						<textarea
+							value={body}
+							onChange={(e) => setBody(e.target.value)}
+							placeholder="Describe the work to be done..."
+						/>
+					</label>
+					<div className="task-composer-actions">
+						<button type="submit" disabled={!hasSelection || !title.trim()}>
+							{selectedTaskId ? "Save changes" : "Create task"}
+						</button>
+					</div>
+				</form>
+				<div className="tasks-list" aria-label="Tasks list">
+					{tasks.length === 0 ? (
+						<p className="tasks-empty">No tasks yet for this selection.</p>
+					) : (
+						tasks.map((t) => {
+							const canStart = t.status !== "done" && t.status !== "running";
+							return (
+								<article
+									key={t.id}
+									className={
+										selectedTaskId === t.id ? "task-row selected" : "task-row"
+									}
+									role="button"
+									tabIndex={0}
+									onClick={() => editTask(t)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") editTask(t);
+									}}
+								>
+									<div className="task-row-main">
+										<strong>{t.title}</strong>
+										{t.body ? <p>{t.body}</p> : null}
+									</div>
+									<div className="task-row-actions">
+										<span className={`task-status status-${t.status}`}>
+											{t.status}
+										</span>
+										{canStart ? (
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													void start(t.id);
+												}}
+											>
+												Start
+											</button>
+										) : null}
+									</div>
+								</article>
+							);
+						})
+					)}
+				</div>
+			</div>
 		</section>
 	);
 }
