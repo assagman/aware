@@ -29,6 +29,8 @@ export async function addProject(path: string): Promise<Project> {
 
 async function listedExistingWorktreePaths(project: Project) {
 	const paths = new Set<string>();
+	if (!(await isBareRepository(project.rootPath).catch(() => false)))
+		paths.add(project.rootPath);
 	for (const path of await worktreePaths(project.rootPath)) {
 		try {
 			paths.add(await assertHostWorkspacePath(path));
