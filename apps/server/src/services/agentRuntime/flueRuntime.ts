@@ -15,6 +15,7 @@ import { listAgentProfiles } from "../agentProfileService";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import { assertAllowedWorktree } from "../projectService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
+import { publishRunEvent } from "../runEventBus";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
 
