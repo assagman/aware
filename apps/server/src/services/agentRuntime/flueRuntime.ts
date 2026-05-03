@@ -2,13 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type {
-	AgentProfile,
-	AgentRun,
-	Annotation,
-	RunEvent,
-	Task,
-} from "@aware/shared";
+import type { AgentProfile, AgentRun, Annotation, Task } from "@aware/shared";
 import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";
@@ -19,6 +13,7 @@ import { assertAllowedWorktree, listProjects } from "../projectService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
+import { runEventHub } from "./runEventHub";
 
 const now = () => new Date().toISOString();
 
@@ -30,6 +25,10 @@ function normalizeProviderEnv() {
 
 function providerFromModel(model: string) {
 	return model.split("/")[0] ?? "unknown";
+}
+
+function normalizeRuntimeThinking(thinking: string) {
+	return thinking === "on" ? "medium" : thinking;
 }
 
 async function readGlobalAgentInstructions() {
@@ -62,6 +61,27 @@ function agentProfileRoleInstructions(
 		.filter(Boolean)
 		.join("\n\n");
 }
+
+type RuntimeSession = {
+	harness?: {
+		toolExecution?: "parallel" | "sequential";
+		afterToolCall?: (context: {
+			result?: { content?: unknown[]; details?: unknown };
+			isError?: boolean;
+		}) => Promise<unknown>;
+		state?: { thinkingLevel?: string };
+		subscribe?: (
+			listener: (event: {
+				type: string;
+				assistantMessageEvent?: {
+					type: string;
+					delta?: string;
+					content?: string;
+				};
+			}) => void | Promise<unknown>,
+		) => void;
+	};
+};
 
 function normalizeToolPath() {
 	const home = process.env.HOME;
@@ -161,8 +181,17 @@ export class FlueRuntime {
 	) {
 		try {
 			const result = await this.runFlue(run, input, input.prompt);
-			await this.guardDefaultBranch(run, input.worktreeId);
-			await this.log(run.id, "result", result);
+			await this.flushLogs(run.id);
+			const guardMessage = await this.guardDefaultBranch(input.worktreeId);
+			if (guardMessage)
+				this.log(
+					run.id,
+					"error",
+					{ message: guardMessage },
+					{ immediate: true },
+				);
+			this.log(run.id, "result", result, { immediate: true });
+			await this.flushLogs(run.id);
 			if (input.annotationIds?.length)
 				await markAnnotationsSent(input.annotationIds);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
@@ -212,8 +241,17 @@ export class FlueRuntime {
 				updatedAt: now(),
 			});
 			const result = await this.runFlue(run, input, prompt);
-			await this.guardDefaultBranch(run, input.worktreeId);
-			await this.log(run.id, "result", result);
+			await this.flushLogs(run.id);
+			const guardMessage = await this.guardDefaultBranch(input.worktreeId);
+			if (guardMessage)
+				this.log(
+					run.id,
+					"error",
+					{ message: guardMessage },
+					{ immediate: true },
+				);
+			this.log(run.id, "result", result, { immediate: true });
+			await this.flushLogs(run.id);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", input.task.id, {
 				status: "done",
@@ -245,7 +283,7 @@ export class FlueRuntime {
 			(t) => t.id === run.taskId,
 		);
 		const agents = await listAgentProfiles();
-		await this.log(run.id, "user_message", { text: message });
+		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		try {
 			await db.update("tasks", task?.id ?? run.taskId, {
 				status: "running",
@@ -270,8 +308,17 @@ export class FlueRuntime {
 				},
 				message,
 			);
-			await this.guardDefaultBranch(run, run.worktreeId);
-			await this.log(run.id, "result", result);
+			await this.flushLogs(run.id);
+			const guardMessage = await this.guardDefaultBranch(run.worktreeId);
+			if (guardMessage)
+				this.log(
+					run.id,
+					"error",
+					{ message: guardMessage },
+					{ immediate: true },
+				);
+			this.log(run.id, "result", result, { immediate: true });
+			await this.flushLogs(run.id);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", task?.id ?? run.taskId, {
 				status: "done",
@@ -358,8 +405,6 @@ export class FlueRuntime {
 		});
 		ctx.setEventCallback((event) => {
 			void this.log(run.id, event.type, event);
-			if (event.type.toLowerCase().includes("tool"))
-				void this.guardDefaultBranch(run, input.worktreeId);
 		});
 		const model = process.env.KIMI_API_KEY
 			? agent.model
@@ -372,28 +417,68 @@ export class FlueRuntime {
 			persist: flueSessionStore,
 			role: profileRole,
 		});
-		const session = await flueAgent.session(run.sessionId);
+		const session = (await flueAgent.session(
+			run.sessionId,
+		)) as RuntimeSession & {
+			prompt: (text: string) => Promise<unknown>;
+		};
+		this.configureSession(
+			run,
+			input.worktreeId,
+			session,
+			agent.thinking ?? "off",
+		);
 		return await session.prompt(prompt);
 	}
 
-	private async guardDefaultBranch(run: AgentRun, worktreeId: string) {
-		const worktree = await assertAllowedWorktree(worktreeId);
-		const message = await revertDefaultBranchMutation(worktree);
-		if (message) await this.log(run.id, "user_message", { text: message });
+	private configureSession(
+		run: AgentRun,
+		worktreeId: string,
+		session: RuntimeSession,
+		thinking: string,
+	) {
+		const harness = session.harness;
+		if (!harness) return;
+		harness.toolExecution = "parallel";
+		if (harness.state)
+			harness.state.thinkingLevel = normalizeRuntimeThinking(thinking);
+		harness.subscribe?.((event) => {
+			const assistantEvent = event.assistantMessageEvent;
+			if (assistantEvent?.type === "thinking_delta" && assistantEvent.delta) {
+				this.log(run.id, "thinking_delta", { text: assistantEvent.delta });
+			}
+		});
+		harness.afterToolCall = async (context) => {
+			const message = await this.guardDefaultBranch(worktreeId);
+			if (!message) return undefined;
+			const content = [
+				...(context.result?.content ?? []),
+				{ type: "text", text: message },
+			];
+			return {
+				content,
+				details: context.result?.details,
+				isError: true,
+			};
+		};
 	}
 
-	async log(runId: string, type: string, payload: unknown) {
-		const events = await db.list<RunEvent>("runEvents");
-		const event: RunEvent = {
-			id: randomUUID(),
-			runId,
-			seq: events.filter((e) => e.runId === runId).length,
-			type,
-			payload,
-			createdAt: now(),
-		};
-		await db.insert("runEvents", event);
-		return event;
+	private async guardDefaultBranch(worktreeId: string) {
+		const worktree = await assertAllowedWorktree(worktreeId);
+		return await revertDefaultBranchMutation(worktree);
+	}
+
+	log(
+		runId: string,
+		type: string,
+		payload: unknown,
+		options?: { immediate?: boolean },
+	) {
+		return runEventHub.emit(runId, type, payload, options);
+	}
+
+	async flushLogs(runId: string) {
+		await runEventHub.flush(runId);
 	}
 }
 

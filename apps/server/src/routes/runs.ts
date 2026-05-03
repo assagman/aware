@@ -2,6 +2,10 @@ import type { AgentRun } from "@aware/shared";
 import { Hono } from "hono";
 import { db } from "../db/client";
 import { flueRuntime } from "../services/agentRuntime/flueRuntime";
+import {
+	MAX_QUEUE_EVENTS,
+	runEventHub,
+} from "../services/agentRuntime/runEventHub";
 
 export const runs = new Hono();
 
@@ -41,27 +45,84 @@ runs.post("/:id/messages", async (c) => {
 
 runs.get("/:id/events", async (c) => {
 	const id = c.req.param("id");
-	const events = await db.list<{ id: string; runId: string; seq: number }>(
-		"runEvents",
-	);
-	return c.json(
-		events.filter((e) => e.runId === id).sort((a, b) => a.seq - b.seq),
-	);
+	return c.json(await runEventHub.persistedEvents(id));
 });
 
 runs.get("/:id/stream", async (c) => {
 	const id = c.req.param("id");
-	const events = await db.list<{
-		id: string;
-		runId: string;
+	const afterSeq = Number(
+		c.req.query("afterSeq") ?? c.req.header("last-event-id") ?? -1,
+	);
+	await runEventHub.hydrateRun(id);
+	const encoder = new TextEncoder();
+	const encodeEvent = (event: {
+		seq: number;
 		type: string;
 		payload: unknown;
-	}>("runEvents");
-	const body = events
-		.filter((e) => e.runId === id)
-		.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e.payload)}\n\n`)
-		.join("");
-	return new Response(body, {
-		headers: { "content-type": "text/event-stream" },
+	}) =>
+		encoder.encode(
+			`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event.payload)}\n\n`,
+		);
+	let cleanup: () => void = () => undefined;
+	const stream = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			let closed = false;
+			let flushing = false;
+			let unsubscribe: () => void = () => undefined;
+			let heartbeat: ReturnType<typeof setInterval> | undefined;
+			const queue: Uint8Array[] = [];
+			const close = () => {
+				if (closed) return;
+				closed = true;
+				unsubscribe();
+				if (heartbeat) clearInterval(heartbeat);
+				controller.close();
+			};
+			cleanup = close;
+			const flush = () => {
+				if (flushing || closed) return;
+				flushing = true;
+				try {
+					while (queue.length) controller.enqueue(queue.shift()!);
+				} catch {
+					close();
+				} finally {
+					flushing = false;
+				}
+			};
+			const push = (chunk: Uint8Array) => {
+				if (closed) return false;
+				queue.push(chunk);
+				if (queue.length > MAX_QUEUE_EVENTS) {
+					close();
+					return false;
+				}
+				queueMicrotask(flush);
+				return true;
+			};
+			unsubscribe = runEventHub.subscribe(id, (event) =>
+				push(encodeEvent(event)),
+			);
+			heartbeat = setInterval(
+				() => push(encoder.encode(": heartbeat\n\n")),
+				15_000,
+			);
+			for (const event of await runEventHub.persistedEvents(
+				id,
+				Number.isFinite(afterSeq) ? afterSeq : -1,
+			)) {
+				if (!push(encodeEvent(event))) break;
+			}
+		},
+		cancel() {
+			cleanup();
+		},
+	});
+	return new Response(stream, {
+		headers: {
+			"content-type": "text/event-stream",
+			"cache-control": "no-cache, no-transform",
+			connection: "keep-alive",
+		},
 	});
 });

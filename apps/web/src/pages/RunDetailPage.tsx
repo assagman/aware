@@ -3,7 +3,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiPost } from "../app/api";
+import { API_BASE, apiGet, apiPost } from "../app/api";
 import {
 	getPageState,
 	persistScroll,
@@ -116,6 +116,9 @@ function isHiddenEvent(event: RunEvent) {
 	const type = eventType(event);
 	return (
 		type === "system" ||
+		type === "model" ||
+		type === "agent_start" ||
+		type === "turn_start" ||
 		type === "turn_end" ||
 		type === "idle" ||
 		type.includes("system_message")
@@ -344,15 +347,6 @@ function ProcessIndicator({ live }: { live: boolean }) {
 			<span aria-hidden="true" />
 			{live ? "Live" : "Idle"}
 		</span>
-	);
-}
-
-function LatestErrorBox({ event }: { event: RunEvent }) {
-	return (
-		<section className="chat-bubble error message-error latest-error">
-			<strong>Latest error</strong>
-			<MarkdownText text={errorText(event.payload)} />
-		</section>
 	);
 }
 
@@ -806,14 +800,6 @@ export function RunDetailPage() {
 		() => activeAgentLabel(selectedRun, events),
 		[selectedRun, events],
 	);
-	const latestError = useMemo(
-		() => [...events].reverse().find((event) => event.type === "error"),
-		[events],
-	);
-	const lastVisibleEvent = useMemo(
-		() => [...events].reverse().find((event) => !isHiddenEvent(event)),
-		[events],
-	);
 	async function loadRuns(nextFilter = worktreeFilter) {
 		const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
 		setRuns(rows);
@@ -852,15 +838,78 @@ export function RunDetailPage() {
 	}
 	useEffect(() => {
 		if (!runId) return;
+		let closed = false;
+		let fallbackTimer: number | undefined;
 		void loadEvents(runId);
-		const timer = window.setInterval(
-			() => {
-				void loadRuns();
-				void loadEvents(runId);
-			},
-			selectedRun?.status === "running" ? 750 : 2000,
-		);
-		return () => window.clearInterval(timer);
+		void loadRuns();
+		const startPolling = () => {
+			if (fallbackTimer || closed) return;
+			fallbackTimer = window.setInterval(
+				() => {
+					void loadRuns();
+					void loadEvents(runId);
+				},
+				selectedRun?.status === "running" ? 1000 : 3000,
+			);
+		};
+		if (typeof EventSource === "undefined") {
+			startPolling();
+			return () => {
+				closed = true;
+				if (fallbackTimer) window.clearInterval(fallbackTimer);
+			};
+		}
+		const source = new EventSource(`${API_BASE}/runs/${runId}/stream`);
+		source.onmessage = () => undefined;
+		source.onerror = () => {
+			startPolling();
+		};
+		const handleEvent = (event: MessageEvent<string>) => {
+			try {
+				const seq = Number(event.lastEventId);
+				const payload = JSON.parse(event.data) as unknown;
+				const item: RunEvent = {
+					id: `${runId}:${seq}`,
+					runId,
+					seq,
+					type: event.type,
+					payload,
+					createdAt: new Date().toISOString(),
+				};
+				setEvents((current) =>
+					current.some((existing) => existing.seq === item.seq)
+						? current
+						: [...current, item].sort((a, b) => a.seq - b.seq),
+				);
+			} catch {
+				startPolling();
+			}
+		};
+		for (const type of [
+			"text_delta",
+			"thinking_delta",
+			"message_delta_batch",
+			"thinking_delta_batch",
+			"tool_start",
+			"tool_end",
+			"user_message",
+			"annotations",
+			"prompt",
+			"result",
+			"error",
+			"model",
+			"agent_start",
+			"turn_start",
+			"turn_end",
+			"idle",
+		]) {
+			source.addEventListener(type, handleEvent as EventListener);
+		}
+		return () => {
+			closed = true;
+			source.close();
+			if (fallbackTimer) window.clearInterval(fallbackTimer);
+		};
 	}, [runId, selectedRun?.status]);
 	useEffect(() => {
 		if (selectedRun?.status === "running")
@@ -946,9 +995,6 @@ export function RunDetailPage() {
 					}
 				>
 					<ChatTimeline events={events} />
-					{latestError && lastVisibleEvent?.id !== latestError.id ? (
-						<LatestErrorBox event={latestError} />
-					) : null}
 					<div ref={bottomRef} />
 				</div>
 				<div className="run-input-bar">
