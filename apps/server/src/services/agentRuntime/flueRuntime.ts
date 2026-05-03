@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
 	AgentProfile,
 	AgentRun,
@@ -25,6 +28,35 @@ function normalizeProviderEnv() {
 
 function providerFromModel(model: string) {
 	return model.split("/")[0] ?? "unknown";
+}
+
+async function readGlobalAgentInstructions() {
+	try {
+		return (
+			await readFile(join(homedir(), ".agents", "AGENTS.md"), "utf8")
+		).trim();
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") return "";
+		throw error;
+	}
+}
+
+function systemPromptWithGlobalInstructions(
+	agentPrompt: string,
+	globalInstructions: string,
+) {
+	return [
+		globalInstructions
+			? [
+					"Global instructions from ~/.agents/AGENTS.md:",
+					globalInstructions,
+				].join("\n")
+			: "",
+		agentPrompt,
+	]
+		.filter(Boolean)
+		.join("\n\n");
 }
 
 function normalizeToolPath() {
@@ -253,6 +285,7 @@ export class FlueRuntime {
 		const agent = input.agents[0];
 		if (!agent) throw new Error("Create at least one agent profile first.");
 		const provider = providerFromModel(agent.model);
+		const globalInstructions = await readGlobalAgentInstructions();
 		const runtimeApiKey = await getProviderRuntimeApiKey(provider);
 		if (provider === "kimi-coding" && runtimeApiKey)
 			process.env.KIMI_API_KEY = runtimeApiKey;
@@ -268,6 +301,7 @@ export class FlueRuntime {
 			hasOpenAICodexAuth: provider === "openai-codex" && Boolean(runtimeApiKey),
 			hasKimiKey: Boolean(process.env.KIMI_API_KEY),
 			hasZaiKey: Boolean(process.env.ZAI_API_KEY),
+			hasGlobalInstructions: Boolean(globalInstructions),
 		});
 		const previous = process.cwd();
 		process.chdir(input.worktreePath);
@@ -286,7 +320,10 @@ export class FlueRuntime {
 				payload: {},
 				env: process.env,
 				agentConfig: {
-					systemPrompt: agent.systemPrompt,
+					systemPrompt: systemPromptWithGlobalInstructions(
+						agent.systemPrompt,
+						globalInstructions,
+					),
 					skills: {},
 					roles: {},
 					model: undefined,
