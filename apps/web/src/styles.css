@@ -483,8 +483,48 @@ pre {
 }
 
 .markdown-text {
-	white-space: pre-wrap;
 	line-height: 1.55;
+}
+
+.markdown-text > :first-child {
+	margin-top: 8px;
+}
+
+.markdown-text > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-text p {
+	white-space: pre-wrap;
+}
+
+.markdown-text pre {
+	white-space: pre;
+	max-height: 45vh;
+	margin: 10px 0;
+}
+
+.markdown-text code {
+	padding: 2px 4px;
+	background: #07090c;
+	border-radius: 4px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.markdown-text pre code {
+	padding: 0;
+	background: transparent;
+}
+
+.markdown-text blockquote {
+	margin: 10px 0;
+	padding-left: 12px;
+	border-left: 3px solid #64748b;
+	color: #cbd5e1;
+}
+
+.markdown-text a {
+	color: #93c5fd;
 }
 
 .tool-event,
