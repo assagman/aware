@@ -27,13 +27,26 @@ export async function addProject(path: string): Promise<Project> {
 	return project;
 }
 
-async function syncProjectWorktrees(project: Project) {
-	try {
-		for (const path of await worktreePaths(project.rootPath))
-			await addWorktree(project.id, path);
-	} catch {
-		// Keep stale entries visible if repo path is temporarily unavailable.
+async function listedExistingWorktreePaths(project: Project) {
+	const paths = new Set<string>();
+	for (const path of await worktreePaths(project.rootPath)) {
+		try {
+			paths.add(await realpath(path));
+		} catch {
+			// Ignore prunable/missing worktrees; active state must only include paths
+			// that still exist on disk and are reported by `git worktree list`.
+		}
 	}
+	return paths;
+}
+
+async function syncProjectWorktrees(project: Project) {
+	const paths = await listedExistingWorktreePaths(project);
+	for (const worktree of await listStoredWorktrees()) {
+		if (worktree.projectId === project.id && !paths.has(worktree.path))
+			await db.delete("worktrees", worktree.id);
+	}
+	for (const path of paths) await addWorktree(project.id, path);
 }
 
 export async function listProjects() {
@@ -44,10 +57,24 @@ export async function addWorktree(
 	projectId: string,
 	path: string,
 ): Promise<Worktree> {
+	const project = (await listProjects()).find((p) => p.id === projectId);
+	if (!project) throw new Error("Project not found");
 	const real = await realpath(path);
-	const existing = (await listStoredWorktrees()).find((w) => w.path === real);
-	if (existing) return existing;
+	if (!(await listedExistingWorktreePaths(project)).has(real))
+		throw new Error("Worktree not listed by git worktree list");
 	const branch = await currentBranch(real);
+	const existing = (await listStoredWorktrees()).find((w) => w.path === real);
+	if (existing) {
+		if (existing.projectId === projectId && existing.branch === branch)
+			return existing;
+		const updated = await db.update<Worktree>("worktrees", existing.id, {
+			projectId,
+			branch,
+			updatedAt: now(),
+		});
+		if (!updated) throw new Error("Worktree not found");
+		return updated;
+	}
 	const row: Worktree = {
 		id: randomUUID(),
 		projectId,
