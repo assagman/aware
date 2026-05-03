@@ -327,6 +327,12 @@ export function FilesPage() {
 					rows={1}
 					value={projectMessage}
 					onChange={(e) => setProjectMessage(e.target.value)}
+					onKeyDown={(e) => {
+						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+							e.preventDefault();
+							void sendProjectChat();
+						}
+					}}
 					placeholder="Chat about this project/worktree. No annotations, tasks, or diffs included."
 				/>
 				<div className="files-project-chat-actions">

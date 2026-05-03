@@ -226,7 +226,6 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 				),
 			);
 		} else if (event.type === "result") {
-			continue;
 		} else if (event.type === "error") {
 			rendered.push(
 				<section key={event.id} className="chat-bubble error message-error">
@@ -342,8 +341,10 @@ export function RunDetailPage() {
 					onChange={(e) => setMessage(e.target.value)}
 					placeholder="Steer this run..."
 					onKeyDown={(e) => {
-						if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+							e.preventDefault();
 							void sendMessage();
+						}
 					}}
 				/>
 				<button

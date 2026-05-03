@@ -144,6 +144,12 @@ export function DiffsPage() {
 				<textarea
 					value={comment}
 					onChange={(e) => setComment(e.target.value)}
+					onKeyDown={(e) => {
+						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+							e.preventDefault();
+							void addComment();
+						}
+					}}
 					placeholder="comment on selected diff lines"
 				/>
 				<button type="button" onClick={addComment}>

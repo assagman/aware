@@ -33,6 +33,12 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 			<textarea
 				value={message}
 				onChange={(e) => setMessage(e.target.value)}
+				onKeyDown={(e) => {
+					if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+						e.preventDefault();
+						void send();
+					}
+				}}
 				placeholder="Tell agents what to do with saved annotations..."
 			/>
 			<button type="button" onClick={send} disabled={!message.trim()}>
