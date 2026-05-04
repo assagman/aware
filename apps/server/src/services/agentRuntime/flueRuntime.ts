@@ -97,6 +97,7 @@ function normalizeToolPath() {
 	const miseInstalls = home ? `${home}/.local/share/mise/installs` : "";
 	const pathParts = [
 		process.env.PATH ?? "",
+		home ? `${home}/.local/bin` : "",
 		home ? `${home}/.local/share/mise/shims` : "",
 		miseInstalls ? `${miseInstalls}/node/24.11.1/bin` : "",
 		miseInstalls ? `${miseInstalls}/bun/1.3.8/bin` : "",

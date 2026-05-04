@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
@@ -46,6 +46,29 @@ PY`);
 
 		expect(result.exitCode).toBe(0);
 		expect(await readFile(join(root, "out.txt"), "utf8")).toBe("ok\n");
+	});
+
+	it("runs host tea commands", async () => {
+		const root = await tempDir();
+		const binDir = join(root, "bin");
+		await mkdir(binDir, { recursive: true });
+		const teaBin = join(binDir, "tea");
+		await writeFile(teaBin, "#!/bin/sh\nprintf 'tea:%s\\n' \"$1\"\n");
+		await chmod(teaBin, 0o755);
+		const previousPath = process.env.PATH;
+		process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+		try {
+			const env = await bashFactoryToSessionEnv(
+				await createLocalWorktreeSandbox({ workspaceRoot: root, cwd: root }),
+			);
+
+			const result = await env.exec("tea ok");
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toBe("tea:ok\n");
+		} finally {
+			process.env.PATH = previousPath;
+		}
 	});
 
 	it("kills host commands after hard timeout", async () => {
