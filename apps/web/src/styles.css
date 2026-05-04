@@ -1671,6 +1671,13 @@ pre {
 	min-height: 0;
 }
 
+.files-file-group {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	gap: 6px;
+	min-height: 0;
+}
+
 .files-file-row {
 	display: grid;
 	grid-template-columns: minmax(160px, 20%) minmax(0, 80%);
@@ -1764,7 +1771,7 @@ pre {
 }
 
 .files-chat-inline {
-	margin-top: 8px;
+	margin-top: 0;
 }
 
 .tasks-shell {

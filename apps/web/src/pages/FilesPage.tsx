@@ -416,7 +416,8 @@ export function FilesPage() {
 				<WorktreeColumn projectId={projectId} value={worktreeId} onChange={chooseWorktree} />
 			</aside>
 			<div className="files-main">
-				<div className="files-file-row">
+				<div className="files-file-group">
+					<div className="files-file-row">
 			<section className="card tree-pane">
 				<div className="panel-head"><h2>{viewMode === "diff" ? "Changed Files" : "File Tree"}</h2>{treeLoading || diffLoading ? <BusyIndicator label={viewMode === "diff" ? "Loading diffs" : "Loading tree"} /> : null}</div>
 				{error ? <p className="error">{error}</p> : null}
@@ -477,11 +478,12 @@ export function FilesPage() {
 						</div>
 					</div>
 				)}
-				<div className="files-chat files-chat-inline">
-					<textarea ref={filesChatRef} rows={1} value={filesMessage} onChange={(e) => { setFilesMessage(e.target.value); setPageState("files", { filesMessage: e.target.value }); }} placeholder="Chat about these files/worktree." />
-					<div className="files-chat-actions"><AgentPicker value={filesChatAgentId} onChange={(id) => { setFilesChatAgentId(id); setPageState("files", { filesChatAgentId: id }); }} />{chatSending ? <BusyIndicator label="Starting" /> : null}<button type="button" disabled={!filesMessage.trim() || chatSending} onClick={() => void sendFilesChat()}>{chatSending ? "Sending…" : "Send"}</button>{filesChatStatus ? <p>{filesChatStatus}{filesChatRun ? <> — <a href="#runs" onClick={() => openFilesChatRun(filesChatRun)}>open run</a></> : null}</p> : null}</div>
-				</div>
 			</section>
+					</div>
+					<div className="files-chat files-chat-inline">
+						<textarea ref={filesChatRef} rows={1} value={filesMessage} onChange={(e) => { setFilesMessage(e.target.value); setPageState("files", { filesMessage: e.target.value }); }} placeholder="Chat about these files/worktree." />
+						<div className="files-chat-actions"><AgentPicker value={filesChatAgentId} onChange={(id) => { setFilesChatAgentId(id); setPageState("files", { filesChatAgentId: id }); }} />{chatSending ? <BusyIndicator label="Starting" /> : null}<button type="button" disabled={!filesMessage.trim() || chatSending} onClick={() => void sendFilesChat()}>{chatSending ? "Sending…" : "Send"}</button>{filesChatStatus ? <p>{filesChatStatus}{filesChatRun ? <> — <a href="#runs" onClick={() => openFilesChatRun(filesChatRun)}>open run</a></> : null}</p> : null}</div>
+					</div>
 				</div>
 				<section className="card files-annotations-row">
 					<AnnotationsPanel annotations={viewMode === "file" && file ? fileAnnotations : annotations} projectId={projectId} worktreeId={worktreeId} onRefresh={loadAnnotations} />
