@@ -1,18 +1,17 @@
 const KEY = "aware-selection";
 
-type WorktreeScope = "files" | "diffs" | "runs" | "tasks";
+type ProjectScope = "files" | "tasks" | "runs";
+type WorktreeScope = "files" | "runs" | "tasks";
 
 type Selection = {
-	selectedProjectId: string;
-	selectedWorktreeId: string;
+	selectedProjectIds: Partial<Record<ProjectScope, string>>;
 	selectedWorktreeIds: Partial<Record<WorktreeScope, string>>;
 	selectedTaskId: string;
 	selectedRunId: string;
 };
 
 const empty: Selection = {
-	selectedProjectId: "",
-	selectedWorktreeId: "",
+	selectedProjectIds: {},
 	selectedWorktreeIds: {},
 	selectedTaskId: "",
 	selectedRunId: "",
@@ -20,7 +19,13 @@ const empty: Selection = {
 
 function read(): Selection {
 	try {
-		return { ...empty, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+		const raw = JSON.parse(localStorage.getItem(KEY) || "{}") as Partial<Selection>;
+		return {
+			selectedProjectIds: raw.selectedProjectIds || {},
+			selectedWorktreeIds: raw.selectedWorktreeIds || {},
+			selectedTaskId: raw.selectedTaskId || "",
+			selectedRunId: raw.selectedRunId || "",
+		};
 	} catch {
 		return empty;
 	}
@@ -38,42 +43,30 @@ export function getSelection() {
 	return read();
 }
 
-export function setSelectedProjectId(id: string) {
+export function getSelectedProjectId(scope: ProjectScope) {
+	return read().selectedProjectIds[scope] || "";
+}
+
+export function setSelectedProjectId(id: string, scope: ProjectScope) {
+	const current = read();
 	write({
-		...read(),
-		selectedProjectId: id,
-		selectedWorktreeId: "",
-		selectedWorktreeIds: {},
+		...current,
+		selectedProjectIds: { ...current.selectedProjectIds, [scope]: id },
+		selectedWorktreeIds: { ...current.selectedWorktreeIds, [scope]: "" },
 		selectedTaskId: "",
 		selectedRunId: "",
 	});
 }
 
 export function getSelectedWorktreeId(scope: WorktreeScope) {
-	const selection = read();
-	const scoped = selection.selectedWorktreeIds[scope];
-	if (scope !== "runs" && scoped === "all") return selection.selectedWorktreeId;
-	return scoped || selection.selectedWorktreeId || "";
+	return read().selectedWorktreeIds[scope] || "";
 }
 
-export function setSelectedWorktreeId(id: string, scope?: WorktreeScope) {
+export function setSelectedWorktreeId(id: string, scope: WorktreeScope) {
 	const current = read();
-	const syncAll = id !== "all";
 	write({
 		...current,
-		selectedWorktreeId: syncAll ? id : current.selectedWorktreeId,
-		selectedWorktreeIds: scope
-			? syncAll
-				? {
-						...current.selectedWorktreeIds,
-						files: id,
-						diffs: id,
-						runs: id,
-						tasks: id,
-						[scope]: id,
-					}
-				: { ...current.selectedWorktreeIds, [scope]: id }
-			: current.selectedWorktreeIds,
+		selectedWorktreeIds: { ...current.selectedWorktreeIds, [scope]: id },
 		selectedTaskId: "",
 		selectedRunId: "",
 	});

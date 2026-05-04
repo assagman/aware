@@ -5,9 +5,25 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
+function wait(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function git(cwd: string, args: string[]) {
-	const { stdout, stderr } = await exec("git", args, { cwd });
-	return { stdout, stderr };
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			const { stdout, stderr } = await exec("git", args, { cwd });
+			return { stdout, stderr };
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (attempt < 2 && (code === "EBADF" || code === "EMFILE")) {
+				await wait(50 * (attempt + 1));
+				continue;
+			}
+			throw error;
+		}
+	}
+	throw new Error("git spawn failed");
 }
 
 export async function repoRoot(path: string) {

@@ -6,6 +6,7 @@ import { approvals } from "./routes/approvals";
 import { chat } from "./routes/chat";
 import { diffs } from "./routes/diffs";
 import { feedback } from "./routes/feedback";
+import { events } from "./routes/events";
 import { files } from "./routes/files";
 import { projects, worktrees } from "./routes/projects";
 import { runs } from "./routes/runs";
@@ -27,6 +28,7 @@ app.route("/api/feedback", feedback);
 app.route("/api/approvals", approvals);
 app.route("/api/settings", settings);
 app.route("/api/chat", chat);
+app.route("/api/events", events);
 
 function portFromEnv(value: string | undefined, fallback: number) {
 	const port = Number(value);

@@ -14,6 +14,7 @@ import {
 import "@mdxeditor/editor/style.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
+import { getPageState, setPageState } from "../app/pageState";
 
 type ThinkingLevel =
 	| "off"
@@ -132,19 +133,27 @@ function toForm(agent: AgentProfile): AgentForm {
 	};
 }
 
+const initialAgentsState = getPageState("agents", {
+	activeView: "agents" as AgentsView,
+	editingId: null as string | null,
+	form: defaultForm,
+	apiKey: "",
+	globalInstructions: "",
+});
+
 export function AgentsPage() {
 	const [items, setItems] = useState<AgentProfile[]>([]);
-	const [form, setForm] = useState<AgentForm>(defaultForm);
-	const [editingId, setEditingId] = useState<string | null>(null);
+	const [form, setForm] = useState<AgentForm>(initialAgentsState.form);
+	const [editingId, setEditingId] = useState<string | null>(initialAgentsState.editingId);
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [auth, setAuth] = useState<ProviderAuth | null>(null);
-	const [apiKey, setApiKey] = useState("");
+	const [apiKey, setApiKey] = useState(initialAgentsState.apiKey);
 	const [authBusy, setAuthBusy] = useState(false);
-	const [globalInstructions, setGlobalInstructions] = useState("");
+	const [globalInstructions, setGlobalInstructions] = useState(initialAgentsState.globalInstructions);
 	const [globalPath, setGlobalPath] = useState("~/.agents/AGENTS.md");
 	const [globalSaving, setGlobalSaving] = useState(false);
-	const [activeView, setActiveView] = useState<AgentsView>("agents");
+	const [activeView, setActiveView] = useState<AgentsView>(initialAgentsState.activeView);
 
 	const selectedProvider = providerFromModel(form.model);
 	const needsOAuth = selectedProvider === "openai-codex";
@@ -160,9 +169,14 @@ export function AgentsPage() {
 	const load = (selectFirst = false) => {
 		void apiGet<AgentProfile[]>("/agents").then((agents) => {
 			setItems(agents);
-			if (selectFirst && agents[0]) {
+			if (editingId && !agents.some((agent) => agent.id === editingId)) {
+				setEditingId(null);
+				setPageState("agents", { editingId: null });
+			}
+			if (selectFirst && !editingId && agents[0]) {
 				setEditingId(agents[0].id);
 				setForm(toForm(agents[0]));
+				setPageState("agents", { editingId: agents[0].id, form: toForm(agents[0]) });
 			}
 		});
 	};
@@ -172,10 +186,10 @@ export function AgentsPage() {
 		);
 	};
 	useEffect(() => {
-		load(true);
+		load(!initialAgentsState.editingId);
 		void apiGet<GlobalInstructions>("/settings/global-instructions").then(
 			(data) => {
-				setGlobalInstructions(data.text);
+				if (!initialAgentsState.globalInstructions) setGlobalInstructions(data.text);
 				setGlobalPath(data.path);
 			},
 		);
@@ -185,9 +199,21 @@ export function AgentsPage() {
 	}, [selectedProvider]);
 	useEffect(() => {
 		if (form.thinking !== selectedThinking) {
-			setForm((current) => ({ ...current, thinking: selectedThinking }));
+			const next = { ...form, thinking: selectedThinking };
+			setForm(next);
+			setPageState("agents", { form: next });
 		}
-	}, [form.thinking, selectedThinking]);
+	}, [form, selectedThinking]);
+
+	function patchForm(patch: Partial<AgentForm>) {
+		const next = { ...form, ...patch };
+		setForm(next);
+		setPageState("agents", { form: next });
+	}
+	function chooseView(view: AgentsView) {
+		setActiveView(view);
+		setPageState("agents", { activeView: view });
+	}
 
 	const duplicate = items.find(
 		(agent) =>
@@ -213,6 +239,7 @@ export function AgentsPage() {
 				: await apiPost<AgentProfile>("/agents", body);
 			setEditingId(saved.id);
 			setForm(toForm(saved));
+			setPageState("agents", { editingId: saved.id, form: toForm(saved) });
 			load();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to save agent");
@@ -230,6 +257,7 @@ export function AgentsPage() {
 				{ text: globalInstructions },
 			);
 			setGlobalInstructions(saved.text);
+			setPageState("agents", { globalInstructions: saved.text });
 			setGlobalPath(saved.path);
 		} catch (err) {
 			setError(
@@ -248,6 +276,7 @@ export function AgentsPage() {
 			const next = remaining[0];
 			setEditingId(next?.id ?? null);
 			setForm(next ? toForm(next) : defaultForm);
+			setPageState("agents", { editingId: next?.id ?? null, form: next ? toForm(next) : defaultForm });
 		}
 		load();
 	}
@@ -255,12 +284,14 @@ export function AgentsPage() {
 	function edit(agent: AgentProfile) {
 		setEditingId(agent.id);
 		setForm(toForm(agent));
+		setPageState("agents", { editingId: agent.id, form: toForm(agent) });
 		setError(null);
 	}
 
 	function newAgent() {
 		setEditingId(null);
 		setForm(defaultForm);
+		setPageState("agents", { editingId: null, form: defaultForm });
 		setError(null);
 	}
 
@@ -287,6 +318,7 @@ export function AgentsPage() {
 				),
 			);
 			setApiKey("");
+			setPageState("agents", { apiKey: "" });
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to save API key");
 		} finally {
@@ -307,21 +339,21 @@ export function AgentsPage() {
 					<button
 						type="button"
 						className={activeView === "auth" ? "selected" : ""}
-						onClick={() => setActiveView("auth")}
+						onClick={() => chooseView("auth")}
 					>
 						Auth
 					</button>
 					<button
 						type="button"
 						className={activeView === "global" ? "selected" : ""}
-						onClick={() => setActiveView("global")}
+						onClick={() => chooseView("global")}
 					>
 						Global Instructions
 					</button>
 					<button
 						type="button"
 						className={activeView === "agents" ? "selected" : ""}
-						onClick={() => setActiveView("agents")}
+						onClick={() => chooseView("agents")}
 					>
 						Custom Agents
 					</button>
@@ -378,7 +410,7 @@ export function AgentsPage() {
 						<div className="agents-detail-scroll">
 							<MarkdownEditor
 								text={globalInstructions}
-								onChange={setGlobalInstructions}
+								onChange={(text) => { setGlobalInstructions(text); setPageState("agents", { globalInstructions: text }); }}
 								placeholder="Global rules for all agents..."
 								ariaLabel="Global instructions markdown editor"
 							/>
@@ -413,7 +445,7 @@ export function AgentsPage() {
 									Provider / model context
 									<select
 										value={form.model}
-										onChange={(e) => setForm({ ...form, model: e.target.value })}
+										onChange={(e) => patchForm({ model: e.target.value })}
 									>
 										<option value="openai-codex/gpt-5.5">
 											openai-codex / gpt-5.5
@@ -434,7 +466,7 @@ export function AgentsPage() {
 									<div className="agent-api-key-row">
 										<input
 											value={apiKey}
-											onChange={(e) => setApiKey(e.target.value)}
+											onChange={(e) => { setApiKey(e.target.value); setPageState("agents", { apiKey: e.target.value }); }}
 											placeholder={`${selectedProvider} API key`}
 											type="password"
 										/>
@@ -489,7 +521,7 @@ export function AgentsPage() {
 										Name
 										<input
 											value={form.name}
-											onChange={(e) => setForm({ ...form, name: e.target.value })}
+											onChange={(e) => patchForm({ name: e.target.value })}
 											placeholder="Agent name"
 										/>
 									</label>
@@ -497,7 +529,7 @@ export function AgentsPage() {
 										Provider / model
 										<select
 											value={form.model}
-											onChange={(e) => setForm({ ...form, model: e.target.value })}
+											onChange={(e) => patchForm({ model: e.target.value })}
 										>
 											<option value="openai-codex/gpt-5.5">
 												openai-codex / gpt-5.5
@@ -517,7 +549,7 @@ export function AgentsPage() {
 										<select
 											value={selectedThinking}
 											onChange={(e) =>
-												setForm({ ...form, thinking: e.target.value as ThinkingLevel })
+												patchForm({ thinking: e.target.value as ThinkingLevel })
 											}
 										>
 											{thinkingOptions.map((level) => (
@@ -536,7 +568,7 @@ export function AgentsPage() {
 											step="0.1"
 											value={form.temperature ?? 0.2}
 											onChange={(e) =>
-												setForm({ ...form, temperature: Number(e.target.value) })
+												patchForm({ temperature: Number(e.target.value) })
 											}
 										/>
 									</label>
@@ -547,7 +579,7 @@ export function AgentsPage() {
 								<h3>System prompt</h3>
 								<MarkdownEditor
 									text={form.systemPrompt}
-									onChange={(systemPrompt) => setForm({ ...form, systemPrompt })}
+									onChange={(systemPrompt) => patchForm({ systemPrompt })}
 									placeholder="Agent-specific markdown prompt..."
 									ariaLabel="System prompt markdown editor"
 								/>

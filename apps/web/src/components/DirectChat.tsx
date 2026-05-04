@@ -1,7 +1,7 @@
 import type { AgentRun } from "@aware/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
-import { getSelection, setSelectedRunId } from "../app/selection";
+import { getSelectedProjectId, getSelectedWorktreeId, setSelectedRunId } from "../app/selection";
 import { AgentPicker } from "./AgentPicker";
 import { RunLink } from "./RunLink";
 
@@ -11,12 +11,13 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 	const [runId, setRunId] = useState("");
 	const [agentProfileId, setAgentProfileId] = useState("");
 	async function send() {
-		const { selectedProjectId, selectedWorktreeId } = getSelection();
-		if (!selectedWorktreeId || !message.trim()) return;
+		const projectId = getSelectedProjectId("files");
+		const worktreeId = getSelectedWorktreeId("files");
+		if (!worktreeId || !message.trim()) return;
 		setStatus("starting agent run...");
 		const run = await apiPost<AgentRun>("/chat", {
-			projectId: selectedProjectId,
-			worktreeId: selectedWorktreeId,
+			projectId,
+			worktreeId,
 			agentProfileId,
 			message,
 		});

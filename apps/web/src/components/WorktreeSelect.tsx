@@ -1,7 +1,7 @@
 import type { Worktree } from "@aware/shared";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../app/api";
-import { getSelection } from "../app/selection";
+import { getSelectedProjectId } from "../app/selection";
 
 export function WorktreeSelect({
 	value,
@@ -20,7 +20,7 @@ export function WorktreeSelect({
 }) {
 	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 	const [loaded, setLoaded] = useState(false);
-	const [projectId, setProjectId] = useState(getSelection().selectedProjectId);
+	const [projectId, setProjectId] = useState(getSelectedProjectId("tasks"));
 	const filtered = useMemo(
 		() =>
 			worktrees.filter(
@@ -31,7 +31,7 @@ export function WorktreeSelect({
 		[excludeDefaultBranches, projectId, worktrees],
 	);
 	async function refresh() {
-		setProjectId(getSelection().selectedProjectId);
+		setProjectId(getSelectedProjectId("tasks"));
 		setWorktrees(await apiGet<Worktree[]>("/worktrees"));
 		setLoaded(true);
 	}

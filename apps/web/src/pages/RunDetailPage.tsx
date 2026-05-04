@@ -14,12 +14,16 @@ import {
 	setPageState,
 } from "../app/pageState";
 import {
+	getSelectedProjectId,
 	getSelectedWorktreeId,
 	getSelection,
+	setSelectedProjectId,
 	setSelectedRunId,
 	setSelectedWorktreeId,
 } from "../app/selection";
-import { WorktreeSelect } from "../components/WorktreeSelect";
+import { BusyIndicator } from "../components/BusyIndicator";
+import { ProjectColumn } from "../components/ProjectColumn";
+import { WorktreeColumn } from "../components/WorktreeColumn";
 
 type Payload = Record<string, unknown>;
 
@@ -632,22 +636,40 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 	return <div className="run-chat-timeline">{rendered}</div>;
 }
 
-const initialRunsState = getPageState("runs", { message: "" });
+const initialRunsState = getPageState("runs", { message: "", runId: "", worktreeFilter: "all" });
 
 export function RunDetailPage() {
 	const [runs, setRuns] = useState<AgentRun[]>([]);
 	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+	const [projectId, setProjectIdState] = useState(getSelectedProjectId("runs"));
 	const [worktreeFilter, setWorktreeFilter] = useState(
-		getSelectedWorktreeId("runs") || "all",
+		getSelectedWorktreeId("runs") || initialRunsState.worktreeFilter || "all",
 	);
-	const [runId, setRunId] = useState(getSelection().selectedRunId);
+	const [runId, setRunId] = useState(getSelection().selectedRunId || initialRunsState.runId);
 	const [events, setEvents] = useState<RunEvent[]>([]);
 	const [message, setMessage] = useState(initialRunsState.message);
+	const [loadingRuns, setLoadingRuns] = useState(false);
+	const [loadingEvents, setLoadingEvents] = useState(false);
+	const [sendingMessage, setSendingMessage] = useState(false);
+	const [cancellingRun, setCancellingRun] = useState(false);
 	const bottomRef = useRef<HTMLDivElement | null>(null);
 	const chatScrollRef = useRef<HTMLDivElement | null>(null);
+	const worktreeProjectIds = useMemo(
+		() => Object.fromEntries(worktrees.map((w) => [w.id, w.projectId])),
+		[worktrees],
+	);
+	const visibleRuns = useMemo(
+		() =>
+			runs.filter((run) => {
+				if (worktreeFilter !== "all") return run.worktreeId === worktreeFilter;
+				if (!projectId) return true;
+				return worktreeProjectIds[run.worktreeId] === projectId;
+			}),
+		[projectId, runs, worktreeFilter, worktreeProjectIds],
+	);
 	const selectedRun = useMemo(
-		() => runs.find((r) => r.id === runId),
-		[runs, runId],
+		() => visibleRuns.find((r) => r.id === runId),
+		[visibleRuns, runId],
 	);
 	const worktreeNames = useMemo(
 		() =>
@@ -664,39 +686,54 @@ export function RunDetailPage() {
 		[selectedRun, events],
 	);
 	async function loadRuns(nextFilter = worktreeFilter) {
+		setLoadingRuns(true);
+		try {
 		const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
 		setRuns(rows);
-		if ((!runId || !rows.some((run) => run.id === runId)) && rows[0])
+		if ((!runId || !rows.some((run) => run.id === runId)) && rows[0]) {
 			setRunId(rows[0].id);
+			setSelectedRunId(rows[0].id);
+			setPageState("runs", { runId: rows[0].id });
+		}
 		if (!rows.length) {
 			setRunId("");
+			setSelectedRunId("");
+			setPageState("runs", { runId: "" });
 			setEvents([]);
+		}
+		} finally {
+			setLoadingRuns(false);
 		}
 	}
 	async function loadEvents(id = runId) {
 		if (!id) return;
+		setLoadingEvents(true);
+		try {
 		setEvents(await apiGet<RunEvent[]>(`/runs/${id}/events`));
 		window.requestAnimationFrame(() =>
 			restoreScroll(`runs-chat-scroll:${id}`, chatScrollRef.current),
 		);
 		setSelectedRunId(id);
+		} finally {
+			setLoadingEvents(false);
+		}
 	}
 	useEffect(() => {
 		void loadRuns();
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
-		const onSelection = () => {
-			const nextFilter = getSelectedWorktreeId("runs") || "all";
-			setWorktreeFilter(nextFilter);
-			void loadRuns(nextFilter);
-			const selectedRunId = getSelection().selectedRunId;
-			if (selectedRunId) setRunId(selectedRunId);
-		};
-		window.addEventListener("aware-selection", onSelection);
-		return () => window.removeEventListener("aware-selection", onSelection);
 	}, []);
+	function chooseProject(id: string) {
+		setSelectedProjectId(id, "runs");
+		setProjectIdState(id);
+		setSelectedWorktreeId("all", "runs");
+		setWorktreeFilter("all");
+		setPageState("runs", { worktreeFilter: "all" });
+		void loadRuns("all");
+	}
 	function chooseWorktree(id: string) {
 		setSelectedWorktreeId(id, "runs");
 		setWorktreeFilter(id);
+		setPageState("runs", { worktreeFilter: id });
 		void loadRuns(id);
 	}
 	useEffect(() => {
@@ -779,37 +816,54 @@ export function RunDetailPage() {
 			bottomRef.current?.scrollIntoView({ block: "end" });
 	}, [events.length, selectedRun?.status]);
 	async function cancelRun() {
-		if (!runId) return;
+		if (!runId || cancellingRun) return;
+		setCancellingRun(true);
+		try {
 		await apiPost(`/runs/${runId}/cancel`, {});
 		await loadRuns();
 		await loadEvents(runId);
+		} finally {
+			setCancellingRun(false);
+		}
 	}
 	async function sendMessage() {
-		if (!runId || !message.trim()) return;
+		if (!runId || !message.trim() || sendingMessage) return;
+		setSendingMessage(true);
+		try {
 		await apiPost(`/runs/${runId}/messages`, { message });
 		setMessage("");
 		setPageState("runs", { message: "" });
 		await loadEvents(runId);
+		} finally {
+			setSendingMessage(false);
+		}
 	}
 	return (
-		<section id="runs" className="card run-page">
+		<section id="runs" className="runs-shell full-workspace">
+			<aside className="project-worktree-sidebar">
+				<ProjectColumn value={projectId} onChange={chooseProject} showAdd={false} />
+				<WorktreeColumn
+					projectId={projectId}
+					value={worktreeFilter}
+					onChange={chooseWorktree}
+					allowAll
+					showAdd={false}
+				/>
+			</aside>
+			<div className="card run-page">
 			<aside className="runs-sidebar">
 				<div className="runs-sidebar-head">
 					<h2>Runs</h2>
-					<WorktreeSelect
-						value={worktreeFilter}
-						onChange={chooseWorktree}
-						allowAll
-					/>
+					{loadingRuns ? <BusyIndicator label="Loading runs" /> : null}
 				</div>
 				<div className="runs-list" aria-label="Runs list">
-					{runs.length === 0 ? <p className="empty-state">No runs.</p> : null}
-					{runs.map((r) => (
+					{!loadingRuns && visibleRuns.length === 0 ? <p className="empty-state">No runs.</p> : null}
+					{visibleRuns.map((r) => (
 						<button
 							key={r.id}
 							type="button"
 							className={r.id === runId ? "run-row selected" : "run-row"}
-							onClick={() => setRunId(r.id)}
+							onClick={() => { setRunId(r.id); setSelectedRunId(r.id); setPageState("runs", { runId: r.id }); }}
 						>
 							<strong>{r.id.slice(0, 8)}</strong>
 							<span className={`task-status status-${r.status}`}>
@@ -841,12 +895,13 @@ export function RunDetailPage() {
 							</span>
 						</>
 					) : null}
+					{loadingEvents ? <BusyIndicator label="Loading events" /> : null}
 					<button
 						type="button"
 						onClick={cancelRun}
-						disabled={selectedRun?.status !== "running"}
+						disabled={selectedRun?.status !== "running" || cancellingRun}
 					>
-						Cancel
+						{cancellingRun ? "Cancelling…" : "Cancel"}
 					</button>
 					<ProcessIndicator live={selectedRun?.status === "running"} />
 				</div>
@@ -875,14 +930,16 @@ export function RunDetailPage() {
 							}
 						}}
 					/>
+					{sendingMessage ? <BusyIndicator label="Sending" /> : null}
 					<button
 						type="button"
 						onClick={sendMessage}
-						disabled={!message.trim() || !runId}
+						disabled={!message.trim() || !runId || sendingMessage}
 					>
-						Send
+						{sendingMessage ? "Sending…" : "Send"}
 					</button>
 				</div>
+			</div>
 			</div>
 		</section>
 	);

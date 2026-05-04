@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { lstat } from "node:fs/promises";
 import type { Project, Worktree } from "@aware/shared";
 import { db } from "../db/client";
 import {
@@ -39,6 +40,7 @@ async function listedExistingWorktreePaths(project: Project) {
 		paths.add(await assertHostWorkspacePath(project.rootPath, root));
 	for (const path of await worktreePaths(project.rootPath)) {
 		try {
+			await lstat(path);
 			paths.add(await assertHostWorkspacePath(path, root));
 		} catch {
 			// Ignore prunable/missing/non-workspace worktrees; active state must only
@@ -54,7 +56,31 @@ async function syncProjectWorktrees(project: Project) {
 		if (worktree.projectId === project.id && !paths.has(worktree.path))
 			await db.delete("worktrees", worktree.id);
 	}
-	for (const path of paths) await addWorktree(project.id, path);
+	for (const path of paths) await upsertListedWorktree(project, path);
+}
+
+async function upsertListedWorktree(project: Project, path: string): Promise<Worktree> {
+	const branch = await currentBranch(path).catch(() => "");
+	const existing = (await listStoredWorktrees()).find((w) => w.path === path);
+	if (existing) {
+		if (existing.projectId === project.id && existing.branch === branch)
+			return existing;
+		const updated = await db.update<Worktree>("worktrees", existing.id, {
+			projectId: project.id,
+			branch,
+			updatedAt: now(),
+		});
+		if (!updated) throw new Error("Worktree not found");
+		return updated;
+	}
+	return db.insert("worktrees", {
+		id: randomUUID(),
+		projectId: project.id,
+		path,
+		branch,
+		createdAt: now(),
+		updatedAt: now(),
+	});
 }
 
 export async function listProjects() {
@@ -101,9 +127,19 @@ async function listStoredWorktrees() {
 	return db.list<Worktree>("worktrees");
 }
 
+let listWorktreesInFlight: Promise<Worktree[]> | null = null;
+
 export async function listWorktrees() {
+	if (listWorktreesInFlight) return listWorktreesInFlight;
+	listWorktreesInFlight = doListWorktrees().finally(() => {
+		listWorktreesInFlight = null;
+	});
+	return listWorktreesInFlight;
+}
+
+async function doListWorktrees() {
 	for (const project of await listProjects())
-		await syncProjectWorktrees(project);
+		await syncProjectWorktrees(project).catch(() => undefined);
 	const rows = await listStoredWorktrees();
 	const visible: Worktree[] = [];
 	for (const worktree of rows) {

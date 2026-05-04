@@ -72,12 +72,9 @@ apps/web/
   src/main.tsx
   src/app/router.tsx
   src/app/api.ts
-  src/pages/ProjectsPage.tsx
-  src/pages/WorktreesPage.tsx
+  src/pages/FilesPage.tsx
   src/pages/TasksPage.tsx
   src/pages/AgentsPage.tsx
-  src/pages/FilesPage.tsx
-  src/pages/DiffsPage.tsx
   src/pages/RunDetailPage.tsx
   src/components/FileTreePanel.tsx
   src/components/DiffReviewPanel.tsx

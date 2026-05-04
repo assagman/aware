@@ -3,11 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "../app/api";
 import { getPageState, setPageState } from "../app/pageState";
 import {
+	getSelectedProjectId,
 	getSelection,
+	setSelectedProjectId,
 	setSelectedRunId,
 	setSelectedTaskId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
+import { BusyIndicator } from "../components/BusyIndicator";
+import { ProjectColumn } from "../components/ProjectColumn";
 import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type TaskFilter = "active" | "done" | "all";
@@ -33,7 +37,7 @@ const initialTasksState = getPageState("tasks", {
 
 export function TasksPage() {
 	const [tasks, setTasks] = useState<Task[]>([]);
-	const [projectId, setProjectId] = useState("");
+	const [projectId, setProjectIdState] = useState(getSelectedProjectId("tasks"));
 	const [title, setTitle] = useState(initialTasksState.title);
 	const [body, setBody] = useState(initialTasksState.body);
 	const [taskWorktreeId, setTaskWorktreeId] = useState(
@@ -51,23 +55,34 @@ export function TasksPage() {
 	const [taskSort, setTaskSort] = useState<TaskSort>(
 		initialTasksState.taskSort,
 	);
-	const load = () => {
-		const selectedProjectId = getSelection().selectedProjectId;
-		setProjectId(selectedProjectId);
-		if (!selectedProjectId) {
+	const [loadingTasks, setLoadingTasks] = useState(false);
+	const [savingTask, setSavingTask] = useState(false);
+	const [startingTaskId, setStartingTaskId] = useState("");
+	const load = (nextProjectId = projectId) => {
+		if (!nextProjectId) {
 			setTasks([]);
 			return;
 		}
+		setLoadingTasks(true);
 		void apiGet<Task[]>(
-			`/tasks?${new URLSearchParams({ projectId: selectedProjectId })}`,
-		).then(setTasks);
+			`/tasks?${new URLSearchParams({ projectId: nextProjectId })}`,
+		)
+			.then(setTasks)
+			.finally(() => setLoadingTasks(false));
 	};
 	useEffect(() => {
-		const reloadSelection = () => load();
-		load();
-		window.addEventListener("aware-selection", reloadSelection);
-		return () => window.removeEventListener("aware-selection", reloadSelection);
+		load(projectId);
 	}, []);
+	function chooseProject(id: string) {
+		setSelectedProjectId(id, "tasks");
+		setProjectIdState(id);
+		setSelectedTaskIdState("");
+		setTitle("");
+		setBody("");
+		setTaskWorktreeId("");
+		setPageState("tasks", { selectedTaskId: "", title: "", body: "", worktreeId: "" });
+		load(id);
+	}
 	const visibleTasks = useMemo(() => {
 		return tasks
 			.filter((task) => {
@@ -117,20 +132,28 @@ export function TasksPage() {
 		setPageState("tasks", { worktreeId: id });
 	}
 	async function save() {
-		if (!projectId || !title.trim()) return;
+		if (!projectId || !title.trim() || savingTask) return;
+		setSavingTask(true);
+		try {
 		const patch = { title, body, worktreeId: taskWorktreeId || null };
 		if (selectedTaskId) {
 			await apiPatch<Task>(`/tasks/${selectedTaskId}`, patch);
+			setPageState("tasks", { title, body, worktreeId: taskWorktreeId });
 			load();
 			return;
 		}
 		const task = await apiPost<Task>("/tasks", { projectId, ...patch });
 		setSelectedTaskId(task.id);
 		setSelectedTaskIdState(task.id);
-		setPageState("tasks", { selectedTaskId: task.id });
+		setPageState("tasks", { selectedTaskId: task.id, title, body, worktreeId: taskWorktreeId });
 		load();
+		} finally {
+			setSavingTask(false);
+		}
 	}
 	async function start(id: string) {
+		if (startingTaskId) return;
+		setStartingTaskId(id);
 		const task = tasks.find((t) => t.id === id);
 		setTasks((current) =>
 			current.map((task) =>
@@ -150,6 +173,8 @@ export function TasksPage() {
 		} catch (error) {
 			load();
 			throw error;
+		} finally {
+			setStartingTaskId("");
 		}
 	}
 	async function softUpdate(id: string, patch: Partial<Task>) {
@@ -159,8 +184,10 @@ export function TasksPage() {
 	}
 	const hasSelection = Boolean(projectId);
 	return (
-		<section id="tasks" className="card tasks-page">
-			<div className="tasks-header">
+		<section id="tasks" className="tasks-shell full-workspace">
+			<ProjectColumn value={projectId} onChange={chooseProject} showAdd={false} />
+			<div className="card tasks-page">
+				<div className="tasks-header">
 				<div>
 					<h2>Tasks</h2>
 					<p>
@@ -168,6 +195,7 @@ export function TasksPage() {
 						worktree.
 					</p>
 				</div>
+				{loadingTasks ? <BusyIndicator label="Loading tasks" /> : null}
 				<AgentPicker
 					value={agentProfileId}
 					onChange={(id) => {
@@ -177,9 +205,7 @@ export function TasksPage() {
 				/>
 			</div>
 			{!hasSelection ? (
-				<p className="tasks-empty">
-					Select project from top-right picker to manage tasks.
-				</p>
+				<p className="tasks-empty">Select project from left column.</p>
 			) : null}
 			<div className="tasks-layout">
 				<form
@@ -263,8 +289,8 @@ export function TasksPage() {
 						/>
 					</label>
 					<div className="task-composer-actions">
-						<button type="submit" disabled={!hasSelection || !title.trim()}>
-							{selectedTaskId ? "Save changes" : "Create task"}
+						<button type="submit" disabled={!hasSelection || !title.trim() || savingTask}>
+							{savingTask ? "Saving…" : selectedTaskId ? "Save changes" : "Create task"}
 						</button>
 					</div>
 				</form>
@@ -300,10 +326,12 @@ export function TasksPage() {
 						</label>
 					</div>
 					<div className="tasks-list" aria-label="Tasks list">
-						{visibleTasks.length === 0 ? (
+						{loadingTasks ? <BusyIndicator label="Loading tasks" /> : null}
+						{!loadingTasks && visibleTasks.length === 0 ? (
 							<p className="tasks-empty">No tasks match current filters.</p>
 						) : null}
 						{visibleTasks.map((t) => {
+							const isStarting = startingTaskId === t.id;
 							const canStart = t.status !== "done" && t.status !== "running";
 							return (
 								<article
@@ -329,6 +357,7 @@ export function TasksPage() {
 										<span className={`task-status status-${t.status}`}>
 											{t.status}
 										</span>
+										{isStarting ? <BusyIndicator label="Starting" /> : null}
 										{canStart ? (
 											<button
 												type="button"
@@ -336,8 +365,9 @@ export function TasksPage() {
 													e.stopPropagation();
 													void start(t.id);
 												}}
+												disabled={Boolean(startingTaskId)}
 											>
-												Start
+												{isStarting ? "Starting…" : "Start"}
 											</button>
 										) : null}
 									</div>
@@ -346,6 +376,7 @@ export function TasksPage() {
 						})}
 					</div>
 				</div>
+			</div>
 			</div>
 		</section>
 	);

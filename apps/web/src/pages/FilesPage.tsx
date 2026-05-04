@@ -1,384 +1,313 @@
 import type { AgentRun, Annotation } from "@aware/shared";
-import { FileTree, useFileTree } from "@pierre/trees/react";
+import type {
+	DiffLineAnnotation,
+	FileDiffMetadata,
+	OnDiffLineClickProps,
+	SelectedLineRange,
+} from "@pierre/diffs";
+import { parsePatchFiles } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiPost } from "../app/api";
+import { API_BASE, apiGet, apiPost } from "../app/api";
+import { getPageState, setPageState } from "../app/pageState";
 import {
-	getPageState,
-	persistScroll,
-	restoreScroll,
-	setPageState,
-} from "../app/pageState";
-import {
+	getSelectedProjectId,
 	getSelectedWorktreeId,
 	getSelection,
+	setSelectedProjectId,
 	setSelectedRunId,
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
+import { BusyIndicator } from "../components/BusyIndicator";
+import { ProjectColumn } from "../components/ProjectColumn";
 import { RunLink } from "../components/RunLink";
-import { WorktreeSelect } from "../components/WorktreeSelect";
+import { WorktreeColumn } from "../components/WorktreeColumn";
+import { FileTreeView } from "../components/FileTreeView";
 
-function directoryPaths(paths: string[]) {
-	const dirs = new Set<string>();
-	for (const path of paths) {
-		const parts = path.split("/").filter(Boolean);
-		const limit = path.endsWith("/") ? parts.length : parts.length - 1;
-		for (let i = 1; i <= limit; i += 1) {
-			dirs.add(`${parts.slice(0, i).join("/")}/`);
-		}
-	}
-	return [...dirs];
-}
+type ViewMode = "file" | "diff";
+type DiffSectionId = "committed" | "staged" | "unstaged";
+type DiffPatches = Record<DiffSectionId, string>;
+type Ann = { text: string };
+type LocalDiffAnnotation = DiffLineAnnotation<Ann> & { filePath?: string | undefined };
 
-function oneDepthDirectoryPaths(paths: string[]) {
-	return directoryPaths(paths).filter(
-		(path) => path.slice(0, -1).includes("/") === false,
-	);
-}
-
-function fzfMatch(text: string, query: string) {
-	const haystack = text.toLowerCase();
-	const needle = query.toLowerCase().replace(/\s+/g, "");
-	if (!needle) return { indexes: new Set<number>(), score: 0 };
-	const indexes = new Set<number>();
-	let score = 0;
-	let lastIndex = -1;
-	for (const char of needle) {
-		const index = haystack.indexOf(char, lastIndex + 1);
-		if (index === -1) return null;
-		indexes.add(index);
-		score += index === lastIndex + 1 ? 3 : 1;
-		if (index === 0 || "/-_ .".includes(haystack[index - 1] ?? "")) score += 2;
-		lastIndex = index;
-	}
-	return { indexes, score: score - haystack.length / 1000 };
-}
-
-function fzfScore(path: string, query: string) {
-	return fzfMatch(path, query)?.score ?? null;
-}
-
-function fzfFilterPaths(paths: string[], query: string) {
-	const trimmed = query.trim();
-	if (!trimmed) return paths;
-	return paths
-		.map((path) => ({ path, score: fzfScore(path, trimmed) }))
-		.filter(
-			(entry): entry is { path: string; score: number } => entry.score !== null,
-		)
-		.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
-		.map((entry) => entry.path);
-}
-
-function clearTreeSearchHighlights(root: ParentNode) {
-	for (const match of Array.from(root.querySelectorAll(".aware-fzf-match"))) {
-		const parent = match.parentNode;
-		if (!parent) continue;
-		parent.replaceChild(document.createTextNode(match.textContent ?? ""), match);
-		parent.normalize();
-	}
-}
-
-function highlightTextNode(node: Text, query: string) {
-	const text = node.nodeValue ?? "";
-	const indexes = fzfMatch(text, query)?.indexes;
-	if (!indexes?.size) return;
-	const fragment = document.createDocumentFragment();
-	for (let index = 0; index < text.length; index += 1) {
-		const char = text[index] ?? "";
-		if (indexes.has(index)) {
-			const span = document.createElement("span");
-			span.className = "aware-fzf-match";
-			span.textContent = char;
-			fragment.appendChild(span);
-		} else {
-			fragment.appendChild(document.createTextNode(char));
-		}
-	}
-	node.parentNode?.replaceChild(fragment, node);
-}
-
-function applyTreeSearchHighlights(root: ParentNode, query: string) {
-	clearTreeSearchHighlights(root);
-	const trimmed = query.trim();
-	if (!trimmed) return;
-	const containers = root.querySelectorAll(
-		"[data-item-section='content'] [data-truncate-content], [data-item-flattened-subitem] [data-truncate-content], [data-item-section='content']",
-	);
-	for (const container of Array.from(containers)) {
-		if (!(container instanceof HTMLElement)) continue;
-		if (
-			container.matches("[data-item-section='content']") &&
-			container.querySelector("[data-truncate-content]")
-		) {
-			continue;
-		}
-		const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-		const textNodes: Text[] = [];
-		while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
-		for (const textNode of textNodes) highlightTextNode(textNode, trimmed);
-	}
-}
-
-function Tree({
-	paths,
-	onOpen,
-}: {
-	paths: string[];
-	onOpen: (path: string) => void;
-}) {
-	const initialTree = getPageState("files-tree", {
-		searchQuery: "",
-		expansion: "one" as "one" | "none" | "all",
-	});
-	const [searchQuery, setSearchQuery] = useState(initialTree.searchQuery);
-	const [expansion, setExpansion] = useState<"one" | "none" | "all">(
-		initialTree.expansion,
-	);
-	const onOpenRef = useRef(onOpen);
-	const searchInputRef = useRef<HTMLInputElement>(null);
-	onOpenRef.current = onOpen;
-	const visiblePaths = useMemo(
-		() => fzfFilterPaths(paths, searchQuery),
-		[paths, searchQuery],
-	);
-	const expandedPaths = useMemo(() => {
-		if (expansion === "none") return [];
-		if (expansion === "all" || searchQuery.trim())
-			return directoryPaths(visiblePaths);
-		return oneDepthDirectoryPaths(visiblePaths);
-	}, [expansion, searchQuery, visiblePaths]);
-	const { model } = useFileTree({
-		paths: visiblePaths,
-		search: false,
-		initialExpansion: 1,
-		initialExpandedPaths: expandedPaths,
-		unsafeCSS: `
-			.aware-fzf-match {
-				color: #f59e0b;
-				font-weight: 700;
-			}
-		`,
-		onSelectionChange: (selectedPaths) => {
-			const selected = selectedPaths.find((path) => !path.endsWith("/"));
-			if (selected) onOpenRef.current(selected);
-		},
-	});
-	useEffect(() => {
-		const input = searchInputRef.current;
-		const hadSearchFocus = document.activeElement === input;
-		const selectionStart = input?.selectionStart ?? null;
-		const selectionEnd = input?.selectionEnd ?? null;
-		model.resetPaths(visiblePaths, { initialExpandedPaths: expandedPaths });
-		if (hadSearchFocus) {
-			window.requestAnimationFrame(() => {
-				input?.focus({ preventScroll: true });
-				if (selectionStart !== null && selectionEnd !== null) {
-					input?.setSelectionRange(selectionStart, selectionEnd);
-				}
-			});
-		}
-	}, [expandedPaths, model, visiblePaths]);
-	useEffect(() => {
-		const host = document.getElementById("file-tree-host");
-		const shadowRoot = host?.shadowRoot;
-		if (!shadowRoot) return;
-		let frame = 0;
-		const observer = new MutationObserver(() => refresh());
-		const observe = () =>
-			observer.observe(shadowRoot, {
-				childList: true,
-				subtree: true,
-			});
-		const refresh = () => {
-			window.cancelAnimationFrame(frame);
-			frame = window.requestAnimationFrame(() => {
-				observer.disconnect();
-				applyTreeSearchHighlights(shadowRoot, searchQuery);
-				observe();
-			});
-		};
-		refresh();
-		observe();
-		return () => {
-			window.cancelAnimationFrame(frame);
-			observer.disconnect();
-			clearTreeSearchHighlights(shadowRoot);
-		};
-	}, [searchQuery, visiblePaths]);
-	return (
-		<FileTree
-			id="file-tree-host"
-			model={model}
-			header={
-				<div className="file-tree-header">
-					<div className="file-tree-actions">
-						<button
-							type="button"
-							onClick={() => {
-								setExpansion("none");
-								setPageState("files-tree", { expansion: "none" });
-							}}
-						>
-							Collapse all
-						</button>
-						<button
-							type="button"
-							onClick={() => {
-								setExpansion("all");
-								setPageState("files-tree", { expansion: "all" });
-							}}
-						>
-							Expand all
-						</button>
-					</div>
-					<input
-						ref={searchInputRef}
-						type="search"
-						value={searchQuery}
-						onChange={(event) => {
-							setSearchQuery(event.target.value);
-							setPageState("files-tree", { searchQuery: event.target.value });
-						}}
-						placeholder="fzf search files"
-						aria-label="fzf search files"
-					/>
-				</div>
-			}
-			style={{ height: "100%" }}
-		/>
-	);
-}
-
-const initialFilesState = getPageState("files", {
+const initialState = getPageState("files", {
 	note: "",
-	projectMessage: "",
-	projectChatAgentId: "",
+	comment: "",
+	filesMessage: "",
+	filesChatAgentId: "",
+	viewMode: "file" as ViewMode,
+	file: "",
+	annotationMode: null as "file" | "selection" | null,
+	anchorLine: null as number | null,
+	endLine: null as number | null,
+	selectedDiffFile: "",
+	selectedDiff: null as SelectedLineRange | null,
 });
+
+function parseDiffFiles(patch: string) {
+	try {
+		return parsePatchFiles(patch, "aware-diff", false).flatMap(
+			(parsed) => parsed.files,
+		);
+	} catch {
+		return [];
+	}
+}
+
+function diffFiles(patch: string) {
+	return [...patch.matchAll(/^diff --git a\/(.*?) b\//gm)].map((m) => m[1]);
+}
+
+function annotationSide(annotation: Annotation) {
+	return annotation.side === "deletions" || annotation.side === "old"
+		? "deletions"
+		: "additions";
+}
+
+function toDiffAnnotation(annotation: Annotation): LocalDiffAnnotation {
+	return {
+		filePath: annotation.filePath,
+		side: annotationSide(annotation),
+		lineNumber: Math.max(
+			annotation.startLine ?? 1,
+			annotation.endLine ?? annotation.startLine ?? 1,
+		),
+		metadata: { text: annotation.text },
+	};
+}
+
+function forFile(file: FileDiffMetadata, annotations: LocalDiffAnnotation[]) {
+	return annotations
+		.filter((annotation) => !annotation.filePath || annotation.filePath === file.name)
+		.map(({ filePath: _filePath, ...annotation }) => annotation);
+}
 
 export function FilesPage() {
 	const editorRef = useRef<HTMLDivElement | null>(null);
-	const [worktreeId, setWorktreeId] = useState(getSelectedWorktreeId("files"));
+	const noteRef = useRef<HTMLTextAreaElement>(null);
+	const filesChatRef = useRef<HTMLTextAreaElement>(null);
+	const [projectId, setProjectIdState] = useState(getSelectedProjectId("files"));
+	const [worktreeId, setWorktreeIdState] = useState(getSelectedWorktreeId("files"));
 	const [paths, setPaths] = useState<string[]>([]);
-	const [file, setFile] = useState("");
+	const [file, setFile] = useState(initialState.file);
 	const [content, setContent] = useState("");
 	const [error, setError] = useState("");
-	const [anchorLine, setAnchorLine] = useState<number | null>(null);
-	const [endLine, setEndLine] = useState<number | null>(null);
-	const [note, setNote] = useState(initialFilesState.note);
-	const [annotationMode, setAnnotationMode] = useState<
-		"file" | "selection" | null
-	>(null);
-	const [projectMessage, setProjectMessage] = useState(
-		initialFilesState.projectMessage,
-	);
-	const [projectChatAgentId, setProjectChatAgentId] = useState(
-		initialFilesState.projectChatAgentId,
-	);
-	const [projectChatRun, setProjectChatRun] = useState<AgentRun | null>(null);
-	const [projectChatStatus, setProjectChatStatus] = useState("");
+	const [anchorLine, setAnchorLine] = useState<number | null>(initialState.anchorLine);
+	const [endLine, setEndLine] = useState<number | null>(initialState.endLine);
+	const [note, setNote] = useState(initialState.note);
+	const [annotationMode, setAnnotationMode] = useState<"file" | "selection" | null>(initialState.annotationMode);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
-	const loadedWorktreeId = useRef("");
-	const noteRef = useRef<HTMLTextAreaElement>(null);
-	const projectChatRef = useRef<HTMLTextAreaElement>(null);
+	const [viewMode, setViewMode] = useState<ViewMode>(initialState.viewMode);
+	const [diffPatches, setDiffPatches] = useState<DiffPatches>({
+		committed: "",
+		staged: "",
+		unstaged: "",
+	});
+	const [selectedDiff, setSelectedDiff] = useState<SelectedLineRange | null>(initialState.selectedDiff);
+	const [selectedDiffFile, setSelectedDiffFile] = useState(initialState.selectedDiffFile);
+	const [comment, setComment] = useState(initialState.comment);
+	const [localDiffAnnotations, setLocalDiffAnnotations] = useState<LocalDiffAnnotation[]>([]);
+	const [filesMessage, setFilesMessage] = useState(initialState.filesMessage);
+	const [filesChatAgentId, setFilesChatAgentId] = useState(initialState.filesChatAgentId);
+	const [filesChatRun, setFilesChatRun] = useState<AgentRun | null>(null);
+	const [filesChatStatus, setFilesChatStatus] = useState("");
+	const [treeLoading, setTreeLoading] = useState(false);
+	const [fileLoading, setFileLoading] = useState(false);
+	const [diffLoading, setDiffLoading] = useState(false);
+	const [annotationSaving, setAnnotationSaving] = useState(false);
+	const [diffSaving, setDiffSaving] = useState(false);
+	const [chatSending, setChatSending] = useState(false);
 	const lines = useMemo(() => content.split("\n"), [content]);
+	const selectedStart = anchorLine && endLine ? Math.min(anchorLine, endLine) : anchorLine;
+	const selectedEnd = anchorLine && endLine ? Math.max(anchorLine, endLine) : anchorLine;
 	const fileAnnotations = annotations.filter((a) => a.filePath === file);
 	const wholeFileAnnotations = fileAnnotations.filter((a) => a.kind === "file");
 	const lineFileAnnotations = fileAnnotations.filter((a) => a.kind !== "file");
-	const selectedStart =
-		anchorLine && endLine ? Math.min(anchorLine, endLine) : anchorLine;
-	const selectedEnd =
-		anchorLine && endLine ? Math.max(anchorLine, endLine) : anchorLine;
+	const diffSections = useMemo(
+		() => [
+			{
+				id: "committed" as const,
+				title: "Committed (main..HEAD)",
+				patch: diffPatches.committed,
+				files: parseDiffFiles(diffPatches.committed),
+				fallbackFiles: diffFiles(diffPatches.committed),
+			},
+			{
+				id: "staged" as const,
+				title: "Not committed — staged",
+				patch: diffPatches.staged,
+				files: parseDiffFiles(diffPatches.staged),
+				fallbackFiles: diffFiles(diffPatches.staged),
+			},
+			{
+				id: "unstaged" as const,
+				title: "Not committed — unstaged",
+				patch: diffPatches.unstaged,
+				files: parseDiffFiles(diffPatches.unstaged),
+				fallbackFiles: diffFiles(diffPatches.unstaged),
+			},
+		],
+		[diffPatches],
+	);
+	const changedPaths = useMemo(() => {
+		const names = diffSections.flatMap((section) =>
+			section.files.length
+				? section.files.map((file) => file.name)
+				: section.fallbackFiles,
+		);
+		return [...new Set(names)].filter((path): path is string => Boolean(path));
+	}, [diffSections]);
+	const treePaths = viewMode === "diff" ? changedPaths : paths;
+	const renderedDiffAnnotations = useMemo(
+		() => [...annotations.map(toDiffAnnotation), ...localDiffAnnotations],
+		[annotations, localDiffAnnotations],
+	);
 
 	async function loadAnnotations(id = worktreeId) {
-		if (id)
-			setAnnotations(
-				await apiGet<Annotation[]>(`/annotations?worktreeId=${id}`),
+		if (id) setAnnotations(await apiGet<Annotation[]>(`/annotations?worktreeId=${id}`));
+		else setAnnotations([]);
+	}
+	async function loadTree(id = worktreeId) {
+		if (!id) {
+			setPaths([]);
+			setError("Select worktree.");
+			return;
+		}
+		setTreeLoading(true);
+		try {
+			const nextPaths = await apiGet<string[]>(`/files/tree?worktreeId=${id}`);
+			setPaths(nextPaths);
+			await loadAnnotations(id);
+			const savedFile = file || localStorage.getItem(`aware-open-file:${id}`) || "";
+			if (savedFile && nextPaths.includes(savedFile)) await readFile(savedFile, id, viewMode !== "diff");
+			else if (savedFile) {
+				setFile("");
+				setContent("");
+				setPageState("files", { file: "", annotationMode: null });
+			}
+			setError("");
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setTreeLoading(false);
+		}
+	}
+	async function loadDiffs(id = worktreeId) {
+		if (!id) return;
+		setDiffLoading(true);
+		try {
+		const fetchPatch = (mode: "main" | "staged" | "unstaged") =>
+			fetch(`/api/diffs/git?${new URLSearchParams({ worktreeId: id, mode })}`).then(
+				(r) => r.text(),
 			);
+		const [committed, staged, unstaged] = await Promise.all([
+			fetchPatch("main"),
+			fetchPatch("staged"),
+			fetchPatch("unstaged"),
+		]);
+		setDiffPatches({ committed, staged, unstaged });
+		setSelectedDiff(null);
+		setSelectedDiffFile("");
+		await loadAnnotations(id);
+		} finally {
+			setDiffLoading(false);
+		}
 	}
 	useEffect(() => {
-		async function loadTree(force = false, nextId = worktreeId) {
-			const id = nextId;
-			if (!id) {
-				setPaths([]);
-				setError("Select worktree first.");
-				loadedWorktreeId.current = "";
-				return;
-			}
-			if (!force && loadedWorktreeId.current === id) return;
-			loadedWorktreeId.current = id;
-			try {
-				setPaths(await apiGet<string[]>(`/files/tree?worktreeId=${id}`));
-				await loadAnnotations(id);
-				const savedFile = localStorage.getItem(`aware-open-file:${id}`);
-				if (savedFile) await read(savedFile, id);
-				setError("");
-			} catch (error) {
-				setError(error instanceof Error ? error.message : String(error));
-			}
-		}
-		void loadTree(true);
-		const onSelection = () => {
-			const nextId = getSelectedWorktreeId("files");
-			setWorktreeId(nextId);
-			void loadTree(false, nextId);
-		};
-		window.addEventListener("aware-selection", onSelection);
-		return () => window.removeEventListener("aware-selection", onSelection);
+		void loadTree();
+		void loadDiffs();
 	}, []);
+	useEffect(() => {
+		if (!worktreeId) return;
+		const source = new EventSource(`${API_BASE}/events/worktrees?${new URLSearchParams({ worktreeId })}`);
+		const refreshCurrent = () => {
+			if (!worktreeId) return;
+			void loadTree(worktreeId);
+			void loadDiffs(worktreeId);
+			if (file) void readFile(file, worktreeId, viewMode !== "diff");
+		};
+		source.addEventListener("files", (event) => {
+			const data = JSON.parse((event as MessageEvent<string>).data) as { worktreeId?: string };
+			if (data.worktreeId === worktreeId) refreshCurrent();
+		});
+		source.addEventListener("worktrees", () => {
+			window.dispatchEvent(new Event("aware:worktrees"));
+			refreshCurrent();
+		});
+		return () => source.close();
+	}, [worktreeId, file, viewMode]);
 	useEffect(() => {
 		if (annotationMode) noteRef.current?.focus();
 	}, [annotationMode]);
 	useEffect(() => {
-		const input = projectChatRef.current;
+		const input = filesChatRef.current;
 		if (!input) return;
 		input.style.height = "auto";
 		input.style.height = `${input.scrollHeight}px`;
-	}, [projectMessage]);
+	}, [filesMessage]);
 
-	function chooseWorktree(id: string) {
-		setSelectedWorktreeId(id, "files");
-		setWorktreeId(id);
+	function chooseProject(id: string) {
+		setSelectedProjectId(id, "files");
+		setProjectIdState(id);
+		setWorktreeIdState("");
+		setPaths([]);
 		setFile("");
 		setContent("");
-		loadedWorktreeId.current = "";
+		setPageState("files", { file: "", annotationMode: null, anchorLine: null, endLine: null });
+		setDiffPatches({ committed: "", staged: "", unstaged: "" });
+		setAnnotations([]);
 	}
-
-	async function read(path: string, nextId = worktreeId) {
-		const id = nextId;
-		const text = await fetch(
-			`/api/files/read?worktreeId=${id}&path=${encodeURIComponent(path)}`,
-		).then((r) => r.text());
-		if (id) localStorage.setItem(`aware-open-file:${id}`, path);
+	function chooseWorktree(id: string) {
+		setSelectedWorktreeId(id, "files");
+		setWorktreeIdState(id);
+		setFile("");
+		setContent("");
+		setPageState("files", { file: "", annotationMode: null, anchorLine: null, endLine: null });
+		setDiffPatches({ committed: "", staged: "", unstaged: "" });
+		void loadTree(id);
+		void loadDiffs(id);
+	}
+	async function readFile(path: string, id = worktreeId, switchToFile = true) {
+		if (!id) return;
+		setFileLoading(true);
+		try {
+		const text = await fetch(`/api/files/read?worktreeId=${id}&path=${encodeURIComponent(path)}`).then((r) => r.text());
+		localStorage.setItem(`aware-open-file:${id}`, path);
 		setFile(path);
 		setContent(text);
-		window.requestAnimationFrame(() =>
-			restoreScroll("files-editor-scroll", editorRef.current),
-		);
+		setPageState("files", { file: path });
+		if (switchToFile) {
+			setViewMode("file");
+			setPageState("files", { viewMode: "file", note: "" });
+		}
 		setAnchorLine(null);
 		setEndLine(null);
 		setNote("");
-		setPageState("files", { note: "" });
 		setAnnotationMode(null);
+		setPageState("files", { anchorLine: null, endLine: null, note: "", annotationMode: null });
+		} finally {
+			setFileLoading(false);
+		}
 	}
 	function selectLine(line: number, extend: boolean) {
-		if (extend && anchorLine) setEndLine(line);
-		else {
+		if (extend && anchorLine) {
+			setEndLine(line);
+			setPageState("files", { endLine: line, annotationMode: "selection" });
+		} else {
 			setAnchorLine(line);
 			setEndLine(line);
-		}
-		if (annotationMode !== "selection") {
-			setNote("");
-			setPageState("files", { note: "" });
+			setPageState("files", { anchorLine: line, endLine: line, annotationMode: "selection" });
 		}
 		setAnnotationMode("selection");
 	}
 	async function saveAnnotation(kind: "file" | "line" | "range") {
-		const { selectedProjectId } = getSelection();
-		if (!worktreeId || !file || !note.trim()) return;
-		const body = {
-			projectId: selectedProjectId || "local",
+		if (!projectId || !worktreeId || !file || !note.trim() || annotationSaving) return;
+		setAnnotationSaving(true);
+		try {
+		await apiPost<Annotation>("/annotations", {
+			projectId,
 			worktreeId,
 			kind,
 			filePath: file,
@@ -387,253 +316,169 @@ export function FilesPage() {
 			text: note,
 			sent: false,
 			status: "pending",
-		};
-		await apiPost<Annotation>("/annotations", body);
+		});
 		setNote("");
-		setPageState("files", { note: "" });
+		setPageState("files", { note: "", anchorLine: null, endLine: null, annotationMode: null });
 		setAnchorLine(null);
 		setEndLine(null);
 		setAnnotationMode(null);
 		await loadAnnotations();
+		} finally {
+			setAnnotationSaving(false);
+		}
 	}
 	function saveActiveAnnotation() {
 		if (annotationMode === "file") return saveAnnotation("file");
 		if (!selectedStart) return;
 		return saveAnnotation(selectedStart === selectedEnd ? "line" : "range");
 	}
-	async function sendProjectChat() {
-		const { selectedProjectId } = getSelection();
-		if (!worktreeId || !projectMessage.trim()) return;
-		setProjectChatStatus("starting agent run...");
-		setPageState("files", {
-			projectMessage,
-			projectChatAgentId,
-		});
-		const run = await apiPost<AgentRun>("/chat", {
-			projectId: selectedProjectId,
-			worktreeId,
-			agentProfileId: projectChatAgentId,
-			message: projectMessage,
-			annotationIds: [],
-		});
-		setProjectMessage("");
-		setPageState("files", { projectMessage: "" });
-		setProjectChatRun(run);
-		setProjectChatStatus(`run ${run.id} ${run.status}`);
+	function selectDiffLines(fileName: string, range: SelectedLineRange | null) {
+		setSelectedDiff(range);
+		setSelectedDiffFile(range ? fileName : "");
+		setPageState("files", { selectedDiff: range, selectedDiffFile: range ? fileName : "" });
 	}
-	function openProjectChatRun(run: AgentRun) {
-		setProjectMessage("");
-		setPageState("files", { projectMessage: "" });
-		setProjectChatRun(null);
-		setProjectChatStatus("");
+	function selectDiffLine(fileName: string, line: OnDiffLineClickProps) {
+		selectDiffLines(fileName, {
+			start: line.lineNumber,
+			end: line.lineNumber,
+			side: line.annotationSide,
+			endSide: line.annotationSide,
+		});
+	}
+	async function addDiffComment() {
+		if (!projectId || !worktreeId || !selectedDiff || !comment.trim() || diffSaving) return;
+		setDiffSaving(true);
+		try {
+		const side = selectedDiff.side === "deletions" ? "deletions" : "additions";
+		setLocalDiffAnnotations((prev) => [
+			...prev,
+			{ filePath: selectedDiffFile, side, lineNumber: Math.max(selectedDiff.start, selectedDiff.end), metadata: { text: comment } },
+		]);
+		await apiPost("/annotations", {
+			projectId,
+			worktreeId,
+			taskId: getSelection().selectedTaskId || undefined,
+			kind: "diff",
+			filePath: selectedDiffFile || undefined,
+			side,
+			startLine: selectedDiff.start,
+			endLine: selectedDiff.end,
+			text: comment.trim(),
+			sent: false,
+		});
+		setSelectedDiff(null);
+		setSelectedDiffFile("");
+		setComment("");
+		setPageState("files", { comment: "", selectedDiff: null, selectedDiffFile: "" });
+		await loadAnnotations();
+		} finally {
+			setDiffSaving(false);
+		}
+	}
+	async function sendFilesChat() {
+		if (!projectId || !worktreeId || !filesMessage.trim() || chatSending) return;
+		setChatSending(true);
+		try {
+			setFilesChatStatus("starting agent run...");
+			setPageState("files", { filesMessage, filesChatAgentId });
+			const run = await apiPost<AgentRun>("/chat", {
+				projectId,
+				worktreeId,
+				agentProfileId: filesChatAgentId,
+				message: filesMessage,
+				annotationIds: [],
+			});
+			setFilesMessage("");
+			setPageState("files", { filesMessage: "" });
+			setFilesChatRun(run);
+			setFilesChatStatus(`run ${run.id} ${run.status}`);
+		} finally {
+			setChatSending(false);
+		}
+	}
+	function openFilesChatRun(run: AgentRun) {
+		setFilesChatRun(null);
+		setFilesChatStatus("");
 		setSelectedRunId(run.id);
 	}
+
 	return (
-		<section id="files" className="three-pane full-workspace files-workspace">
-			<div className="card tree-pane">
-				<div className="panel-head">
-					<h2>Files</h2>
-					<WorktreeSelect value={worktreeId} onChange={chooseWorktree} />
-				</div>
+		<section id="files" className="files-page full-workspace">
+			<aside className="project-worktree-sidebar">
+				<ProjectColumn value={projectId} onChange={chooseProject} />
+				<WorktreeColumn projectId={projectId} value={worktreeId} onChange={chooseWorktree} />
+			</aside>
+			<div className="files-main">
+				<div className="files-file-row">
+			<section className="card tree-pane">
+				<div className="panel-head"><h2>{viewMode === "diff" ? "Changed Files" : "File Tree"}</h2>{treeLoading || diffLoading ? <BusyIndicator label={viewMode === "diff" ? "Loading diffs" : "Loading tree"} /> : null}</div>
 				{error ? <p className="error">{error}</p> : null}
-				{paths.length ? (
-					<Tree paths={paths} onOpen={read} />
-				) : (
-					<p>Select worktree to load tree.</p>
-				)}
-			</div>
-			<div
-				className="card editor-pane"
-				ref={editorRef}
-				onScroll={(e) => persistScroll("files-editor-scroll", e.currentTarget)}
-			>
-				<div className="panel-head">
-					<h2>{file || "Open file"}</h2>
-					{file ? (
-						<button
-							type="button"
-							className="annotate-file-button"
-							onClick={() => {
-								setNote("");
-								setAnnotationMode("file");
-							}}
-						>
-							Annotate file
-						</button>
-					) : null}
+				{treePaths.length ? <FileTreeView paths={treePaths} selectedPath={file} onOpen={(path) => void readFile(path, worktreeId, viewMode !== "diff")} /> : <p>{viewMode === "diff" ? "No changed files." : "Select worktree to load tree."}</p>}
+			</section>
+			<section className="card editor-pane files-view-pane" ref={editorRef}>
+				<div className="panel-head files-view-head">
+					<div>
+						<h2>{viewMode === "file" ? file || "Open file" : file ? `Diffs: ${file}` : "Diffs"}</h2>
+					</div>
+					<div className="segmented-actions">
+						<button type="button" className={viewMode === "file" ? "active" : ""} onClick={() => { setViewMode("file"); setPageState("files", { viewMode: "file" }); }}>File</button>
+						<button type="button" className={viewMode === "diff" ? "active" : ""} onClick={() => { setViewMode("diff"); setPageState("files", { viewMode: "diff" }); void loadDiffs(); }}>Diff</button>
+						{file ? <button type="button" onClick={() => { setNote(""); setAnnotationMode("file"); setPageState("files", { note: "", annotationMode: "file" }); }}>Annotate file</button> : null}
+					</div>
 				</div>
 				{annotationMode ? (
 					<div className="annotation-popover">
-						<div className="panel-head">
-							<strong>
-								{annotationMode === "file"
-									? "Annotate file"
-									: selectedStart
-										? `Annotate lines ${selectedStart}-${selectedEnd}`
-										: "Annotate selection"}
-							</strong>
-							<button
-								type="button"
-								onClick={() => {
-									setNote("");
-									setPageState("files", { note: "" });
-									setAnnotationMode(null);
-								}}
-							>
-								×
-							</button>
-						</div>
-						<textarea
-							ref={noteRef}
-							value={note}
-							onChange={(e) => setNote(e.target.value)}
-							onKeyDown={(e) => {
-								if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-									e.preventDefault();
-									void saveActiveAnnotation();
-								}
-							}}
-							placeholder="Write annotation. Cmd+Enter saves."
-						/>
-						<div className="popover-actions">
-							<button
-								type="button"
-								disabled={
-									!note.trim() ||
-									(annotationMode === "selection" && !selectedStart)
-								}
-								onClick={() => void saveActiveAnnotation()}
-							>
-								Save
-							</button>
-							<button
-								type="button"
-								onClick={() => {
-									setNote("");
-									setPageState("files", { note: "" });
-									setAnchorLine(null);
-									setEndLine(null);
-									setAnnotationMode(null);
-								}}
-							>
-								Cancel
-							</button>
-						</div>
+						<div className="panel-head"><strong>{annotationMode === "file" ? "Annotate file" : `Annotate lines ${selectedStart}-${selectedEnd}`}</strong><button type="button" onClick={() => { setAnnotationMode(null); setPageState("files", { annotationMode: null }); }}>×</button></div>
+						<textarea ref={noteRef} value={note} onChange={(e) => { setNote(e.target.value); setPageState("files", { note: e.target.value }); }} placeholder="Write annotation. Cmd+Enter saves." onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void saveActiveAnnotation(); } }} />
+						<div className="popover-actions"><button type="button" disabled={!note.trim() || annotationSaving} onClick={() => void saveActiveAnnotation()}>{annotationSaving ? "Saving…" : "Save"}</button><button type="button" disabled={annotationSaving} onClick={() => { setAnnotationMode(null); setPageState("files", { annotationMode: null }); }}>Cancel</button></div>
 					</div>
 				) : null}
-				{wholeFileAnnotations.map((a) => (
-					<div
-						key={a.id}
-						className={`inline-annotation ${a.status === "processing" ? "processing" : ""}`}
-					>
-						<strong>File note:</strong> {a.text}
-						{a.runId ? (
-							<>
-								{" "}
-								<RunLink runId={a.runId} />
-							</>
-						) : null}
-					</div>
-				))}
-				<div className="code-lines">
-					{lines.map((line, i) => {
-						const n = i + 1;
-						const selected =
-							selectedStart &&
-							selectedEnd &&
-							n >= selectedStart &&
-							n <= selectedEnd;
-						const lineAnnotations = lineFileAnnotations.filter((a) => {
-							if (!a.startLine) return false;
-							const end = a.endLine ?? a.startLine;
-							return n === end;
-						});
-						return (
-							<div key={`${file}-${n}`}>
-								<button
-									type="button"
-									className={`code-line ${selected ? "selected" : ""}`}
-									onClick={(e) => selectLine(n, e.shiftKey)}
-								>
-									<span className="line-no">{n}</span>
-									<code>{line || " "}</code>
-								</button>
-								{lineAnnotations.map((a) => (
-									<div
-										key={a.id}
-										className={`inline-annotation ${a.status === "processing" ? "processing" : ""}`}
-									>
-										{a.text}
-										{a.runId ? (
-											<>
-												{" "}
-												<RunLink runId={a.runId} />
-											</>
-										) : null}
-									</div>
-								))}
+				{viewMode === "file" ? (
+					<>
+						{wholeFileAnnotations.map((a) => <div key={a.id} className={`inline-annotation ${a.status === "processing" ? "processing" : ""}`}><strong>File note:</strong> {a.text}{a.runId ? <> <RunLink runId={a.runId} /></> : null}</div>)}
+						{fileLoading ? <BusyIndicator label="Loading file" /> : null}
+						<div className="code-lines">
+							{file ? lines.map((line, i) => {
+								const n = i + 1;
+								const selected = selectedStart && selectedEnd && n >= selectedStart && n <= selectedEnd;
+								const rowAnnotations = lineFileAnnotations.filter((a) => a.startLine && n === (a.endLine ?? a.startLine));
+								return <div key={`${file}-${n}`}><button type="button" className={`code-line ${selected ? "selected" : ""}`} onClick={(e) => selectLine(n, e.shiftKey)}><span className="line-no">{n}</span><code>{line || " "}</code></button>{rowAnnotations.map((a) => <div key={a.id} className={`inline-annotation ${a.status === "processing" ? "processing" : ""}`}>{a.text}{a.runId ? <> <RunLink runId={a.runId} /></> : null}</div>)}</div>;
+							}) : <p>Open file from tree.</p>}
+						</div>
+					</>
+				) : (
+					<div className="files-diff-view">
+						{selectedDiff ? (
+							<div className="annotation-popover diff-annotation-popover">
+								<div className="panel-head"><strong>Annotate {selectedDiffFile}:{selectedDiff.start}-{selectedDiff.end}</strong><button type="button" onClick={() => selectDiffLines("", null)}>×</button></div>
+								<textarea value={comment} onChange={(e) => { setComment(e.target.value); setPageState("files", { comment: e.target.value }); }} placeholder="Comment on selected diff lines. Cmd+Enter saves." onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void addDiffComment(); } }} />
+								<div className="popover-actions"><button type="button" disabled={!comment.trim() || diffSaving} onClick={() => void addDiffComment()}>{diffSaving ? "Saving…" : "Save"}</button><button type="button" disabled={diffSaving} onClick={() => selectDiffLines("", null)}>Cancel</button></div>
 							</div>
-						);
-					})}
+						) : <p className="diff-help-text">Click diff line to annotate.</p>}
+						{diffLoading ? <BusyIndicator label="Loading diffs" /> : null}
+						<div className="files-diff-scroll">
+							{diffSections.some((section) => section.patch) ? diffSections.map((section) => {
+								const visibleFiles = file
+									? section.files.filter((diffFile) => diffFile.name === file || diffFile.prevName === file)
+									: section.files;
+								return (
+								<section key={section.id} className="diff-section">
+									<h3>{section.title}</h3>
+									{visibleFiles.length ? visibleFiles.map((diffFile) => <FileDiff key={`${section.id}-${diffFile.name}-${diffFile.prevName ?? ""}`} fileDiff={diffFile} disableWorkerPool selectedLines={selectedDiffFile === diffFile.name ? selectedDiff : null} lineAnnotations={forFile(diffFile, renderedDiffAnnotations)} renderAnnotation={(a) => <div className="annotation">{a.metadata.text}</div>} options={{ enableLineSelection: true, onLineClick: (line) => selectDiffLine(diffFile.name, line), onLineNumberClick: (line) => selectDiffLine(diffFile.name, line), onLineSelectionEnd: (range) => selectDiffLines(diffFile.name, range) }} />) : section.patch ? <p className="empty-state">{file ? "No changes for opened file in this section." : "No changes."}</p> : <p className="empty-state">No changes.</p>}
+								</section>
+							)}) : <pre>No diff loaded</pre>}
+						</div>
+					</div>
+				)}
+				<div className="files-chat files-chat-inline">
+					<textarea ref={filesChatRef} rows={1} value={filesMessage} onChange={(e) => { setFilesMessage(e.target.value); setPageState("files", { filesMessage: e.target.value }); }} placeholder="Chat about these files/worktree." />
+					<div className="files-chat-actions"><AgentPicker value={filesChatAgentId} onChange={(id) => { setFilesChatAgentId(id); setPageState("files", { filesChatAgentId: id }); }} />{chatSending ? <BusyIndicator label="Starting" /> : null}<button type="button" disabled={!filesMessage.trim() || chatSending} onClick={() => void sendFilesChat()}>{chatSending ? "Sending…" : "Send"}</button>{filesChatStatus ? <p>{filesChatStatus}{filesChatRun ? <> — <a href="#runs" onClick={() => openFilesChatRun(filesChatRun)}>open run</a></> : null}</p> : null}</div>
 				</div>
-			</div>
-			<div className="annotation-pane">
-				<AnnotationsPanel
-					annotations={file ? fileAnnotations : annotations}
-					projectId={getSelection().selectedProjectId}
-					worktreeId={worktreeId}
-					onRefresh={loadAnnotations}
-				/>
-			</div>
-			<div className="card files-project-chat">
-				<textarea
-					ref={projectChatRef}
-					rows={1}
-					value={projectMessage}
-					onChange={(e) => {
-						setProjectMessage(e.target.value);
-						setPageState("files", { projectMessage: e.target.value });
-					}}
-					onKeyDown={(e) => {
-						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-							e.preventDefault();
-							void sendProjectChat();
-						}
-					}}
-					placeholder="Chat about this project/worktree. No annotations, tasks, or diffs included."
-				/>
-				<div className="files-project-chat-actions">
-					<AgentPicker
-						value={projectChatAgentId}
-						onChange={(id) => {
-							setProjectChatAgentId(id);
-							setPageState("files", { projectChatAgentId: id });
-						}}
-					/>
-					<button
-						type="button"
-						disabled={!projectMessage.trim()}
-						onClick={() => void sendProjectChat()}
-					>
-						Send
-					</button>
-					{projectChatStatus ? (
-						<p>
-							{projectChatStatus}
-							{projectChatRun ? (
-								<>
-									{" — "}
-									<a
-										href="#runs"
-										onClick={() => openProjectChatRun(projectChatRun)}
-									>
-										open run
-									</a>
-								</>
-							) : null}
-						</p>
-					) : null}
+			</section>
 				</div>
+				<section className="card files-annotations-row">
+					<AnnotationsPanel annotations={viewMode === "file" && file ? fileAnnotations : annotations} projectId={projectId} worktreeId={worktreeId} onRefresh={loadAnnotations} />
+				</section>
 			</div>
 		</section>
 	);

@@ -62,6 +62,31 @@ body {
 	color: #f8fafc;
 }
 
+.busy-indicator {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0 4px;
+	color: #93c5fd;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.busy-dot {
+	width: 9px;
+	height: 9px;
+	border: 2px solid #334155;
+	border-top-color: #60a5fa;
+	border-radius: 999px;
+	animation: busy-spin 0.8s linear infinite;
+}
+
+@keyframes busy-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .content {
 	flex: 1;
 	padding: 0;
@@ -161,7 +186,7 @@ pre {
 	overflow: hidden;
 }
 
-.files-project-chat {
+.files-chat {
 	grid-column: 1 / -1;
 	display: grid;
 	grid-template-columns: 1fr auto;
@@ -171,7 +196,7 @@ pre {
 	padding: 8px;
 }
 
-.files-project-chat textarea {
+.files-chat textarea {
 	width: 100%;
 	min-height: 34px;
 	max-height: 32vh;
@@ -180,7 +205,7 @@ pre {
 	line-height: 20px;
 }
 
-.files-project-chat-actions,
+.files-chat-actions,
 .prompt-actions,
 .annotation-actions,
 .annotation-bulk-actions {
@@ -203,7 +228,7 @@ pre {
 	max-width: 160px;
 }
 
-.files-project-chat-actions p {
+.files-chat-actions p {
 	margin: 0;
 	font-size: 12px;
 }
@@ -277,8 +302,18 @@ pre {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
+	gap: 6px;
 	flex-wrap: wrap;
+	min-height: 0;
+	padding: 2px 2px 6px;
+}
+
+.panel-head h2,
+.panel-head h3 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 650;
+	line-height: 1.2;
 }
 
 .worktree-select {
@@ -891,11 +926,11 @@ pre {
 		min-height: 320px;
 	}
 
-	.files-project-chat {
+	.files-chat {
 		grid-template-columns: 1fr;
 	}
 
-	.files-project-chat-actions,
+	.files-chat-actions,
 	.prompt-actions,
 	.annotation-actions,
 	.annotation-bulk-actions {
@@ -908,7 +943,7 @@ pre {
 	.prompt-actions button,
 	.annotation-actions button,
 	.annotation-bulk-actions button,
-	.files-project-chat-actions button {
+	.files-chat-actions button {
 		width: 100%;
 	}
 }
@@ -1473,4 +1508,280 @@ pre {
 		height: auto;
 		overflow: auto;
 	}
+}
+
+.finder-column {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.finder-list {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 2px 2px 4px;
+}
+
+.finder-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	width: calc(100% - 4px);
+	margin: 1px 2px;
+	padding: 7px 9px;
+	text-align: left;
+	background: #111827;
+	border: 1px solid #1f2937;
+	border-radius: 8px;
+	color: #e5e7eb;
+}
+
+.finder-row.selected {
+	background: #172033;
+	border-color: #60a5fa;
+}
+
+.finder-row strong,
+.finder-row small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.finder-row strong {
+	flex: 0 0 auto;
+	max-width: 38%;
+}
+
+.finder-row small {
+	flex: 1;
+	min-width: 0;
+	color: #94a3b8;
+}
+
+.worktree-row {
+	display: grid;
+	align-items: stretch;
+	gap: 3px;
+}
+
+.worktree-row-title {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.worktree-row-title strong {
+	flex: 0 1 auto;
+	max-width: none;
+	min-width: 0;
+}
+
+.worktree-row-title small,
+.worktree-row-path {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.worktree-row-title small {
+	flex: 1;
+	min-width: 0;
+}
+
+.worktree-row-path {
+	display: block;
+	min-width: 0;
+}
+
+.finder-add {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 4px;
+	padding-top: 8px;
+}
+
+.finder-add input,
+.finder-add button {
+	min-width: 0;
+}
+
+.panel-add-button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	margin: 0;
+	border-radius: 999px;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.finder-add-popover {
+	position: absolute;
+	top: 36px;
+	right: 8px;
+	z-index: 5;
+	width: min(420px, calc(100% - 16px));
+	padding: 10px;
+	background: #11151c;
+	border: 1px solid #334155;
+	border-radius: 10px;
+	box-shadow: 0 16px 40px rgb(0 0 0 / 45%);
+}
+
+.finder-add-popover input {
+	width: calc(100% - 8px);
+}
+
+.files-page {
+	display: grid;
+	grid-template-columns: minmax(168px, 17vw) minmax(0, 1fr);
+	gap: 6px;
+	padding: 6px;
+	height: auto;
+	min-height: 100%;
+	overflow: visible;
+}
+
+.project-worktree-sidebar {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 6px;
+	min-height: 0;
+}
+
+.files-main {
+	display: grid;
+	grid-template-rows: 80vh auto;
+	gap: 6px;
+	min-width: 0;
+	min-height: 0;
+}
+
+.files-file-row {
+	display: grid;
+	grid-template-columns: minmax(160px, 20%) minmax(0, 80%);
+	gap: 6px;
+	min-height: 0;
+}
+
+.files-view-pane {
+	overflow: auto;
+	padding: 12px;
+}
+
+.files-annotations-row {
+	min-height: 0;
+	overflow: visible;
+}
+
+.files-annotations-row .annotations-panel {
+	min-height: 0;
+	max-height: none;
+}
+
+.files-view-head,
+.segmented-actions,
+.diff-controls-inline,
+.diff-comment-inline {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.segmented-actions {
+	margin-left: auto;
+}
+
+.segmented-actions button.active,
+.diff-controls-inline button.active {
+	background: #172033;
+	border-color: #60a5fa;
+	color: #f8fafc;
+}
+
+.files-diff-view {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+	gap: 8px;
+}
+
+.files-view-head {
+	flex: 0 0 auto;
+}
+
+.diff-help-text {
+	flex: 0 0 auto;
+	margin: 0 0 4px;
+	color: #94a3b8;
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.diff-comment-inline textarea {
+	min-width: min(420px, 100%);
+	min-height: 36px;
+}
+
+.files-diff-scroll {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	padding: 4px 2px 10px;
+}
+
+.diff-section {
+	margin: 0 0 18px;
+}
+
+.diff-section h3 {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	margin: 0 0 8px;
+	padding: 6px 8px;
+	background: #0f131a;
+	border: 1px solid #242832;
+	border-radius: 8px;
+	font-size: 14px;
+	line-height: 1.2;
+}
+
+.files-chat-inline {
+	margin-top: 8px;
+}
+
+.tasks-shell {
+	display: grid;
+	grid-template-columns: minmax(168px, 17vw) minmax(0, 1fr);
+	gap: 6px;
+	padding: 6px;
+}
+
+.tasks-shell > .tasks-page {
+	min-height: 0;
+	overflow: auto;
+}
+
+.runs-shell {
+	display: grid;
+	grid-template-columns: minmax(168px, 17vw) minmax(0, 1fr);
+	gap: 6px;
+	padding: 6px;
+}
+
+.runs-shell > .run-page {
+	min-height: 0;
+	height: 100%;
+	margin: 0;
 }

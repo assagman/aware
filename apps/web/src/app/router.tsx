@@ -1,24 +1,32 @@
 import { useEffect, useState } from "react";
+import { getPageState, setPageState } from "./pageState";
 import { AgentsPage } from "../pages/AgentsPage";
-import { DiffsPage } from "../pages/DiffsPage";
 import { FilesPage } from "../pages/FilesPage";
 import { RunDetailPage } from "../pages/RunDetailPage";
 import { TasksPage } from "../pages/TasksPage";
-import { TopSelection } from "./TopSelection";
 
-const pages = ["files", "agents", "tasks", "runs", "diffs"] as const;
+const pages = ["files", "agents", "tasks", "runs"] as const;
 type Page = (typeof pages)[number];
 
 function currentPage(): Page {
 	const hash = window.location.hash.replace("#", "");
-	if (hash === "project" || hash === "projects") return "files";
-	return pages.includes(hash as Page) ? (hash as Page) : "files";
+	if (pages.includes(hash as Page)) return hash as Page;
+	const saved = getPageState("app", { page: "files" as Page }).page;
+	return pages.includes(saved as Page) ? (saved as Page) : "files";
 }
 
 export function AppRouter() {
 	const [page, setPage] = useState<Page>(currentPage());
 	useEffect(() => {
-		const onHash = () => setPage(currentPage());
+		if (!window.location.hash) window.location.hash = page;
+		setPageState("app", { page });
+	}, [page]);
+	useEffect(() => {
+		const onHash = () => {
+			const next = currentPage();
+			setPage(next);
+			setPageState("app", { page: next });
+		};
 		window.addEventListener("hashchange", onHash);
 		return () => window.removeEventListener("hashchange", onHash);
 	}, []);
@@ -39,27 +47,14 @@ export function AppRouter() {
 					<a className={page === "runs" ? "active" : ""} href="#runs">
 						Runs
 					</a>
-					<a className={page === "diffs" ? "active" : ""} href="#diffs">
-						Diffs
-					</a>
 				</nav>
-				<TopSelection />
 			</header>
 			<section className="content">
-				<div className={page === "files" ? "page active" : "page"}>
-					<FilesPage />
-				</div>
-				<div className={page === "agents" ? "page active" : "page"}>
-					<AgentsPage />
-				</div>
-				<div className={page === "tasks" ? "page active" : "page"}>
-					<TasksPage />
-				</div>
-				<div className={page === "runs" ? "page active" : "page"}>
-					<RunDetailPage />
-				</div>
-				<div className={page === "diffs" ? "page active" : "page"}>
-					<DiffsPage />
+				<div className="page active">
+					{page === "files" ? <FilesPage /> : null}
+					{page === "agents" ? <AgentsPage /> : null}
+					{page === "tasks" ? <TasksPage /> : null}
+					{page === "runs" ? <RunDetailPage /> : null}
 				</div>
 			</section>
 		</main>
