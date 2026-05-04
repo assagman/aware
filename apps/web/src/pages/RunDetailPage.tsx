@@ -1,6 +1,9 @@
 import type { AgentRun, RunEvent, Worktree } from "@aware/shared";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, apiGet, apiPost } from "../app/api";
@@ -148,92 +151,28 @@ function isSafeHref(href: string) {
 	return /^(https?:|mailto:|\/|#)/i.test(href);
 }
 
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
-	const nodes: ReactNode[] = [];
-	let i = 0;
-	function pushText(value: string) {
-		if (value) nodes.push(value);
-	}
-	while (i < text.length) {
-		const rest = text.slice(i);
-		const link = rest.match(/^\[([^\]]+)\]\(([^)\s]+)\)/);
-		if (link) {
-			const full = link[0] ?? "";
-			const label = link[1] ?? "";
-			const href = link[2] ?? "";
-			nodes.push(
-				isSafeHref(href) ? (
-					<a
-						key={`${keyPrefix}-link-${i}`}
-						href={href}
-						target="_blank"
-						rel="noreferrer"
-					>
-						{renderInline(label, `${keyPrefix}-link-${i}`)}
-					</a>
-				) : (
-					full
-				),
-			);
-			i += full.length;
-			continue;
-		}
-		const codeEnd = text.indexOf("`", i + 1);
-		if (text[i] === "`" && codeEnd > i) {
-			nodes.push(
-				<code key={`${keyPrefix}-code-${i}`}>
-					{text.slice(i + 1, codeEnd)}
-				</code>,
-			);
-			i = codeEnd + 1;
-			continue;
-		}
-		if (text.startsWith("**", i)) {
-			const end = text.indexOf("**", i + 2);
-			if (end > i) {
-				nodes.push(
-					<strong key={`${keyPrefix}-strong-${i}`}>
-						{renderInline(text.slice(i + 2, end), `${keyPrefix}-strong-${i}`)}
-					</strong>,
-				);
-				i = end + 2;
-				continue;
-			}
-		}
-		if (text[i] === "*") {
-			const end = text.indexOf("*", i + 1);
-			if (end > i) {
-				nodes.push(
-					<em key={`${keyPrefix}-em-${i}`}>
-						{renderInline(text.slice(i + 1, end), `${keyPrefix}-em-${i}`)}
-					</em>,
-				);
-				i = end + 1;
-				continue;
-			}
-		}
-		const next = [
-			text.indexOf("[", i + 1),
-			text.indexOf("`", i + 1),
-			text.indexOf("**", i + 1),
-			text.indexOf("*", i + 1),
-		]
-			.filter((n) => n !== -1)
-			.sort((a, b) => a - b)[0];
-		pushText(text.slice(i, next ?? text.length));
-		i = next ?? text.length;
-	}
-	return nodes;
-}
+const markdownComponents: Components = {
+	a({ href, children, ...props }) {
+		if (!href || !isSafeHref(href)) return <span>{children}</span>;
+		return (
+			<a {...props} href={href} target="_blank" rel="noreferrer">
+				{children}
+			</a>
+		);
+	},
+	table({ children }) {
+		return (
+			<div className="markdown-table-scroll">
+				<table>{children}</table>
+			</div>
+		);
+	},
+};
 
-function isMarkdownBlockStart(line: string) {
-	return (
-		/^```/.test(line) ||
-		/^#{1,6}\s+/.test(line) ||
-		/^>\s?/.test(line) ||
-		/^\s*[-*+]\s+/.test(line) ||
-		/^\s*\d+[.)]\s+/.test(line)
-	);
+function normalizeMarkdown(text: string) {
+	return text
+		.replace(/\r\n/g, "\n")
+		.replace(/\|\s*(?=\|[^\n]+\|\s*\n\|?\s*:?-{3,})/g, "|\n\n");
 }
 
 function MarkdownText({
@@ -243,93 +182,17 @@ function MarkdownText({
 	text: string;
 	className?: string;
 }) {
-	const lines = text.replace(/\r\n/g, "\n").split("\n");
-	const blocks: ReactNode[] = [];
-	let i = 0;
-	while (i < lines.length) {
-		const line = lines[i] ?? "";
-		if (!line.trim()) {
-			i++;
-			continue;
-		}
-		const fence = line.match(/^```\s*(\S*)/);
-		if (fence) {
-			const code: string[] = [];
-			i++;
-			while (i < lines.length && !/^```/.test(lines[i] ?? ""))
-				code.push(lines[i++] ?? "");
-			if (i < lines.length) i++;
-			blocks.push(
-				<pre
-					key={`code-${i}`}
-					className={fence[1] ? `language-${fence[1]}` : undefined}
-				>
-					<code>{code.join("\n")}</code>
-				</pre>,
-			);
-			continue;
-		}
-		const heading = line.match(/^(#{1,6})\s+(.+)$/);
-		if (heading) {
-			const marks = heading[1] ?? "#";
-			const Tag = `h${marks.length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-			blocks.push(
-				<Tag key={`h-${i}`}>{renderInline(heading[2] ?? "", `h-${i}`)}</Tag>,
-			);
-			i++;
-			continue;
-		}
-		if (/^>\s?/.test(line)) {
-			const quote: string[] = [];
-			while (i < lines.length && /^>\s?/.test(lines[i] ?? ""))
-				quote.push((lines[i++] ?? "").replace(/^>\s?/, ""));
-			blocks.push(
-				<blockquote key={`q-${i}`}>
-					{quote.map((q, n) => (
-						<p key={n}>{renderInline(q, `q-${i}-${n}`)}</p>
-					))}
-				</blockquote>,
-			);
-			continue;
-		}
-		if (/^\s*[-*+]\s+/.test(line)) {
-			const items: string[] = [];
-			while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i] ?? ""))
-				items.push((lines[i++] ?? "").replace(/^\s*[-*+]\s+/, ""));
-			blocks.push(
-				<ul key={`ul-${i}`}>
-					{items.map((item, n) => (
-						<li key={n}>{renderInline(item, `ul-${i}-${n}`)}</li>
-					))}
-				</ul>,
-			);
-			continue;
-		}
-		if (/^\s*\d+[.)]\s+/.test(line)) {
-			const items: string[] = [];
-			while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i] ?? ""))
-				items.push((lines[i++] ?? "").replace(/^\s*\d+[.)]\s+/, ""));
-			blocks.push(
-				<ol key={`ol-${i}`}>
-					{items.map((item, n) => (
-						<li key={n}>{renderInline(item, `ol-${i}-${n}`)}</li>
-					))}
-				</ol>,
-			);
-			continue;
-		}
-		const paragraph: string[] = [];
-		while (
-			i < lines.length &&
-			(lines[i] ?? "").trim() &&
-			!isMarkdownBlockStart(lines[i] ?? "")
-		)
-			paragraph.push(lines[i++] ?? "");
-		blocks.push(
-			<p key={`p-${i}`}>{renderInline(paragraph.join("\n"), `p-${i}`)}</p>,
-		);
-	}
-	return <div className={`markdown-text ${className}`.trim()}>{blocks}</div>;
+	return (
+		<div className={`markdown-text ${className}`.trim()}>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				rehypePlugins={[rehypeSanitize]}
+				components={markdownComponents}
+			>
+				{normalizeMarkdown(text)}
+			</ReactMarkdown>
+		</div>
+	);
 }
 
 function activeAgentLabel(run: AgentRun | undefined, _events: RunEvent[]) {

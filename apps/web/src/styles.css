@@ -626,14 +626,17 @@ pre {
 }
 
 .markdown-text {
-	line-height: 1.55;
+	line-height: 1.6;
+	color: #e5e7eb;
 }
 
-.markdown-text > :first-child {
+.markdown-text > :first-child,
+.markdown-text > :first-child > :first-child {
 	margin-top: 8px;
 }
 
-.markdown-text > :last-child {
+.markdown-text > :last-child,
+.markdown-text > :last-child > :last-child {
 	margin-bottom: 0;
 }
 
@@ -641,33 +644,101 @@ pre {
 	white-space: pre-wrap;
 }
 
+.markdown-text h1,
+.markdown-text h2,
+.markdown-text h3,
+.markdown-text h4,
+.markdown-text h5,
+.markdown-text h6 {
+	margin: 16px 0 8px;
+	line-height: 1.25;
+	color: #f8fafc;
+}
+
+.markdown-text ul,
+.markdown-text ol {
+	padding-left: 24px;
+}
+
+.markdown-text li {
+	margin: 4px 0;
+}
+
 .markdown-text pre {
 	white-space: pre;
 	max-height: 45vh;
 	margin: 10px 0;
+	border: 1px solid #1f2937;
 }
 
 .markdown-text code {
 	padding: 2px 4px;
 	background: #07090c;
+	border: 1px solid #1f2937;
 	border-radius: 4px;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.92em;
 }
 
 .markdown-text pre code {
 	padding: 0;
 	background: transparent;
+	border: 0;
 }
 
 .markdown-text blockquote {
 	margin: 10px 0;
-	padding-left: 12px;
+	padding: 4px 0 4px 12px;
 	border-left: 3px solid #64748b;
 	color: #cbd5e1;
 }
 
 .markdown-text a {
 	color: #93c5fd;
+}
+
+.markdown-table-scroll {
+	max-width: 100%;
+	margin: 12px 0;
+	overflow: auto;
+	border: 1px solid #334155;
+	border-radius: 10px;
+	background: #0b1220;
+}
+
+.markdown-text table {
+	width: 100%;
+	min-width: max-content;
+	border-collapse: collapse;
+	font-size: 14px;
+}
+
+.markdown-text th,
+.markdown-text td {
+	padding: 9px 12px;
+	border-bottom: 1px solid #263244;
+	border-left: 1px solid #263244;
+	vertical-align: top;
+}
+
+.markdown-text th:first-child,
+.markdown-text td:first-child {
+	border-left: 0;
+}
+
+.markdown-text tr:last-child td {
+	border-bottom: 0;
+}
+
+.markdown-text th {
+	background: #111827;
+	color: #f8fafc;
+	font-weight: 700;
+	text-align: left;
+}
+
+.markdown-text tbody tr:nth-child(even) {
+	background: rgb(15 23 42 / 0.55);
 }
 
 .tool-event,
