@@ -280,6 +280,17 @@ function errorText(payload: unknown) {
 
 type ProcessState = "live" | "stalled" | "idle";
 
+const RUN_STALLED_AFTER_MS = 30_000;
+const RUN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+
+function formatDuration(ms: number) {
+	const seconds = Math.max(0, Math.round(ms / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	const remainder = seconds % 60;
+	return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
 function ProcessIndicator({ state }: { state: ProcessState }) {
 	const label = state === "live" ? "Live" : state === "stalled" ? "Stalled" : "Idle";
 	return (
@@ -810,7 +821,20 @@ export function RunDetailPage() {
 		const latestEvent = events.at(-1);
 		if (!latestEvent) return "live";
 		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
-		return ageMs > 30_000 ? "stalled" : "live";
+		return ageMs > RUN_STALLED_AFTER_MS ? "stalled" : "live";
+	}, [events, nowMs, selectedRun?.status]);
+	const stalledNotice = useMemo(() => {
+		if (selectedRun?.status !== "running") return undefined;
+		const latestEvent = events.at(-1);
+		if (!latestEvent) return undefined;
+		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
+		if (ageMs <= RUN_STALLED_AFTER_MS) return undefined;
+		const remainingMs = Math.max(0, RUN_INACTIVITY_TIMEOUT_MS - ageMs);
+		return {
+			idleFor: formatDuration(ageMs),
+			remaining: formatDuration(remainingMs),
+			lastEventType: latestEvent.type,
+		};
 	}, [events, nowMs, selectedRun?.status]);
 	async function loadRuns(
 		nextFilter = worktreeFilter,
@@ -1057,6 +1081,14 @@ export function RunDetailPage() {
 						persistScroll(`runs-chat-scroll:${runId}`, e.currentTarget)
 					}
 				>
+					{stalledNotice ? (
+						<section className="chat-bubble stalled-notice message-warning">
+							<strong>Agent activity stalled</strong>
+							<MarkdownText
+								text={`No agent event for ${stalledNotice.idleFor}. Last event: \`${stalledNotice.lastEventType}\`. Aware is still waiting for the runtime, usually because the model/provider stream is hung or slow. If no activity resumes, this run will be failed automatically in about ${stalledNotice.remaining}.`}
+							/>
+						</section>
+					) : null}
 					<ChatTimeline events={events} />
 					<div ref={bottomRef} />
 				</div>

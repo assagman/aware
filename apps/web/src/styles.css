@@ -670,6 +670,16 @@ pre {
 	border-color: #8f2626;
 }
 
+.message-warning {
+	background: #332207;
+	border-color: #b45309;
+	color: #fde68a;
+}
+
+.message-warning .markdown-text {
+	color: #fde68a;
+}
+
 .markdown-text {
 	line-height: 1.6;
 	color: #e5e7eb;

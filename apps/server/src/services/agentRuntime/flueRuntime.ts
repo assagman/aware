@@ -19,6 +19,22 @@ import { runEventHub } from "./runEventHub";
 const now = () => new Date().toISOString();
 const DEFAULT_RUN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
+function formatDuration(ms: number) {
+	const seconds = Math.round(ms / 1000);
+	if (seconds < 60) return `${seconds} seconds`;
+	const minutes = Math.round(seconds / 60);
+	return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function inactiveRunMessage(timeoutMs: number) {
+	return [
+		`No agent activity for ${formatDuration(timeoutMs)}.`,
+		"Aware stopped this run because the agent runtime stopped emitting progress.",
+		"Most likely cause: the model/provider stream hung or failed without returning an error.",
+		"Retry the run; if it repeats, check provider auth/network status.",
+	].join(" ");
+}
+
 export function runInactivityTimeoutMs() {
 	const override = Number(process.env.AWARE_RUN_INACTIVITY_TIMEOUT_MS);
 	return Number.isFinite(override) && override > 0
@@ -491,9 +507,7 @@ export class FlueRuntime {
 			if (timer) clearTimeout(timer);
 			timer = setTimeout(
 				() =>
-					rejectInactive?.(
-						new Error(`Agent runtime inactive for ${timeoutMs}ms`),
-					),
+					rejectInactive?.(new Error(inactiveRunMessage(timeoutMs))),
 				timeoutMs,
 			);
 		};
