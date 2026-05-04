@@ -766,37 +766,42 @@ export function RunDetailPage() {
 		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
 		return ageMs > 30_000 ? "stalled" : "live";
 	}, [events, nowMs, selectedRun?.status]);
-	async function loadRuns(nextFilter = worktreeFilter) {
-		setLoadingRuns(true);
+	async function loadRuns(
+		nextFilter = worktreeFilter,
+		options: { silent?: boolean } = {},
+	) {
+		if (!options.silent) setLoadingRuns(true);
 		try {
-		const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
-		setRuns(rows);
-		if ((!runId || !rows.some((run) => run.id === runId)) && rows[0]) {
-			setRunId(rows[0].id);
-			setSelectedRunId(rows[0].id);
-			setPageState("runs", { runId: rows[0].id });
-		}
-		if (!rows.length) {
-			setRunId("");
-			setSelectedRunId("");
-			setPageState("runs", { runId: "" });
-			setEvents([]);
-		}
+			const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
+			setRuns(rows);
+			if ((!runId || !rows.some((run) => run.id === runId)) && rows[0]) {
+				setRunId(rows[0].id);
+				setSelectedRunId(rows[0].id);
+				setPageState("runs", { runId: rows[0].id });
+			}
+			if (!rows.length) {
+				setRunId("");
+				setSelectedRunId("");
+				setPageState("runs", { runId: "" });
+				setEvents([]);
+			}
 		} finally {
-			setLoadingRuns(false);
+			if (!options.silent) setLoadingRuns(false);
 		}
 	}
-	async function loadEvents(id = runId) {
+	async function loadEvents(id = runId, options: { silent?: boolean } = {}) {
 		if (!id) return;
-		setLoadingEvents(true);
+		if (!options.silent) setLoadingEvents(true);
 		try {
-		setEvents(await apiGet<RunEvent[]>(`/runs/${id}/events`));
-		window.requestAnimationFrame(() =>
-			restoreScroll(`runs-chat-scroll:${id}`, chatScrollRef.current),
-		);
-		setSelectedRunId(id);
+			setEvents(await apiGet<RunEvent[]>(`/runs/${id}/events`));
+			if (!options.silent) {
+				window.requestAnimationFrame(() =>
+					restoreScroll(`runs-chat-scroll:${id}`, chatScrollRef.current),
+				);
+			}
+			setSelectedRunId(id);
 		} finally {
-			setLoadingEvents(false);
+			if (!options.silent) setLoadingEvents(false);
 		}
 	}
 	useEffect(() => {
@@ -831,8 +836,8 @@ export function RunDetailPage() {
 			if (fallbackTimer || closed) return;
 			fallbackTimer = window.setInterval(
 				() => {
-					void loadRuns();
-					void loadEvents(runId);
+					void loadRuns(worktreeFilter, { silent: true });
+					void loadEvents(runId, { silent: true });
 				},
 				selectedRun?.status === "running" ? 1000 : 3000,
 			);
@@ -847,6 +852,7 @@ export function RunDetailPage() {
 		const source = new EventSource(`${API_BASE}/runs/${runId}/stream`);
 		source.onmessage = () => undefined;
 		source.onerror = () => {
+			source.close();
 			startPolling();
 		};
 		const handleEvent = (event: MessageEvent<string>) => {
@@ -867,10 +873,14 @@ export function RunDetailPage() {
 						: [...current, item].sort((a, b) => a.seq - b.seq),
 				);
 				if (event.type === "worktree_switched") {
-					void loadRuns();
+					void loadRuns(worktreeFilter, { silent: true });
 					void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
 				}
+				if (event.type === "result" || event.type === "error") {
+					void loadRuns(worktreeFilter, { silent: true });
+				}
 			} catch {
+				source.close();
 				startPolling();
 			}
 		};
@@ -900,7 +910,7 @@ export function RunDetailPage() {
 			source.close();
 			if (fallbackTimer) window.clearInterval(fallbackTimer);
 		};
-	}, [runId, selectedRun?.status]);
+	}, [runId, selectedRun?.status, worktreeFilter]);
 	useEffect(() => {
 		if (selectedRun?.status === "running")
 			bottomRef.current?.scrollIntoView({ block: "end" });
