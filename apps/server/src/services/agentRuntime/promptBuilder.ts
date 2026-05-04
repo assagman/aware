@@ -9,6 +9,20 @@ function serializeAnnotations(annotations: Annotation[]) {
 		.join("\n");
 }
 
+function serializeAgents(agents: AgentProfile[]) {
+	return agents
+		.map((agent, index) => {
+			const details = [
+				`provider ${agent.provider}`,
+				`model ${agent.model}`,
+				`thinking ${agent.thinking ?? "off"}`,
+				agent.tools.length ? `tools ${agent.tools.join(", ")}` : "no tools",
+			];
+			return `- ${agent.name}${index === 0 ? " (selected)" : ""}: ${details.join("; ")}`;
+		})
+		.join("\n");
+}
+
 export function buildPrompt(input: {
 	task: Task;
 	agents: AgentProfile[];
@@ -40,6 +54,9 @@ export function buildPrompt(input: {
 		"",
 		"User message:",
 		input.message || input.task.body,
+		"",
+		"Available agents:",
+		serializeAgents(input.agents) || "(none)",
 		"",
 		"Selected annotations:",
 		serializeAnnotations(input.annotations) || "(none)",

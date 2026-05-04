@@ -33,6 +33,48 @@ describe("prompt builder", () => {
 		expect(text).toContain("note");
 	});
 
+	it("lists all available agents", () => {
+		const text = buildPrompt({
+			task: {
+				id: "t",
+				projectId: "p",
+				worktreeId: "w",
+				title: "List agents",
+				body: "List all agents in the system",
+				status: "draft",
+				createdAt: "",
+				updatedAt: "",
+			},
+			agents: [
+				{
+					id: "a1",
+					name: "Primary",
+					provider: "openai-codex",
+					model: "openai-codex/gpt-5.5",
+					thinking: "medium",
+					systemPrompt: "primary",
+					tools: ["read", "write"],
+					createdAt: "",
+					updatedAt: "",
+				},
+				{
+					id: "a2",
+					name: "Secondary",
+					provider: "openai-codex",
+					model: "openai-codex/gpt-5.5",
+					systemPrompt: "secondary",
+					tools: [],
+					createdAt: "",
+					updatedAt: "",
+				},
+			],
+			annotations: [],
+		});
+		expect(text).toContain("Available agents:");
+		expect(text).toContain("- Primary (selected): provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write");
+		expect(text).toContain("- Secondary: provider openai-codex; model openai-codex/gpt-5.5; thinking off; no tools");
+	});
+
 	it("keeps annotation-sent prompts concise", () => {
 		const text = buildPrompt({
 			task: {

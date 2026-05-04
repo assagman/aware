@@ -12,6 +12,7 @@ Local-first web app for agent-driven coding on existing git repos/worktrees.
 
 Default agent profile:
 
+- name: `Main`
 - provider: `openai-codex`
 - model: `openai-codex/gpt-5.5`
 - auth: OpenAI subscription OAuth from the Agents page, or an API key saved there
@@ -44,7 +45,7 @@ Data is stored in SQLite at `.aware/db.sqlite` under the server working director
 
 1. Add an existing git repo path.
 2. Add an existing worktree path for that repo.
-3. Confirm the default agent or create another on the Agents page.
+3. Confirm the default `Main` agent or create another on the Agents page.
 4. Create a task for the selected worktree.
 5. Start a run.
 6. Review run events, files, diffs, and annotations.

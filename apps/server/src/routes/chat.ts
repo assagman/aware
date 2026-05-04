@@ -50,7 +50,7 @@ chat.post("/", async (c) => {
 		projectId: worktree.projectId,
 		worktreeId: worktree.id,
 	}));
-	const agents = await listAgentProfilesForRun(body.agentProfileId);
+	const agents = await listAgentProfilesForRun();
 	const run = await flueRuntime.startChat({
 		projectId: worktree.projectId,
 		worktreeId: worktree.id,

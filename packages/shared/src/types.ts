@@ -41,13 +41,6 @@ export type Task = {
 	createdAt: string;
 	updatedAt: string;
 };
-export type TaskAgent = {
-	id: ID;
-	taskId: ID;
-	agentProfileId: ID;
-	role: string;
-	orderIndex: number;
-};
 export type AnnotationKind = "file" | "line" | "range" | "diff";
 export type Annotation = {
 	id: ID;

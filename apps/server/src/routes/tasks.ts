@@ -6,7 +6,6 @@ import {
 	listProjects,
 } from "../services/projectService";
 import {
-	assignAgent,
 	createTask,
 	listTasks,
 	updateTask,
@@ -48,12 +47,6 @@ tasks.patch("/:id", async (c) => {
 	);
 	return c.json(await updateTask(c.req.param("id"), patch));
 });
-tasks.post("/:id/agents", async (c) => {
-	const body = await c.req.json();
-	return c.json(
-		await assignAgent(c.req.param("id"), body.agentProfileId, body.role),
-	);
-});
 tasks.post("/:id/start", async (c) => {
 	const task = (await listTasks()).find((t) => t.id === c.req.param("id"));
 	if (!task) return c.json({ error: "missing task" }, 404);
@@ -84,7 +77,7 @@ tasks.post("/:id/start", async (c) => {
 		body: `${taskWorktreeInfo}\n\n${task.body}`,
 	};
 	await updateTask(task.id, { status: "running", worktreeId: worktree.id });
-	const agents = await listAgentProfilesForRun(body.agentProfileId);
+	const agents = await listAgentProfilesForRun();
 	return c.json(
 		await flueRuntime.startRun({
 			task: runTask,

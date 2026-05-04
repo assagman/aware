@@ -61,12 +61,12 @@ function defaultThinkingForProvider(provider: string) {
 }
 
 const defaultForm: AgentForm = {
-	name: "Code",
+	name: "",
 	model: "openai-codex/gpt-5.5",
 	thinking: "medium",
 	temperature: 0.2,
 	systemPrompt:
-		"You are a coding agent. Inspect first, make minimal focused edits, do not commit/push without approval.",
+		"Inspect first, make minimal focused edits, do not commit/push without approval.",
 };
 
 function MarkdownEditor({
@@ -355,7 +355,7 @@ export function AgentsPage() {
 						className={activeView === "agents" ? "selected" : ""}
 						onClick={() => chooseView("agents")}
 					>
-						Custom Agents
+						Agents
 					</button>
 				</nav>
 				{activeView === "agents" ? (

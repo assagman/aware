@@ -18,7 +18,6 @@ import {
 	setSelectedRunId,
 	setSelectedWorktreeId,
 } from "../app/selection";
-import { AgentPicker } from "../components/AgentPicker";
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { ProjectColumn } from "../components/ProjectColumn";
@@ -36,7 +35,6 @@ const initialState = getPageState("files", {
 	note: "",
 	comment: "",
 	filesMessage: "",
-	filesChatAgentId: "",
 	viewMode: "file" as ViewMode,
 	file: "",
 	annotationMode: null as "file" | "selection" | null,
@@ -110,7 +108,6 @@ export function FilesPage() {
 	const [comment, setComment] = useState(initialState.comment);
 	const [localDiffAnnotations, setLocalDiffAnnotations] = useState<LocalDiffAnnotation[]>([]);
 	const [filesMessage, setFilesMessage] = useState(initialState.filesMessage);
-	const [filesChatAgentId, setFilesChatAgentId] = useState(initialState.filesChatAgentId);
 	const [filesChatRun, setFilesChatRun] = useState<AgentRun | null>(null);
 	const [filesChatStatus, setFilesChatStatus] = useState("");
 	const [treeLoading, setTreeLoading] = useState(false);
@@ -380,11 +377,10 @@ export function FilesPage() {
 		setChatSending(true);
 		try {
 			setFilesChatStatus("starting agent run...");
-			setPageState("files", { filesMessage, filesChatAgentId });
+			setPageState("files", { filesMessage });
 			const run = await apiPost<AgentRun>("/chat", {
 				projectId,
 				worktreeId,
-				agentProfileId: filesChatAgentId,
 				message: filesMessage,
 				annotationIds: [],
 			});
@@ -482,7 +478,7 @@ export function FilesPage() {
 					</div>
 					<div className="files-chat files-chat-inline">
 						<textarea ref={filesChatRef} rows={1} value={filesMessage} onChange={(e) => { setFilesMessage(e.target.value); setPageState("files", { filesMessage: e.target.value }); }} placeholder="Chat about these files/worktree." />
-						<div className="files-chat-actions"><AgentPicker value={filesChatAgentId} onChange={(id) => { setFilesChatAgentId(id); setPageState("files", { filesChatAgentId: id }); }} />{chatSending ? <BusyIndicator label="Starting" /> : null}<button type="button" disabled={!filesMessage.trim() || chatSending} onClick={() => void sendFilesChat()}>{chatSending ? "Sending…" : "Send"}</button>{filesChatStatus ? <p>{filesChatStatus}{filesChatRun ? <> — <a href="#runs" onClick={() => openFilesChatRun(filesChatRun)}>open run</a></> : null}</p> : null}</div>
+						<div className="files-chat-actions">{chatSending ? <BusyIndicator label="Starting" /> : null}<button type="button" disabled={!filesMessage.trim() || chatSending} onClick={() => void sendFilesChat()}>{chatSending ? "Sending…" : "Send"}</button>{filesChatStatus ? <p>{filesChatStatus}{filesChatRun ? <> — <a href="#runs" onClick={() => openFilesChatRun(filesChatRun)}>open run</a></> : null}</p> : null}</div>
 					</div>
 				</div>
 				<section className="card files-annotations-row">

@@ -3,7 +3,6 @@ export const tables = [
 	"worktrees",
 	"agentProfiles",
 	"tasks",
-	"taskAgents",
 	"annotations",
 	"runs",
 	"runEvents",

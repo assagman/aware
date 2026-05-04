@@ -10,7 +10,6 @@ import {
 	setSelectedTaskId,
 	setSelectedWorktreeId,
 } from "../app/selection";
-import { AgentPicker } from "../components/AgentPicker";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { ProjectColumn } from "../components/ProjectColumn";
 import { WorktreeSelect } from "../components/WorktreeSelect";
@@ -30,7 +29,6 @@ const initialTasksState = getPageState("tasks", {
 	title: "",
 	body: "",
 	selectedTaskId: "",
-	agentProfileId: "",
 	taskFilter: "active" as TaskFilter,
 	taskSort: "status-updated" as TaskSort,
 	worktreeId: "",
@@ -46,9 +44,6 @@ export function TasksPage() {
 	);
 	const [selectedTaskId, setSelectedTaskIdState] = useState(
 		getSelection().selectedTaskId || initialTasksState.selectedTaskId,
-	);
-	const [agentProfileId, setAgentProfileId] = useState(
-		initialTasksState.agentProfileId,
 	);
 	const [taskFilter, setTaskFilter] = useState<TaskFilter>(
 		initialTasksState.taskFilter,
@@ -164,7 +159,6 @@ export function TasksPage() {
 		);
 		try {
 			const run = await apiPost<AgentRun>(`/tasks/${id}/start`, {
-				agentProfileId,
 				worktreeId: task?.worktreeId,
 			});
 			setSelectedRunId(run.id);
@@ -198,13 +192,6 @@ export function TasksPage() {
 					</p>
 				</div>
 				{loadingTasks ? <BusyIndicator label="Loading tasks" /> : null}
-				<AgentPicker
-					value={agentProfileId}
-					onChange={(id) => {
-						setAgentProfileId(id);
-						setPageState("tasks", { agentProfileId: id });
-					}}
-				/>
 			</div>
 			{!hasSelection ? (
 				<p className="tasks-empty">Select project from left column.</p>

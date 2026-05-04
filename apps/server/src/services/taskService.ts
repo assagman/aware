@@ -3,7 +3,6 @@ import type {
 	AgentRun,
 	RunStatus,
 	Task,
-	TaskAgent,
 	TaskStatus,
 } from "@aware/shared";
 import { db } from "../db/client";
@@ -54,23 +53,3 @@ export async function updateTask(id: string, patch: Partial<Task>) {
 	return db.update<Task>("tasks", id, { ...patch, updatedAt: now() });
 }
 
-export async function assignAgent(
-	taskId: string,
-	agentProfileId: string,
-	role = "worker",
-) {
-	const row: TaskAgent = {
-		id: randomUUID(),
-		taskId,
-		agentProfileId,
-		role,
-		orderIndex: (await listTaskAgents(taskId)).length,
-	};
-	return db.insert("taskAgents", row);
-}
-
-export async function listTaskAgents(taskId: string) {
-	return (await db.list<TaskAgent>("taskAgents")).filter(
-		(a) => a.taskId === taskId,
-	);
-}
