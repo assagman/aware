@@ -1,3 +1,6 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import {
 	getProviderAuthStatus,
@@ -6,6 +9,36 @@ import {
 } from "../services/providerAuthService";
 
 export const settings = new Hono();
+
+const globalInstructionsPath = join(homedir(), ".agents", "AGENTS.md");
+
+async function readGlobalInstructions() {
+	try {
+		return await readFile(globalInstructionsPath, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+		throw error;
+	}
+}
+
+settings.get("/global-instructions", async (c) =>
+	c.json({ path: globalInstructionsPath, text: await readGlobalInstructions() }),
+);
+
+settings.patch("/global-instructions", async (c) => {
+	try {
+		const body = (await c.req.json()) as { text?: string };
+		await mkdir(dirname(globalInstructionsPath), { recursive: true });
+		await writeFile(globalInstructionsPath, body.text ?? "", "utf8");
+		return c.json({ path: globalInstructionsPath, text: body.text ?? "" });
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to save global instructions";
+		return c.json({ error: message }, 500);
+	}
+});
 
 settings.get("/models", async (c) =>
 	c.json({

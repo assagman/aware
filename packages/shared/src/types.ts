@@ -22,6 +22,7 @@ export type AgentProfile = {
 	provider: string;
 	model: string;
 	thinking?: string;
+	temperature?: number;
 	systemPrompt: string;
 	tools: string[];
 	createdAt: string;

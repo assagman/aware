@@ -30,9 +30,15 @@ pnpm install --ignore-scripts
 pnpm dev
 ```
 
-The local API listens on `http://127.0.0.1:8787` and the web app opens at `http://127.0.0.1:5173`.
+The local API listens on `http://127.0.0.1:8787` and the web app opens at `http://127.0.0.1:5173` by default.
 
-Data is stored in SQLite at `.aware/db.sqlite` under the server working directory by default. Set `AWARE_DB=/path/to/db.sqlite` to override it.
+Override local dev ports and DB path with env vars:
+
+```bash
+API_PORT=8789 WEB_PORT=5179 AWARE_DB="$PWD/.aware/manual-test.sqlite" pnpm dev
+```
+
+Data is stored in SQLite at `.aware/db.sqlite` under the server working directory by default. Set `AWARE_DB=/path/to/db.sqlite` (or `DB_PATH`) to override it.
 
 ## Flow
 

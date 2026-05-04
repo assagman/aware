@@ -1,5 +1,18 @@
 import type { AgentProfile } from "@aware/shared";
-import { useEffect, useState } from "react";
+import {
+	codeBlockPlugin,
+	headingsPlugin,
+	linkPlugin,
+	listsPlugin,
+	markdownShortcutPlugin,
+	MDXEditor,
+	tablePlugin,
+	thematicBreakPlugin,
+	quotePlugin,
+	type MDXEditorMethods,
+} from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 
 type ThinkingLevel =
@@ -12,7 +25,7 @@ type ThinkingLevel =
 	| "xhigh";
 type AgentForm = Pick<
 	AgentProfile,
-	"name" | "model" | "systemPrompt" | "thinking"
+	"name" | "model" | "systemPrompt" | "thinking" | "temperature"
 >;
 type ProviderAuth = {
 	provider: string;
@@ -23,6 +36,8 @@ type ProviderAuth = {
 	path: string;
 	login?: { running: boolean; url?: string; error?: string };
 };
+type GlobalInstructions = { text: string; path: string };
+type AgentsView = "agents" | "global" | "auth";
 
 const openAIThinkingLevels: ThinkingLevel[] = [
 	"off",
@@ -48,9 +63,60 @@ const defaultForm: AgentForm = {
 	name: "Code",
 	model: "openai-codex/gpt-5.5",
 	thinking: "medium",
+	temperature: 0.2,
 	systemPrompt:
 		"You are a coding agent. Inspect first, make minimal focused edits, do not commit/push without approval.",
 };
+
+function MarkdownEditor({
+	text,
+	onChange,
+	placeholder,
+	ariaLabel,
+}: {
+	text: string;
+	onChange: (text: string) => void;
+	placeholder: string;
+	ariaLabel: string;
+}) {
+	const editorRef = useRef<MDXEditorMethods>(null);
+	const plugins = useMemo(
+		() => [
+			headingsPlugin(),
+			listsPlugin(),
+			linkPlugin(),
+			quotePlugin(),
+			thematicBreakPlugin(),
+			tablePlugin(),
+			codeBlockPlugin(),
+			markdownShortcutPlugin(),
+		],
+		[],
+	);
+
+	useEffect(() => {
+		const editor = editorRef.current;
+		if (editor && editor.getMarkdown() !== text) {
+			editor.setMarkdown(text);
+		}
+	}, [text]);
+
+	return (
+		<div className="markdown-editor" aria-label={ariaLabel}>
+			<MDXEditor
+				ref={editorRef}
+				markdown={text}
+				onChange={(value) => onChange(value)}
+				placeholder={placeholder}
+				plugins={plugins}
+				className="agent-mdx-editor dark-theme"
+				contentEditableClassName="markdown-text agent-mdx-content"
+				suppressHtmlProcessing
+				trim={false}
+			/>
+		</div>
+	);
+}
 
 function providerFromModel(model: string) {
 	return model.split("/")[0] ?? "unknown";
@@ -61,6 +127,7 @@ function toForm(agent: AgentProfile): AgentForm {
 		name: agent.name,
 		model: agent.model,
 		thinking: agent.thinking ?? "off",
+		temperature: agent.temperature ?? 0.2,
 		systemPrompt: agent.systemPrompt,
 	};
 }
@@ -74,6 +141,10 @@ export function AgentsPage() {
 	const [auth, setAuth] = useState<ProviderAuth | null>(null);
 	const [apiKey, setApiKey] = useState("");
 	const [authBusy, setAuthBusy] = useState(false);
+	const [globalInstructions, setGlobalInstructions] = useState("");
+	const [globalPath, setGlobalPath] = useState("~/.agents/AGENTS.md");
+	const [globalSaving, setGlobalSaving] = useState(false);
+	const [activeView, setActiveView] = useState<AgentsView>("agents");
 
 	const selectedProvider = providerFromModel(form.model);
 	const needsOAuth = selectedProvider === "openai-codex";
@@ -83,9 +154,17 @@ export function AgentsPage() {
 	)
 		? ((form.thinking ?? "off") as ThinkingLevel)
 		: defaultThinkingForProvider(selectedProvider);
+	const selectedAgent = items.find((agent) => agent.id === editingId);
+	const authStatus = auth?.authenticated ? "connected" : "missing";
 
-	const load = () => {
-		void apiGet<AgentProfile[]>("/agents").then(setItems);
+	const load = (selectFirst = false) => {
+		void apiGet<AgentProfile[]>("/agents").then((agents) => {
+			setItems(agents);
+			if (selectFirst && agents[0]) {
+				setEditingId(agents[0].id);
+				setForm(toForm(agents[0]));
+			}
+		});
 	};
 	const loadAuth = (provider = selectedProvider) => {
 		void apiGet<ProviderAuth>(`/settings/providers/${provider}/auth`).then(
@@ -93,7 +172,13 @@ export function AgentsPage() {
 		);
 	};
 	useEffect(() => {
-		load();
+		load(true);
+		void apiGet<GlobalInstructions>("/settings/global-instructions").then(
+			(data) => {
+				setGlobalInstructions(data.text);
+				setGlobalPath(data.path);
+			},
+		);
 	}, []);
 	useEffect(() => {
 		loadAuth(selectedProvider);
@@ -119,13 +204,15 @@ export function AgentsPage() {
 			const body = {
 				...form,
 				thinking: selectedThinking,
+				temperature: Number(form.temperature ?? 0.2),
 				name: form.name.trim(),
 				provider: providerFromModel(form.model),
 			};
-			if (editingId) await apiPatch(`/agents/${editingId}`, body);
-			else await apiPost("/agents", body);
-			setForm(defaultForm);
-			setEditingId(null);
+			const saved = editingId
+				? await apiPatch<AgentProfile>(`/agents/${editingId}`, body)
+				: await apiPost<AgentProfile>("/agents", body);
+			setEditingId(saved.id);
+			setForm(toForm(saved));
 			load();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to save agent");
@@ -134,12 +221,33 @@ export function AgentsPage() {
 		}
 	}
 
+	async function saveGlobalInstructions() {
+		setGlobalSaving(true);
+		setError(null);
+		try {
+			const saved = await apiPatch<GlobalInstructions>(
+				"/settings/global-instructions",
+				{ text: globalInstructions },
+			);
+			setGlobalInstructions(saved.text);
+			setGlobalPath(saved.path);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to save global instructions",
+			);
+		} finally {
+			setGlobalSaving(false);
+		}
+	}
+
 	async function remove(id: string) {
 		setError(null);
 		await apiDelete(`/agents/${id}`);
+		const remaining = items.filter((agent) => agent.id !== id);
 		if (editingId === id) {
-			setEditingId(null);
-			setForm(defaultForm);
+			const next = remaining[0];
+			setEditingId(next?.id ?? null);
+			setForm(next ? toForm(next) : defaultForm);
 		}
 		load();
 	}
@@ -150,7 +258,7 @@ export function AgentsPage() {
 		setError(null);
 	}
 
-	function cancelEdit() {
+	function newAgent() {
 		setEditingId(null);
 		setForm(defaultForm);
 		setError(null);
@@ -162,9 +270,7 @@ export function AgentsPage() {
 		try {
 			setAuth(await apiPost<ProviderAuth>("/settings/openai-codex/login", {}));
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "OpenAI Codex login failed",
-			);
+			setError(err instanceof Error ? err.message : "OpenAI Codex login failed");
 		} finally {
 			setAuthBusy(false);
 		}
@@ -189,93 +295,273 @@ export function AgentsPage() {
 	}
 
 	return (
-		<section id="agents" className="card">
-			<h2>Agents</h2>
-			<p>
-				OpenAI Codex uses subscription OAuth login. Kimi and Z.AI use API keys.
-			</p>
-			<input
-				value={form.name}
-				onChange={(e) => setForm({ ...form, name: e.target.value })}
-				placeholder="Agent name"
-			/>
-			<select
-				value={form.model}
-				onChange={(e) => setForm({ ...form, model: e.target.value })}
-			>
-				<option value="openai-codex/gpt-5.5">
-					openai-codex/gpt-5.5 (OpenAI subscription OAuth)
-				</option>
-				<option value="kimi-coding/k2p6">kimi-coding/k2p6</option>
-				<option value="zai/glm-5.1">zai/glm-5.1</option>
-			</select>
-			<select
-				value={selectedThinking}
-				onChange={(e) =>
-					setForm({ ...form, thinking: e.target.value as ThinkingLevel })
-				}
-			>
-				{thinkingOptions.map((level) => (
-					<option key={level} value={level}>
-						thinking: {level}
-					</option>
-				))}
-			</select>
-			<p>
-				{selectedProvider} auth: {auth?.authenticated ? "connected" : "missing"}
-				{auth?.source ? ` via ${auth.source}` : null}
-				{auth?.env ? ` (${auth.env})` : null}
-			</p>
-			{!auth?.authenticated && needsOAuth ? (
-				<button type="button" onClick={loginOpenAICodex} disabled={authBusy}>
-					{authBusy ? "Waiting for OpenAI login..." : "Login with OpenAI"}
-				</button>
-			) : null}
-			{!auth?.authenticated && !needsOAuth ? (
-				<p>
-					<input
-						value={apiKey}
-						onChange={(e) => setApiKey(e.target.value)}
-						placeholder={`${selectedProvider} API key`}
-						type="password"
-					/>
-					<button type="button" onClick={saveApiKey} disabled={authBusy}>
-						Save API key
+		<section id="agents" className="card agents-page">
+			<aside className="agents-sidebar">
+				<div className="agents-sidebar-head">
+					<div>
+						<h2>Agents</h2>
+						<p>Manage instructions, profiles, and auth.</p>
+					</div>
+				</div>
+				<nav className="agents-nav" aria-label="Agents settings">
+					<button
+						type="button"
+						className={activeView === "auth" ? "selected" : ""}
+						onClick={() => setActiveView("auth")}
+					>
+						Auth
 					</button>
-				</p>
-			) : null}
-			{auth?.login?.url && !auth.authenticated ? (
-				<p>
-					Login URL: <a href={auth.login.url}>{auth.login.url}</a>
-				</p>
-			) : null}
-			<textarea
-				value={form.systemPrompt}
-				onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
-			/>
-			{duplicate ? <p role="alert">Agent name already exists.</p> : null}
-			{error ? <p role="alert">{error}</p> : null}
-			<button type="button" onClick={submit} disabled={!canSave}>
-				{editingId ? "Update agent" : "Save agent"}
-			</button>
-			{editingId ? (
-				<button type="button" onClick={cancelEdit}>
-					Cancel
-				</button>
-			) : null}
-			<ul>
-				{items.map((agent) => (
-					<li key={agent.id}>
-						{agent.name} — {agent.model} — thinking {agent.thinking ?? "off"}
-						<button type="button" onClick={() => edit(agent)}>
-							Edit
-						</button>
-						<button type="button" onClick={() => void remove(agent.id)}>
-							Delete
-						</button>
-					</li>
-				))}
-			</ul>
+					<button
+						type="button"
+						className={activeView === "global" ? "selected" : ""}
+						onClick={() => setActiveView("global")}
+					>
+						Global Instructions
+					</button>
+					<button
+						type="button"
+						className={activeView === "agents" ? "selected" : ""}
+						onClick={() => setActiveView("agents")}
+					>
+						Custom Agents
+					</button>
+				</nav>
+				{activeView === "agents" ? (
+					<>
+						<div className="agents-sidebar-head compact">
+							<strong>Profiles</strong>
+							<button type="button" onClick={newAgent}>
+								New
+							</button>
+						</div>
+						<div className="agents-list" aria-label="Agents list">
+							{items.length === 0 ? <p className="empty-state">No agents.</p> : null}
+							{items.map((agent) => (
+								<button
+									key={agent.id}
+									type="button"
+									className={
+										agent.id === editingId ? "agent-row selected" : "agent-row"
+									}
+									onClick={() => edit(agent)}
+								>
+									<strong>{agent.name}</strong>
+									<small>{agent.model}</small>
+									<span>thinking {agent.thinking ?? "off"}</span>
+								</button>
+							))}
+						</div>
+					</>
+				) : null}
+			</aside>
+
+			<div className="agents-main">
+				{activeView === "global" ? (
+					<>
+						<div className="agents-detail-head">
+							<div>
+								<h2>Global instructions</h2>
+								<small>
+									Stored at {globalPath}; prepended to every agent prompt.
+								</small>
+							</div>
+							<div className="agents-actions">
+								<button
+									type="button"
+									onClick={saveGlobalInstructions}
+									disabled={globalSaving}
+								>
+									{globalSaving ? "Saving..." : "Save global instructions"}
+								</button>
+							</div>
+						</div>
+						<div className="agents-detail-scroll">
+							<MarkdownEditor
+								text={globalInstructions}
+								onChange={setGlobalInstructions}
+								placeholder="Global rules for all agents..."
+								ariaLabel="Global instructions markdown editor"
+							/>
+							{error ? (
+								<p role="alert" className="error">
+									{error}
+								</p>
+							) : null}
+						</div>
+					</>
+				) : null}
+
+				{activeView === "auth" ? (
+					<>
+						<div className="agents-detail-head">
+							<div>
+								<h2>Auth</h2>
+								<small>
+									OpenAI Codex uses OAuth; Kimi and Z.AI use API keys.
+								</small>
+							</div>
+						</div>
+						<div className="agents-detail-scroll">
+							<section className="agent-section">
+								<h3>{selectedProvider}</h3>
+								<p className="agent-auth-line">
+									Status: {authStatus}
+									{auth?.source ? ` via ${auth.source}` : null}
+									{auth?.env ? ` (${auth.env})` : null}
+								</p>
+								<label>
+									Provider / model context
+									<select
+										value={form.model}
+										onChange={(e) => setForm({ ...form, model: e.target.value })}
+									>
+										<option value="openai-codex/gpt-5.5">
+											openai-codex / gpt-5.5
+										</option>
+										<option value="kimi-coding/k2p6">kimi-coding / k2p6</option>
+										<option value="zai/glm-5.1">zai / glm-5.1</option>
+									</select>
+								</label>
+								{needsOAuth ? (
+									<button
+										type="button"
+										onClick={loginOpenAICodex}
+										disabled={authBusy}
+									>
+										{authBusy ? "Waiting for OpenAI login..." : "Login with OpenAI"}
+									</button>
+								) : (
+									<div className="agent-api-key-row">
+										<input
+											value={apiKey}
+											onChange={(e) => setApiKey(e.target.value)}
+											placeholder={`${selectedProvider} API key`}
+											type="password"
+										/>
+										<button type="button" onClick={saveApiKey} disabled={authBusy}>
+											Save API key
+										</button>
+									</div>
+								)}
+								{auth?.login?.url && !auth.authenticated ? (
+									<p>
+										Login URL: <a href={auth.login.url}>{auth.login.url}</a>
+									</p>
+								) : null}
+							</section>
+							{error ? (
+								<p role="alert" className="error">
+									{error}
+								</p>
+							) : null}
+						</div>
+					</>
+				) : null}
+
+				{activeView === "agents" ? (
+					<>
+						<div className="agents-detail-head">
+							<div>
+								<h2>{editingId ? form.name || "Agent details" : "New agent"}</h2>
+								<small>
+									{selectedAgent
+										? `Updated ${selectedAgent.updatedAt}`
+										: "Unsaved profile"}
+								</small>
+							</div>
+							<div className="agents-actions">
+								{editingId ? (
+									<button type="button" onClick={() => void remove(editingId)}>
+										Delete
+									</button>
+								) : null}
+								<button type="button" onClick={submit} disabled={!canSave}>
+									{saving ? "Saving..." : editingId ? "Save changes" : "Create agent"}
+								</button>
+							</div>
+						</div>
+
+						<div className="agents-detail-scroll">
+							<section className="agent-section">
+								<h3>Profile</h3>
+								<div className="agent-form-grid">
+									<label>
+										Name
+										<input
+											value={form.name}
+											onChange={(e) => setForm({ ...form, name: e.target.value })}
+											placeholder="Agent name"
+										/>
+									</label>
+									<label>
+										Provider / model
+										<select
+											value={form.model}
+											onChange={(e) => setForm({ ...form, model: e.target.value })}
+										>
+											<option value="openai-codex/gpt-5.5">
+												openai-codex / gpt-5.5
+											</option>
+											<option value="kimi-coding/k2p6">kimi-coding / k2p6</option>
+											<option value="zai/glm-5.1">zai / glm-5.1</option>
+										</select>
+									</label>
+								</div>
+							</section>
+
+							<section className="agent-section">
+								<h3>Parameters</h3>
+								<div className="agent-form-grid">
+									<label>
+										Thinking level
+										<select
+											value={selectedThinking}
+											onChange={(e) =>
+												setForm({ ...form, thinking: e.target.value as ThinkingLevel })
+											}
+										>
+											{thinkingOptions.map((level) => (
+												<option key={level} value={level}>
+													{level}
+												</option>
+											))}
+										</select>
+									</label>
+									<label>
+										Temperature: {Number(form.temperature ?? 0.2).toFixed(1)}
+										<input
+											type="range"
+											min="0"
+											max="2"
+											step="0.1"
+											value={form.temperature ?? 0.2}
+											onChange={(e) =>
+												setForm({ ...form, temperature: Number(e.target.value) })
+											}
+										/>
+									</label>
+								</div>
+							</section>
+
+							<section className="agent-section agent-prompt-section">
+								<h3>System prompt</h3>
+								<MarkdownEditor
+									text={form.systemPrompt}
+									onChange={(systemPrompt) => setForm({ ...form, systemPrompt })}
+									placeholder="Agent-specific markdown prompt..."
+									ariaLabel="System prompt markdown editor"
+								/>
+							</section>
+							{duplicate ? <p role="alert">Agent name already exists.</p> : null}
+							{error ? (
+								<p role="alert" className="error">
+									{error}
+								</p>
+							) : null}
+						</div>
+					</>
+				) : null}
+			</div>
 		</section>
 	);
 }

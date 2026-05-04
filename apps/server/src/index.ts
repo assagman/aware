@@ -28,7 +28,12 @@ app.route("/api/approvals", approvals);
 app.route("/api/settings", settings);
 app.route("/api/chat", chat);
 
-const port = Number(process.env.PORT ?? 8787);
+function portFromEnv(value: string | undefined, fallback: number) {
+	const port = Number(value);
+	return Number.isInteger(port) && port > 0 ? port : fallback;
+}
+
+const port = portFromEnv(process.env.API_PORT ?? process.env.PORT, 8787);
 
 serve({ fetch: app.fetch, port }, () => {
 	console.log(`aware server listening on http://127.0.0.1:${port}`);

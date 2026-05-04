@@ -227,6 +227,9 @@ export async function createAgentProfile(
 		provider: input.provider,
 		model: input.model,
 		...(input.thinking ? { thinking: input.thinking } : {}),
+		...(input.temperature !== undefined
+			? { temperature: input.temperature }
+			: {}),
 		systemPrompt: input.systemPrompt,
 		tools: input.tools ?? [],
 		createdAt: now(),
