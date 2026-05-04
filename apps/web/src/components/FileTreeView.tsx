@@ -210,8 +210,15 @@ export function FileTreeView({
 		const hadSearchFocus = document.activeElement === input;
 		const selectionStart = input?.selectionStart ?? null;
 		const selectionEnd = input?.selectionEnd ?? null;
+		const restoreSearchFocus = () => {
+			const currentInput = searchInputRef.current;
+			currentInput?.focus({ preventScroll: true });
+			if (selectionStart !== null && selectionEnd !== null) {
+				currentInput?.setSelectionRange(selectionStart, selectionEnd);
+			}
+		};
 		model.resetPaths(visiblePaths, { initialExpandedPaths: expandedPaths });
-		if (selectedPath && visiblePaths.includes(selectedPath)) {
+		if (!hadSearchFocus && selectedPath && visiblePaths.includes(selectedPath)) {
 			model.focusPath(selectedPath);
 			const item = model.getItem(selectedPath);
 			item?.select();
@@ -222,15 +229,12 @@ export function FileTreeView({
 			);
 		}
 		if (hadSearchFocus) {
-			window.requestAnimationFrame(() => {
-				input?.focus({ preventScroll: true });
-				if (selectionStart !== null && selectionEnd !== null) {
-					input?.setSelectionRange(selectionStart, selectionEnd);
-				}
-			});
+			restoreSearchFocus();
+			window.requestAnimationFrame(restoreSearchFocus);
 		}
 	}, [expandedPaths, model, selectedPath, visiblePaths]);
 	useEffect(() => {
+		if (document.activeElement === searchInputRef.current) return;
 		if (!selectedPath || !visiblePaths.includes(selectedPath)) return;
 		model.focusPath(selectedPath);
 		const item = model.getItem(selectedPath);
