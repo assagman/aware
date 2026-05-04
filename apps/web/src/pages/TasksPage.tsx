@@ -153,7 +153,6 @@ export function TasksPage() {
 		}
 	}
 	async function start(id: string) {
-		if (startingTaskId) return;
 		setStartingTaskId(id);
 		const task = tasks.find((t) => t.id === id);
 		setTasks((current) =>
@@ -362,7 +361,6 @@ export function TasksPage() {
 										<span className={`task-status status-${t.status}`}>
 											{t.status}
 										</span>
-										{isStarting ? <BusyIndicator label="Starting" /> : null}
 										{canStart ? (
 											<button
 												type="button"
@@ -370,9 +368,9 @@ export function TasksPage() {
 													e.stopPropagation();
 													void start(t.id);
 												}}
-												disabled={Boolean(startingTaskId)}
+												disabled={isStarting}
 											>
-												{isStarting ? "Starting…" : "Start"}
+												Start
 											</button>
 										) : null}
 									</div>
