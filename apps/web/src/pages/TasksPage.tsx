@@ -11,7 +11,6 @@ import {
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
-import { ProjectColumn } from "../components/ProjectColumn";
 import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type TaskFilter = "active" | "done" | "all";
@@ -69,6 +68,14 @@ export function TasksPage() {
 	useEffect(() => {
 		load(projectId);
 	}, []);
+	useEffect(() => {
+		const syncSelection = () => {
+			const nextProjectId = getSelectedProjectId("tasks");
+			if (nextProjectId && nextProjectId !== projectId) chooseProject(nextProjectId);
+		};
+		window.addEventListener("aware-selection", syncSelection);
+		return () => window.removeEventListener("aware-selection", syncSelection);
+	}, [projectId]);
 	function chooseProject(id: string) {
 		setSelectedProjectId(id, "tasks");
 		setProjectIdState(id);
@@ -181,7 +188,6 @@ export function TasksPage() {
 	const hasSelection = Boolean(projectId);
 	return (
 		<section id="tasks" className="tasks-shell full-workspace">
-			<ProjectColumn value={projectId} onChange={chooseProject} showAdd={false} />
 			<div className="card tasks-page">
 				<div className="tasks-header">
 				<div>
@@ -194,7 +200,7 @@ export function TasksPage() {
 				{loadingTasks ? <BusyIndicator label="Loading tasks" /> : null}
 			</div>
 			{!hasSelection ? (
-				<p className="tasks-empty">Select project from left column.</p>
+				<p className="tasks-empty">Select project from header.</p>
 			) : null}
 			<div className="tasks-layout">
 				<form

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPageState, setPageState } from "./pageState";
+import { getSelectedProjectId, setSelectedProjectId } from "./selection";
+import { ProjectPicker } from "../components/ProjectPicker";
 import { AgentsPage } from "../pages/AgentsPage";
 import { FilesPage } from "../pages/FilesPage";
 import { RunDetailPage } from "../pages/RunDetailPage";
@@ -7,6 +9,7 @@ import { TasksPage } from "../pages/TasksPage";
 
 const pages = ["files", "agents", "tasks", "runs"] as const;
 type Page = (typeof pages)[number];
+type ProjectPage = "files" | "tasks" | "runs";
 
 function currentPage(): Page {
 	const hash = window.location.hash.replace("#", "");
@@ -17,10 +20,13 @@ function currentPage(): Page {
 
 export function AppRouter() {
 	const [page, setPage] = useState<Page>(currentPage());
+	const projectPage: ProjectPage | null = page === "agents" ? null : page === "tasks" ? "tasks" : page === "runs" ? "runs" : "files";
+	const [projectId, setProjectId] = useState(projectPage ? getSelectedProjectId(projectPage) : "");
 	useEffect(() => {
 		if (!window.location.hash) window.location.hash = page;
 		setPageState("app", { page });
-	}, [page]);
+		setProjectId(projectPage ? getSelectedProjectId(projectPage) : "");
+	}, [page, projectPage]);
 	useEffect(() => {
 		const onHash = () => {
 			const next = currentPage();
@@ -30,6 +36,16 @@ export function AppRouter() {
 		window.addEventListener("hashchange", onHash);
 		return () => window.removeEventListener("hashchange", onHash);
 	}, []);
+	useEffect(() => {
+		const syncProject = () => setProjectId(projectPage ? getSelectedProjectId(projectPage) : "");
+		window.addEventListener("aware-selection", syncProject);
+		return () => window.removeEventListener("aware-selection", syncProject);
+	}, [projectPage]);
+	function chooseProject(id: string) {
+		if (!projectPage) return;
+		setSelectedProjectId(id, projectPage);
+		setProjectId(id);
+	}
 	return (
 		<main className="app-shell">
 			<header className="app-header">
@@ -48,6 +64,7 @@ export function AppRouter() {
 						Runs
 					</a>
 				</nav>
+				{projectPage ? <ProjectPicker value={projectId} onChange={chooseProject} /> : <div />}
 			</header>
 			<section className="content">
 				<div className="page active">

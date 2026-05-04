@@ -1791,3 +1791,192 @@ pre {
 	height: 100%;
 	margin: 0;
 }
+
+.fuzzy-picker {
+	position: relative;
+	min-width: 260px;
+}
+
+.fuzzy-picker-trigger {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	align-items: center;
+	gap: 2px 8px;
+	width: 100%;
+	min-height: 42px;
+	margin: 0;
+	text-align: left;
+	background: #11151c;
+	border: 1px solid #334155;
+	border-radius: 10px;
+	color: #f8fafc;
+}
+
+.fuzzy-picker-trigger span {
+	grid-column: 1 / -1;
+	color: #94a3b8;
+	font-size: 11px;
+	text-transform: uppercase;
+}
+
+.fuzzy-picker-menu {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	z-index: 20;
+	width: min(460px, 90vw);
+	padding: 10px;
+	background: #0f131a;
+	border: 1px solid #334155;
+	border-radius: 12px;
+	box-shadow: 0 18px 48px rgb(0 0 0 / 55%);
+}
+
+.fuzzy-picker-menu input {
+	width: calc(100% - 8px);
+	background: #07090c;
+	border: 1px solid #334155;
+	border-radius: 8px;
+	color: #f8fafc;
+}
+
+.fuzzy-picker-list {
+	display: grid;
+	gap: 4px;
+	max-height: 42vh;
+	overflow: auto;
+	padding: 4px 0;
+}
+
+.fuzzy-picker-row {
+	display: grid;
+	gap: 2px;
+	width: calc(100% - 8px);
+	margin: 0 4px;
+	text-align: left;
+	background: #11151c;
+	border: 1px solid #242832;
+	border-radius: 8px;
+	color: inherit;
+}
+
+.fuzzy-picker-row.selected {
+	background: #172033;
+	border-color: #60a5fa;
+}
+
+.fuzzy-picker-row small {
+	color: #94a3b8;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.fuzzy-picker-add {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 4px;
+	padding-top: 8px;
+	border-top: 1px solid #242832;
+}
+
+.fuzzy-picker-add .error {
+	grid-column: 1 / -1;
+	margin: 0 4px;
+}
+
+.page-picker-row {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 10px 16px 0;
+	overflow: visible;
+}
+
+.files-page,
+.runs-shell,
+.tasks-shell {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.files-main {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.files-file-group {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	padding: 10px 16px 0;
+}
+
+.files-file-row {
+	display: grid;
+	grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+	gap: 12px;
+	flex: 1;
+	min-height: 0;
+}
+
+.files-annotations-row {
+	margin: 10px 16px 16px;
+	min-height: 160px;
+}
+
+.tasks-shell,
+.runs-shell {
+	padding: 0 16px 16px;
+}
+
+.tasks-shell .tasks-page {
+	margin-top: 16px;
+}
+
+.runs-shell .page-picker-row {
+	padding-right: 0;
+}
+
+.run-page {
+	height: auto;
+	flex: 1;
+}
+
+@media (max-width: 760px) {
+	.fuzzy-picker,
+	.project-picker,
+	.worktree-picker {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.page-picker-row,
+	.files-file-group,
+	.tasks-shell,
+	.runs-shell {
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.files-file-row {
+		grid-template-columns: 1fr;
+		overflow: auto;
+	}
+}
+
+.full-workspace > .page-picker-row {
+	overflow: visible;
+}
+
+.runs-shell > .run-page {
+	height: auto;
+	flex: 1;
+}

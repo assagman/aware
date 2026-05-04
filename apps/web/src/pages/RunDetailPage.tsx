@@ -22,8 +22,7 @@ import {
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
-import { ProjectColumn } from "../components/ProjectColumn";
-import { WorktreeColumn } from "../components/WorktreeColumn";
+import { WorktreePicker } from "../components/WorktreePicker";
 
 type Payload = Record<string, unknown>;
 
@@ -856,6 +855,14 @@ export function RunDetailPage() {
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
 	}, []);
 	useEffect(() => {
+		const syncSelection = () => {
+			const nextProjectId = getSelectedProjectId("runs");
+			if (nextProjectId && nextProjectId !== projectId) chooseProject(nextProjectId);
+		};
+		window.addEventListener("aware-selection", syncSelection);
+		return () => window.removeEventListener("aware-selection", syncSelection);
+	}, [projectId]);
+	useEffect(() => {
 		const timer = window.setInterval(() => setNowMs(Date.now()), 5000);
 		return () => window.clearInterval(timer);
 	}, []);
@@ -985,16 +992,9 @@ export function RunDetailPage() {
 	}, [runId, sendingMessage]);
 	return (
 		<section id="runs" className="runs-shell full-workspace">
-			<aside className="project-worktree-sidebar">
-				<ProjectColumn value={projectId} onChange={chooseProject} showAdd={false} />
-				<WorktreeColumn
-					projectId={projectId}
-					value={worktreeFilter}
-					onChange={chooseWorktree}
-					allowAll
-					showAdd={false}
-				/>
-			</aside>
+			<div className="page-picker-row">
+				<WorktreePicker projectId={projectId} value={worktreeFilter} onChange={chooseWorktree} allowAll showAdd={false} />
+			</div>
 			<div className="card run-page">
 			<aside className="runs-sidebar">
 				<div className="runs-sidebar-head">
