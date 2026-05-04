@@ -1,6 +1,5 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import type { BashFactory } from "@flue/sdk/client";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
 import {
@@ -19,7 +18,129 @@ import {
 	sandboxToHostPath,
 } from "../../services/workspaceConvention";
 
-const execFileAsync = promisify(execFile);
+const MAX_TOOL_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_TOOL_OUTPUT_BYTES = 1024 * 1024 * 20;
+
+function maxToolTimeoutMs() {
+	const override = Number(process.env.AWARE_MAX_TOOL_TIMEOUT_MS);
+	return Number.isFinite(override) && override > 0
+		? Math.min(override, MAX_TOOL_TIMEOUT_MS)
+		: MAX_TOOL_TIMEOUT_MS;
+}
+
+function combineAbortSignals(signals: AbortSignal[]) {
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	for (const signal of signals) {
+		if (signal.aborted) abort();
+		else signal.addEventListener("abort", abort, { once: true });
+	}
+	return controller.signal;
+}
+
+async function execHostCommand(
+	bin: string,
+	args: string[],
+	options: { cwd: string; stdin: string; signal?: AbortSignal | undefined },
+) {
+	return await new Promise<{
+		stdout: string;
+		stderr: string;
+		exitCode: number;
+	}>((resolveResult) => {
+		const timeoutController = new AbortController();
+		const timeout = setTimeout(
+			() => timeoutController.abort(),
+			maxToolTimeoutMs(),
+		);
+		const child = spawn(bin, args, {
+			cwd: options.cwd,
+			env: process.env,
+			signal: combineAbortSignals(
+				[options.signal, timeoutController.signal].filter(
+					Boolean,
+				) as AbortSignal[],
+			),
+		});
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+		const finish = (result: {
+			stdout: string;
+			stderr: string;
+			exitCode: number;
+		}) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			resolveResult(result);
+		};
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout += chunk.toString();
+			if (stdout.length + stderr.length > MAX_TOOL_OUTPUT_BYTES) child.kill();
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+			if (stdout.length + stderr.length > MAX_TOOL_OUTPUT_BYTES) child.kill();
+		});
+		child.on("error", (error) =>
+			finish({
+				stdout,
+				stderr:
+					stderr ||
+					(timeoutController.signal.aborted
+						? `[aware] Tool command timed out after ${maxToolTimeoutMs()}ms.\n`
+						: `${error.message}\n`),
+				exitCode: timeoutController.signal.aborted ? 124 : 1,
+			}),
+		);
+		child.on("close", (code, signal) =>
+			finish({
+				stdout,
+				stderr:
+					stderr ||
+					(timeoutController.signal.aborted
+						? `[aware] Tool command timed out after ${maxToolTimeoutMs()}ms.\n`
+						: signal
+							? `[aware] Tool command killed by ${signal}.\n`
+							: ""),
+				exitCode: timeoutController.signal.aborted ? 124 : (code ?? 1),
+			}),
+		);
+		child.stdin.end(options.stdin);
+	});
+}
+
+function capBashExecTimeout(bash: Bash) {
+	const originalExec = bash.exec.bind(bash);
+	bash.exec = (async (command: string, options?: { signal?: AbortSignal }) => {
+		const timeoutController = new AbortController();
+		const timeout = setTimeout(
+			() => timeoutController.abort(),
+			maxToolTimeoutMs(),
+		);
+		try {
+			const result = await originalExec(command, {
+				...options,
+				signal: combineAbortSignals(
+					[options?.signal, timeoutController.signal].filter(
+						Boolean,
+					) as AbortSignal[],
+				),
+			});
+			return timeoutController.signal.aborted
+				? {
+						...result,
+						exitCode: 124,
+						stderr: `[aware] Tool command timed out after ${maxToolTimeoutMs()}ms.\n${result.stderr}`,
+					}
+				: result;
+		} finally {
+			clearTimeout(timeout);
+		}
+	}) as Bash["exec"];
+	return bash;
+}
 
 type WorkspaceSandboxOptions = {
 	workspaceRoot: string;
@@ -31,23 +152,11 @@ function hostCommand(workspaceRoot: string, name: string, bin = name) {
 		const cwd = isSandboxWorkspacePath(ctx.cwd)
 			? sandboxToHostPath(ctx.cwd, workspaceRoot)
 			: workspaceRoot;
-		try {
-			const { stdout, stderr } = await execFileAsync(bin, args, {
-				cwd,
-				env: process.env,
-				maxBuffer: 1024 * 1024 * 20,
-			});
-			return { stdout, stderr, exitCode: 0 };
-		} catch (error) {
-			const e = error as { stdout?: string; stderr?: string; code?: number };
-			return {
-				stdout: e.stdout ?? "",
-				stderr:
-					e.stderr ??
-					(error instanceof Error ? `${error.message}\n` : String(error)),
-				exitCode: typeof e.code === "number" ? e.code : 1,
-			};
-		}
+		return await execHostCommand(bin, args, {
+			cwd,
+			stdin: ctx.stdin,
+			signal: ctx.signal,
+		});
 	});
 }
 
@@ -76,20 +185,22 @@ export async function createLocalWorktreeSandbox({
 	fs.mount(SANDBOX_WORKSPACE_ROOT, new ReadWriteFs({ root }));
 	const customCommands = hostCommands(root);
 	return () =>
-		new Bash({
-			fs,
-			cwd: sandboxCwd,
-			env: process.env as Record<string, string>,
-			customCommands,
-			python: true,
-			network: { dangerouslyAllowFullInternetAccess: true },
-		});
+		capBashExecTimeout(
+			new Bash({
+				fs,
+				cwd: sandboxCwd,
+				env: process.env as Record<string, string>,
+				customCommands,
+				python: true,
+				network: { dangerouslyAllowFullInternetAccess: true },
+			}),
+		);
 }
 
 export async function createDefaultEnv() {
 	const fs = new InMemoryFs();
-	return bashFactoryToSessionEnv(
-		() =>
+	return bashFactoryToSessionEnv(() =>
+		capBashExecTimeout(
 			new Bash({
 				fs,
 				env: process.env as Record<string, string>,
@@ -97,6 +208,7 @@ export async function createDefaultEnv() {
 				python: true,
 				network: { dangerouslyAllowFullInternetAccess: true },
 			}),
+		),
 	);
 }
 
