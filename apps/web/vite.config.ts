@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
 		server: {
 			host: "127.0.0.1",
 			port: webPort,
-			strictPort: true,
+			strictPort: Boolean(env.WEB_PORT),
 			proxy: {
 				"/api": env.AWARE_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
 			},
