@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { accessSync, constants, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { BashFactory } from "@flue/sdk/client";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
 import {
@@ -160,6 +161,34 @@ function hostCommand(workspaceRoot: string, name: string, bin = name) {
 	});
 }
 
+function canExecute(path: string) {
+	try {
+		accessSync(path, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function resolveTeaBin() {
+	if (process.env.AWARE_TEA_BIN && canExecute(process.env.AWARE_TEA_BIN)) {
+		return process.env.AWARE_TEA_BIN;
+	}
+	const home = process.env.HOME;
+	if (!home) return "tea";
+	const teaRoot = join(home, ".tea", "tea.xyz");
+	try {
+		const versions = readdirSync(teaRoot).sort().reverse();
+		for (const version of versions) {
+			const bin = join(teaRoot, version, "bin", "tea");
+			if (canExecute(bin)) return bin;
+		}
+	} catch {
+		// Fall back to PATH lookup below.
+	}
+	return "tea";
+}
+
 function hostCommands(workspaceRoot: string) {
 	return [
 		hostCommand(workspaceRoot, "git"),
@@ -169,6 +198,7 @@ function hostCommands(workspaceRoot: string) {
 		hostCommand(workspaceRoot, "pnpm"),
 		hostCommand(workspaceRoot, "corepack"),
 		hostCommand(workspaceRoot, "bun"),
+		hostCommand(workspaceRoot, "tea", resolveTeaBin()),
 		hostCommand(workspaceRoot, "python"),
 		hostCommand(workspaceRoot, "python3", "python3"),
 	];
