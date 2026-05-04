@@ -538,13 +538,16 @@ pre {
 .run-chat-timeline {
 	display: grid;
 	gap: 12px;
+	min-width: 0;
 }
 
 .chat-bubble {
 	width: 100%;
 	max-width: none;
+	min-width: 0;
 	padding: 12px;
 	border-radius: 10px;
+	overflow-wrap: anywhere;
 }
 
 .run-input-bar {
@@ -603,6 +606,18 @@ pre {
 	margin-top: 10px;
 	color: #ddd6fe;
 	opacity: 0.9;
+	min-width: 0;
+}
+
+.message-thinking .markdown-text,
+.message-thinking .markdown-text * {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+.message-thinking .markdown-text pre {
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 .message-prompt {
