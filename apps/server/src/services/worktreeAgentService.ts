@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Project, Task, Worktree } from "@aware/shared";
 import { worktreePrompt } from "../flue/agents/worktree";
+import { isDefaultBranch } from "./defaultBranchGuard";
 import { git, worktreeRoot } from "./gitService";
 import { addWorktree, listWorktrees } from "./projectService";
 import {
@@ -44,19 +45,10 @@ export async function uniqueBranch(
 	return branch;
 }
 
-export async function ensureTaskWorktree(
+async function createTaskWorktree(
 	project: Project,
-	task: Pick<Task, "title" | "body" | "worktreeId">,
+	task: Pick<Task, "title" | "body">,
 ): Promise<Worktree> {
-	if (task.worktreeId) {
-		const worktree = (await listWorktrees()).find(
-			(w) => w.id === task.worktreeId,
-		);
-		if (!worktree) throw new Error("Task worktree not found");
-		if (worktree.projectId !== project.id)
-			throw new Error("Task worktree belongs to another project");
-		return worktree;
-	}
 	return withQueuedLock(`worktree-create:${project.id}`, async () => {
 		const category = classifyTaskChange(task);
 		const slug = slugifyTask(task);
@@ -77,6 +69,34 @@ export async function ensureTaskWorktree(
 			? lastError
 			: new Error("Failed to create task worktree");
 	});
+}
+
+export async function ensureTaskWorktree(
+	project: Project,
+	task: Pick<Task, "title" | "body" | "worktreeId">,
+): Promise<Worktree> {
+	if (task.worktreeId) {
+		const worktree = (await listWorktrees()).find(
+			(w) => w.id === task.worktreeId,
+		);
+		if (!worktree) throw new Error("Task worktree not found");
+		if (worktree.projectId !== project.id)
+			throw new Error("Task worktree belongs to another project");
+		if (!isDefaultBranch(worktree)) return worktree;
+	}
+	return createTaskWorktree(project, task);
+}
+
+export async function ensureMutableWorktree(
+	project: Project,
+	worktree: Worktree,
+	task: Pick<Task, "title" | "body">,
+): Promise<Worktree> {
+	if (worktree.projectId !== project.id)
+		throw new Error("Worktree belongs to another project");
+	return isDefaultBranch(worktree)
+		? createTaskWorktree(project, task)
+		: worktree;
 }
 
 export const worktreeAgent = {

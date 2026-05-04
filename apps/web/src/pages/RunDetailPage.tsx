@@ -208,11 +208,14 @@ function errorText(payload: unknown) {
 	return textOf(payload) || jsonPreview(payload, 4000);
 }
 
-function ProcessIndicator({ live }: { live: boolean }) {
+type ProcessState = "live" | "stalled" | "idle";
+
+function ProcessIndicator({ state }: { state: ProcessState }) {
+	const label = state === "live" ? "Live" : state === "stalled" ? "Stalled" : "Idle";
 	return (
-		<span className={`run-process-indicator ${live ? "live" : "idle"}`}>
+		<span className={`run-process-indicator ${state}`}>
 			<span aria-hidden="true" />
-			{live ? "Live" : "Idle"}
+			{label}
 		</span>
 	);
 }
@@ -652,6 +655,7 @@ export function RunDetailPage() {
 	const [loadingEvents, setLoadingEvents] = useState(false);
 	const [sendingMessage, setSendingMessage] = useState(false);
 	const [cancellingRun, setCancellingRun] = useState(false);
+	const [nowMs, setNowMs] = useState(Date.now());
 	const bottomRef = useRef<HTMLDivElement | null>(null);
 	const chatScrollRef = useRef<HTMLDivElement | null>(null);
 	const worktreeProjectIds = useMemo(
@@ -685,6 +689,13 @@ export function RunDetailPage() {
 		() => activeAgentLabel(selectedRun, events),
 		[selectedRun, events],
 	);
+	const processState: ProcessState = useMemo(() => {
+		if (selectedRun?.status !== "running") return "idle";
+		const latestEvent = events.at(-1);
+		if (!latestEvent) return "live";
+		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
+		return ageMs > 30_000 ? "stalled" : "live";
+	}, [events, nowMs, selectedRun?.status]);
 	async function loadRuns(nextFilter = worktreeFilter) {
 		setLoadingRuns(true);
 		try {
@@ -721,6 +732,10 @@ export function RunDetailPage() {
 	useEffect(() => {
 		void loadRuns();
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
+	}, []);
+	useEffect(() => {
+		const timer = window.setInterval(() => setNowMs(Date.now()), 5000);
+		return () => window.clearInterval(timer);
 	}, []);
 	function chooseProject(id: string) {
 		setSelectedProjectId(id, "runs");
@@ -781,6 +796,10 @@ export function RunDetailPage() {
 						? current
 						: [...current, item].sort((a, b) => a.seq - b.seq),
 				);
+				if (event.type === "worktree_switched") {
+					void loadRuns();
+					void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
+				}
 			} catch {
 				startPolling();
 			}
@@ -798,6 +817,7 @@ export function RunDetailPage() {
 			"result",
 			"error",
 			"model",
+			"worktree_switched",
 			"agent_start",
 			"turn_start",
 			"turn_end",
@@ -903,7 +923,7 @@ export function RunDetailPage() {
 					>
 						{cancellingRun ? "Cancelling…" : "Cancel"}
 					</button>
-					<ProcessIndicator live={selectedRun?.status === "running"} />
+					<ProcessIndicator state={processState} />
 				</div>
 				<div
 					className="run-chat-scroll"

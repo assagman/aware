@@ -553,6 +553,12 @@ pre {
 	border-color: #16a34a;
 }
 
+.run-process-indicator.stalled {
+	color: #fde68a;
+	background: #451a03;
+	border-color: #d97706;
+}
+
 .run-process-indicator.idle {
 	color: #cbd5e1;
 	background: #111827;

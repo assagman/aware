@@ -1,7 +1,7 @@
 import type { AgentRun } from "@aware/shared";
 import { useState } from "react";
 import { apiPost } from "../app/api";
-import { getSelectedProjectId, getSelectedWorktreeId, setSelectedRunId } from "../app/selection";
+import { getSelectedProjectId, getSelectedWorktreeId, setSelectedRunId, setSelectedWorktreeId } from "../app/selection";
 import { AgentPicker } from "./AgentPicker";
 import { RunLink } from "./RunLink";
 
@@ -22,6 +22,10 @@ export function DirectChat({ onSent }: { onSent?: () => void }) {
 			message,
 		});
 		setSelectedRunId(run.id);
+		if (run.worktreeId !== worktreeId) {
+			setSelectedWorktreeId(run.worktreeId, "files");
+			window.dispatchEvent(new Event("aware:worktrees"));
+		}
 		setRunId(run.id);
 		setStatus(`run ${run.id} ${run.status}`);
 		setMessage("");

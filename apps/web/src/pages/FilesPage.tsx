@@ -388,6 +388,13 @@ export function FilesPage() {
 				message: filesMessage,
 				annotationIds: [],
 			});
+			if (run.worktreeId !== worktreeId) {
+				setSelectedWorktreeId(run.worktreeId, "files");
+				setWorktreeIdState(run.worktreeId);
+				window.dispatchEvent(new Event("aware:worktrees"));
+				void loadTree(run.worktreeId);
+				void loadDiffs(run.worktreeId);
+			}
 			setFilesMessage("");
 			setPageState("files", { filesMessage: "" });
 			setFilesChatRun(run);

@@ -10,12 +10,21 @@ import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import { revertDefaultBranchMutation } from "../defaultBranchGuard";
 import { worktreeRoot } from "../gitService";
 import { assertAllowedWorktree, listProjects } from "../projectService";
+import { ensureMutableWorktree } from "../worktreeAgentService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
 import { buildPrompt } from "./promptBuilder";
 import { runEventHub } from "./runEventHub";
 
 const now = () => new Date().toISOString();
+const DEFAULT_RUN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+
+export function runInactivityTimeoutMs() {
+	const override = Number(process.env.AWARE_RUN_INACTIVITY_TIMEOUT_MS);
+	return Number.isFinite(override) && override > 0
+		? override
+		: DEFAULT_RUN_INACTIVITY_TIMEOUT_MS;
+}
 
 function normalizeProviderEnv() {
 	if (process.env.Z_AI_API_KEY && !process.env.ZAI_API_KEY) {
@@ -273,15 +282,45 @@ export class FlueRuntime {
 	}
 
 	async continueRun(runId: string, message: string) {
-		const run = (await db.list<AgentRun>("runs")).find((r) => r.id === runId);
-		if (!run) throw new Error("missing run");
+		const foundRun = (await db.list<AgentRun>("runs")).find(
+			(r) => r.id === runId,
+		);
+		if (!foundRun) throw new Error("missing run");
+		let run: AgentRun = foundRun;
 		if (run.status !== "running") {
-			await db.update<AgentRun>("runs", run.id, { status: "running" });
+			const updatedRun = await db.update<AgentRun>("runs", run.id, {
+				status: "running",
+			});
+			if (!updatedRun) throw new Error("missing run");
+			run = updatedRun;
 		}
-		const worktree = await assertAllowedWorktree(run.worktreeId);
+		let worktree = await assertAllowedWorktree(run.worktreeId);
 		const task = (await db.list<Task>("tasks")).find(
 			(t) => t.id === run.taskId,
 		);
+		const project = (await listProjects()).find(
+			(p) => p.id === (task?.projectId ?? worktree.projectId),
+		);
+		if (!project) throw new Error("missing project");
+		const mutableWorktree = await ensureMutableWorktree(project, worktree, {
+			title: task?.title ?? "steering-message",
+			body: message,
+		});
+		if (mutableWorktree.id !== worktree.id) {
+			worktree = mutableWorktree;
+			const updatedRun = await db.update<AgentRun>("runs", run.id, {
+				worktreeId: worktree.id,
+			});
+			if (!updatedRun) throw new Error("missing run");
+			run = updatedRun;
+			if (task) await db.update("tasks", task.id, { worktreeId: worktree.id });
+			this.log(
+				run.id,
+				"worktree_switched",
+				{ worktreeId: worktree.id, path: worktree.path, branch: worktree.branch },
+				{ immediate: true },
+			);
+		}
 		const agents = await listAgentProfiles();
 		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		try {
@@ -403,7 +442,9 @@ export class FlueRuntime {
 			createLocalEnv,
 			defaultStore: flueSessionStore,
 		});
+		let onRuntimeActivity: () => void = () => undefined;
 		ctx.setEventCallback((event) => {
+			onRuntimeActivity();
 			void this.log(run.id, event.type, event);
 		});
 		const model = process.env.KIMI_API_KEY
@@ -428,7 +469,46 @@ export class FlueRuntime {
 			session,
 			agent.thinking ?? "off",
 		);
-		return await session.prompt(prompt);
+		return await this.withInactivityTimeout(
+			run.id,
+			() => session.prompt(prompt),
+			(listener) => {
+				onRuntimeActivity = listener;
+			},
+		);
+	}
+
+	private async withInactivityTimeout<T>(
+		runId: string,
+		operation: () => Promise<T>,
+		setActivityListener: (listener: () => void) => void,
+	) {
+		const timeoutMs = runInactivityTimeoutMs();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let rejectInactive: ((error: Error) => void) | undefined;
+		const reset = () => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(
+				() =>
+					rejectInactive?.(
+						new Error(`Agent runtime inactive for ${timeoutMs}ms`),
+					),
+				timeoutMs,
+			);
+		};
+		setActivityListener(reset);
+		reset();
+		try {
+			return await Promise.race([
+				operation(),
+				new Promise<never>((_, reject) => {
+					rejectInactive = reject;
+				}),
+			]);
+		} finally {
+			if (timer) clearTimeout(timer);
+			setActivityListener(() => undefined);
+		}
 	}
 
 	private configureSession(

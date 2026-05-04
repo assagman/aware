@@ -63,14 +63,21 @@ tasks.post("/:id/start", async (c) => {
 	const project = (await listProjects()).find((p) => p.id === task.projectId);
 	if (!project) return c.json({ error: "missing project" }, 400);
 	const requestedWorktreeId = body.worktreeId || task.worktreeId;
-	const worktree = requestedWorktreeId
+	const requestedWorktree = requestedWorktreeId
 		? await assertAllowedWorktree(requestedWorktreeId)
-		: await worktreeAgent.ensureTaskWorktree(project, task);
-	if (worktree.projectId !== task.projectId)
+		: undefined;
+	if (requestedWorktree && requestedWorktree.projectId !== task.projectId)
 		return c.json({ error: "worktree does not belong to task project" }, 400);
-	const taskWorktreeInfo = requestedWorktreeId
-		? `Task worktree: attached worktree ${worktree.path} (${worktree.branch || "unknown branch"}).`
-		: `Task worktree: Worktree agent created ${worktree.path} (${worktree.branch}).`;
+	const worktree = await worktreeAgent.ensureTaskWorktree(
+		project,
+		requestedWorktree
+			? { ...task, worktreeId: requestedWorktree.id }
+			: task,
+	);
+	const taskWorktreeInfo =
+		requestedWorktree && requestedWorktree.id === worktree.id
+			? `Task worktree: attached worktree ${worktree.path} (${worktree.branch || "unknown branch"}).`
+			: `Task worktree: Worktree agent created ${worktree.path} (${worktree.branch}).`;
 	const runTask: typeof task = {
 		...task,
 		worktreeId: worktree.id,

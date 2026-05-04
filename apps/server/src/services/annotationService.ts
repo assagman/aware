@@ -34,6 +34,22 @@ export async function createAnnotation(
 	return db.insert("annotations", row);
 }
 
+export async function moveAnnotationsToWorktree(
+	ids: string[],
+	worktreeId: string,
+	projectId: string,
+) {
+	await Promise.all(
+		ids.map((id) =>
+			db.update<Annotation>("annotations", id, {
+				projectId,
+				worktreeId,
+				updatedAt: now(),
+			}),
+		),
+	);
+}
+
 export async function markAnnotationsProcessing(ids: string[], runId: string) {
 	await Promise.all(
 		ids.map((id) =>

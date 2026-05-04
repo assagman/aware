@@ -8,6 +8,7 @@ import {
 	setSelectedProjectId,
 	setSelectedRunId,
 	setSelectedTaskId,
+	setSelectedWorktreeId,
 } from "../app/selection";
 import { AgentPicker } from "../components/AgentPicker";
 import { BusyIndicator } from "../components/BusyIndicator";
@@ -168,6 +169,8 @@ export function TasksPage() {
 				worktreeId: task?.worktreeId,
 			});
 			setSelectedRunId(run.id);
+			setSelectedWorktreeId(run.worktreeId, "tasks");
+			window.dispatchEvent(new Event("aware:worktrees"));
 			load();
 			alert(`run ${run.id}`);
 		} catch (error) {

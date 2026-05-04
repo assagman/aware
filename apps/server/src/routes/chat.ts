@@ -4,40 +4,65 @@ import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 import {
 	listAnnotations,
 	markAnnotationsProcessing,
+	moveAnnotationsToWorktree,
 } from "../services/annotationService";
-import { assertAllowedWorktree } from "../services/projectService";
+import {
+	assertAllowedWorktree,
+	listProjects,
+} from "../services/projectService";
+import { ensureMutableWorktree } from "../services/worktreeAgentService";
 
 export const chat = new Hono();
 
 chat.post("/", async (c) => {
 	const body = await c.req.json();
-	const worktree = await assertAllowedWorktree(body.worktreeId);
-	if (body.projectId && body.projectId !== worktree.projectId)
+	const requestedWorktree = await assertAllowedWorktree(body.worktreeId);
+	if (body.projectId && body.projectId !== requestedWorktree.projectId)
 		return c.json({ error: "worktree does not belong to chat project" }, 400);
-	const allAnnotations = await listAnnotations({ worktreeId: worktree.id });
+	const project = (await listProjects()).find(
+		(p) => p.id === requestedWorktree.projectId,
+	);
+	if (!project) return c.json({ error: "missing project" }, 400);
+	const allAnnotations = await listAnnotations({ worktreeId: requestedWorktree.id });
 	const ids = Array.isArray(body.annotationIds)
 		? body.annotationIds
 		: undefined;
 	const annotations = ids
 		? allAnnotations.filter((a) => ids.includes(a.id))
 		: allAnnotations;
-	const agents = await listAgentProfilesForRun(body.agentProfileId);
+	const message =
+		body.message ||
+		annotations.map((a) => a.text).join("\n") ||
+		"Use annotations.";
 	const isAnnotationSent = Boolean(ids?.length);
+	const worktree = await ensureMutableWorktree(project, requestedWorktree, {
+		title: isAnnotationSent ? "annotation-sent" : "chat",
+		body: message,
+	});
+	if (worktree.id !== requestedWorktree.id && annotations.length)
+		await moveAnnotationsToWorktree(
+			annotations.map((a) => a.id),
+			worktree.id,
+			worktree.projectId,
+		);
+	const runAnnotations = annotations.map((annotation) => ({
+		...annotation,
+		projectId: worktree.projectId,
+		worktreeId: worktree.id,
+	}));
+	const agents = await listAgentProfilesForRun(body.agentProfileId);
 	const run = await flueRuntime.startChat({
 		projectId: worktree.projectId,
 		worktreeId: worktree.id,
 		worktreePath: worktree.path,
 		agents,
-		message:
-			body.message ||
-			annotations.map((a) => a.text).join("\n") ||
-			"Use annotations.",
-		annotations,
-		annotationIds: annotations.map((a) => a.id),
+		message,
+		annotations: runAnnotations,
+		annotationIds: runAnnotations.map((a) => a.id),
 		taskTitle: isAnnotationSent ? "annotation-sent" : "task",
 	});
 	await markAnnotationsProcessing(
-		annotations.map((a) => a.id),
+		runAnnotations.map((a) => a.id),
 		run.id,
 	);
 	return c.json(run);

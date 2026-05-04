@@ -1,7 +1,7 @@
 import type { AgentRun } from "@aware/shared";
 import { Hono } from "hono";
 import { db } from "../db/client";
-import { flueRuntime } from "../services/agentRuntime/flueRuntime";
+import { flueRuntime, runInactivityTimeoutMs } from "../services/agentRuntime/flueRuntime";
 import {
 	MAX_QUEUE_EVENTS,
 	runEventHub,
@@ -9,7 +9,43 @@ import {
 
 export const runs = new Hono();
 
+async function reconcileStaleRunningRuns() {
+	const rows = await db.list<AgentRun>("runs");
+	const events = await db.list("runEvents");
+	const cutoff = Date.now() - runInactivityTimeoutMs();
+	await Promise.all(
+		rows
+			.filter((run) => {
+				if (run.status !== "running") return false;
+				const latestEventAt = events
+					.filter((event) => event.runId === run.id)
+					.map((event) => new Date(String(event.createdAt)).getTime())
+					.filter(Number.isFinite)
+					.sort((a, b) => b - a)[0];
+				return (latestEventAt ?? new Date(run.startedAt).getTime()) < cutoff;
+			})
+			.map(async (run) => {
+				const endedAt = new Date().toISOString();
+				await db.update<AgentRun>("runs", run.id, {
+					status: "failed",
+					endedAt,
+				});
+				await db.update("tasks", run.taskId, {
+					status: "failed",
+					updatedAt: endedAt,
+				});
+				await runEventHub.emit(
+					run.id,
+					"error",
+					{ message: "[aware] Stale running session reconciled as failed." },
+					{ immediate: true },
+				);
+			}),
+	);
+}
+
 runs.get("/", async (c) => {
+	await reconcileStaleRunningRuns();
 	const worktreeId = c.req.query("worktreeId");
 	const rows = await db.list<AgentRun>("runs");
 	return c.json(
@@ -23,6 +59,7 @@ runs.get("/", async (c) => {
 });
 
 runs.get("/:id", async (c) => {
+	await reconcileStaleRunningRuns();
 	const run = (await db.list("runs")).find((r) => r.id === c.req.param("id"));
 	return run ? c.json(run) : c.json({ error: "missing run" }, 404);
 });
