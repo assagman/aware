@@ -824,6 +824,12 @@ pre {
 	margin: 6px 0 0;
 }
 
+.tool-detail-markdown {
+	max-height: 42vh;
+	margin-top: 6px;
+	overflow: auto;
+}
+
 .tool-diff-visual {
 	max-height: 60vh;
 	margin-top: 10px;

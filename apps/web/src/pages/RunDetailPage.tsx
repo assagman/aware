@@ -143,12 +143,75 @@ function jsonPreview(value: unknown, max = 200) {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function fullToolDetail(value: unknown) {
-	if (typeof value === "string") {
-		const parsed = asPayload(value);
-		return Object.keys(parsed).length ? JSON.stringify(parsed, null, 2) : value;
+function parseJsonString(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed || !/^[{[]/.test(trimmed)) return undefined;
+	try {
+		return JSON.parse(trimmed) as unknown;
+	} catch {
+		return undefined;
 	}
-	return jsonText(value);
+}
+
+function escapeMarkdown(value: string) {
+	return value.replace(/([\\`*_{}\[\]()#+.!|-])/g, "\\$1");
+}
+
+function fencedCode(value: string) {
+	const fence = value.includes("```") ? "````" : "```";
+	return `${fence}\n${value}\n${fence}`;
+}
+
+function primitiveMarkdown(value: unknown) {
+	if (value === null) return "_null_";
+	if (value === undefined) return "_Not provided_";
+	if (typeof value === "boolean") return value ? "Yes" : "No";
+	if (typeof value === "number" || typeof value === "bigint") return String(value);
+	if (typeof value !== "string") return undefined;
+	const parsed = parseJsonString(value);
+	if (parsed !== undefined) return valueToMarkdown(parsed);
+	if (value.includes("\n")) return fencedCode(value);
+	return value ? escapeMarkdown(value) : "_Empty_";
+}
+
+function valueToMarkdown(value: unknown): string {
+	const primitive = primitiveMarkdown(value);
+	if (primitive !== undefined) return primitive;
+	if (Array.isArray(value)) {
+		if (!value.length) return "_No items._";
+		return value
+			.map((item) => {
+				const rendered = valueToMarkdown(item);
+				return rendered.includes("\n") ? `-\n${indentMarkdown(rendered)}` : `- ${rendered}`;
+			})
+			.join("\n");
+	}
+	const p = asPayload(value);
+	const entries = Object.entries(p).filter(([, item]) => item !== undefined);
+	if (!entries.length) return "_No details._";
+	return entries
+		.map(([key, item]) => {
+			const rendered = valueToMarkdown(item);
+			const label = escapeMarkdown(labelize(key));
+			return rendered.includes("\n")
+				? `- **${label}:**\n${indentMarkdown(rendered)}`
+				: `- **${label}:** ${rendered}`;
+		})
+		.join("\n");
+}
+
+function indentMarkdown(value: string) {
+	return value
+		.split("\n")
+		.map((line) => (line ? `  ${line}` : line))
+		.join("\n");
+}
+
+function labelize(key: string) {
+	return key
+		.replace(/[_-]+/g, " ")
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/^./, (char) => char.toUpperCase());
 }
 
 function isSafeHref(href: string) {
@@ -496,21 +559,28 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 				<section className="tool-details-grid">
 					<div>
 						<strong>Error</strong>
-						<pre>
-							{fullToolDetail(end ? toolOutput(end.payload) : "Edit failed")}
-						</pre>
+						<MarkdownText
+							text={valueToMarkdown(end ? toolOutput(end.payload) : "Edit failed")}
+							className="tool-detail-markdown"
+						/>
 					</div>
 				</section>
 			) : showsDiffOnly ? null : (
 				<section className="tool-details-grid">
 					<div>
 						<strong>Arguments</strong>
-						<pre>{jsonPreview(args, 4000)}</pre>
+						<MarkdownText
+							text={valueToMarkdown(args)}
+							className="tool-detail-markdown"
+						/>
 					</div>
 					{end ? (
 						<div>
 							<strong>Result</strong>
-							<pre>{jsonPreview(toolOutput(end.payload), 4000)}</pre>
+							<MarkdownText
+								text={valueToMarkdown(toolOutput(end.payload))}
+								className="tool-detail-markdown"
+							/>
 						</div>
 					) : null}
 				</section>
