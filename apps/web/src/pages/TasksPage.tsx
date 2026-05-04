@@ -249,9 +249,11 @@ export function TasksPage() {
 									</button>
 								</>
 							) : null}
-							<button type="button" onClick={newTask}>
-								New
-							</button>
+							{selectedTask ? (
+								<button type="button" onClick={newTask}>
+									New
+								</button>
+							) : null}
 						</div>
 					</div>
 					<label>
