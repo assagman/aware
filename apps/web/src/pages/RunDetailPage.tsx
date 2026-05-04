@@ -5,7 +5,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, apiGet, apiPost } from "../app/api";
 import {
 	getPageState,
@@ -141,6 +141,14 @@ function jsonText(value: unknown) {
 function jsonPreview(value: unknown, max = 200) {
 	const text = jsonText(value);
 	return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+const TOOL_DETAIL_PREVIEW_CHARS = 8000;
+
+function valueToMarkdownPreview(value: unknown, max = TOOL_DETAIL_PREVIEW_CHARS) {
+	const text = jsonText(value);
+	if (text.length > max) return fencedCode(`${text.slice(0, max)}\n…[truncated]`);
+	return valueToMarkdown(value);
 }
 
 function parseJsonString(value: string) {
@@ -529,6 +537,7 @@ function toolColorClass(name: string) {
 }
 
 function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
+	const [detailsOpen, setDetailsOpen] = useState(!end);
 	const name = toolName(start.payload, "tool");
 	const args = toolArgs(start.payload);
 	const argsSummary = toolArgsSummary(name, args);
@@ -545,32 +554,34 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 		: (resultPatch ??
 			(isEdit ? buildEditPatch(args) : undefined) ??
 			(isWrite ? buildWritePatch(args) : undefined));
+	const shouldRenderDetails = detailsOpen || showsDiffOnly;
 	return (
 		<details
 			className={`chat-bubble tool-event tool-${status} ${toolColorClass(name)}`}
-			open={!end || showsDiffOnly}
+			open={detailsOpen || showsDiffOnly}
+			onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
 		>
 			<summary>
 				<strong>{name}</strong>
 				{argsSummary ? <> &gt; {argsSummary}</> : null}
 			</summary>
-			{toolPatch ? <ToolDiff patch={toolPatch} /> : null}
-			{isEditError ? (
+			{toolPatch && shouldRenderDetails ? <ToolDiff patch={toolPatch} /> : null}
+			{isEditError && shouldRenderDetails ? (
 				<section className="tool-details-grid">
 					<div>
 						<strong>Error</strong>
 						<MarkdownText
-							text={valueToMarkdown(end ? toolOutput(end.payload) : "Edit failed")}
+							text={valueToMarkdownPreview(end ? toolOutput(end.payload) : "Edit failed")}
 							className="tool-detail-markdown"
 						/>
 					</div>
 				</section>
-			) : showsDiffOnly ? null : (
+			) : showsDiffOnly || !shouldRenderDetails ? null : (
 				<section className="tool-details-grid">
 					<div>
 						<strong>Arguments</strong>
 						<MarkdownText
-							text={valueToMarkdown(args)}
+							text={valueToMarkdownPreview(args)}
 							className="tool-detail-markdown"
 						/>
 					</div>
@@ -578,7 +589,7 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 						<div>
 							<strong>Result</strong>
 							<MarkdownText
-								text={valueToMarkdown(toolOutput(end.payload))}
+								text={valueToMarkdownPreview(toolOutput(end.payload))}
 								className="tool-detail-markdown"
 							/>
 						</div>
@@ -589,7 +600,7 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	);
 }
 
-function ChatTimeline({ events }: { events: RunEvent[] }) {
+const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
 	const toolEnds = new Map<string, RunEvent>();
 	for (const event of ordered) {
@@ -707,6 +718,54 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 	flushAssistant();
 	flushThinking();
 	return <div className="run-chat-timeline">{rendered}</div>;
+});
+
+function RunInputBar({
+	initialMessage,
+	runId,
+	sendingMessage,
+	onSend,
+}: {
+	initialMessage: string;
+	runId: string;
+	sendingMessage: boolean;
+	onSend: (message: string) => Promise<void>;
+}) {
+	const [draft, setDraft] = useState(initialMessage);
+	useEffect(() => {
+		const timer = window.setTimeout(() => setPageState("runs", { message: draft }), 250);
+		return () => window.clearTimeout(timer);
+	}, [draft]);
+	async function sendDraft() {
+		const next = draft.trim();
+		if (!next || !runId || sendingMessage) return;
+		await onSend(draft);
+		setDraft("");
+		setPageState("runs", { message: "" });
+	}
+	return (
+		<div className="run-input-bar">
+			<textarea
+				value={draft}
+				onChange={(e) => setDraft(e.target.value)}
+				placeholder="Steer this run..."
+				onKeyDown={(e) => {
+					if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+						e.preventDefault();
+						void sendDraft();
+					}
+				}}
+			/>
+			{sendingMessage ? <BusyIndicator label="Sending" /> : null}
+			<button
+				type="button"
+				onClick={sendDraft}
+				disabled={!draft.trim() || !runId || sendingMessage}
+			>
+				{sendingMessage ? "Sending…" : "Send"}
+			</button>
+		</div>
+	);
 }
 
 const initialRunsState = getPageState("runs", { message: "", runId: "", worktreeFilter: "all" });
@@ -720,7 +779,6 @@ export function RunDetailPage() {
 	);
 	const [runId, setRunId] = useState(getSelection().selectedRunId || initialRunsState.runId);
 	const [events, setEvents] = useState<RunEvent[]>([]);
-	const [message, setMessage] = useState(initialRunsState.message);
 	const [loadingRuns, setLoadingRuns] = useState(false);
 	const [loadingEvents, setLoadingEvents] = useState(false);
 	const [sendingMessage, setSendingMessage] = useState(false);
@@ -926,18 +984,16 @@ export function RunDetailPage() {
 			setCancellingRun(false);
 		}
 	}
-	async function sendMessage() {
-		if (!runId || !message.trim() || sendingMessage) return;
+	const sendMessage = useCallback(async (nextMessage: string) => {
+		if (!runId || !nextMessage.trim() || sendingMessage) return;
 		setSendingMessage(true);
 		try {
-		await apiPost(`/runs/${runId}/messages`, { message });
-		setMessage("");
-		setPageState("runs", { message: "" });
-		await loadEvents(runId);
+			await apiPost(`/runs/${runId}/messages`, { message: nextMessage });
+			await loadEvents(runId);
 		} finally {
 			setSendingMessage(false);
 		}
-	}
+	}, [runId, sendingMessage]);
 	return (
 		<section id="runs" className="runs-shell full-workspace">
 			<aside className="project-worktree-sidebar">
@@ -1015,30 +1071,12 @@ export function RunDetailPage() {
 					<ChatTimeline events={events} />
 					<div ref={bottomRef} />
 				</div>
-				<div className="run-input-bar">
-					<textarea
-						value={message}
-						onChange={(e) => {
-							setMessage(e.target.value);
-							setPageState("runs", { message: e.target.value });
-						}}
-						placeholder="Steer this run..."
-						onKeyDown={(e) => {
-							if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-								e.preventDefault();
-								void sendMessage();
-							}
-						}}
-					/>
-					{sendingMessage ? <BusyIndicator label="Sending" /> : null}
-					<button
-						type="button"
-						onClick={sendMessage}
-						disabled={!message.trim() || !runId || sendingMessage}
-					>
-						{sendingMessage ? "Sending…" : "Send"}
-					</button>
-				</div>
+				<RunInputBar
+					initialMessage={initialRunsState.message}
+					runId={runId}
+					sendingMessage={sendingMessage}
+					onSend={sendMessage}
+				/>
 			</div>
 			</div>
 		</section>
