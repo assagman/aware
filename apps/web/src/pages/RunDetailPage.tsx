@@ -537,7 +537,7 @@ function toolColorClass(name: string) {
 }
 
 function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
-	const [detailsOpen, setDetailsOpen] = useState(!end);
+	const [detailsOpen, setDetailsOpen] = useState(false);
 	const name = toolName(start.payload, "tool");
 	const args = toolArgs(start.payload);
 	const argsSummary = toolArgsSummary(name, args);
@@ -546,56 +546,45 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	const normalizedName = name.toLowerCase();
 	const isEdit = normalizedName.includes("edit");
 	const isWrite = normalizedName.includes("write");
-	const showsDiffOnly = isEdit || isWrite;
-	const isEditError = isEdit && failed;
 	const resultPatch = end ? patchFromPayload(end.payload) : undefined;
-	const toolPatch = isEditError
+	const toolPatch = failed && isEdit
 		? undefined
 		: (resultPatch ??
 			(isEdit ? buildEditPatch(args) : undefined) ??
 			(isWrite ? buildWritePatch(args) : undefined));
-	const shouldRenderDetails = detailsOpen || showsDiffOnly;
 	return (
 		<details
 			className={`chat-bubble tool-event tool-${status} ${toolColorClass(name)}`}
-			open={detailsOpen || showsDiffOnly}
+			open={detailsOpen}
 			onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
 		>
 			<summary>
 				<strong>{name}</strong>
 				{argsSummary ? <> &gt; {argsSummary}</> : null}
 			</summary>
-			{toolPatch && shouldRenderDetails ? <ToolDiff patch={toolPatch} /> : null}
-			{isEditError && shouldRenderDetails ? (
-				<section className="tool-details-grid">
-					<div>
-						<strong>Error</strong>
-						<MarkdownText
-							text={valueToMarkdownPreview(end ? toolOutput(end.payload) : "Edit failed")}
-							className="tool-detail-markdown"
-						/>
-					</div>
-				</section>
-			) : showsDiffOnly || !shouldRenderDetails ? null : (
-				<section className="tool-details-grid">
-					<div>
-						<strong>Arguments</strong>
-						<MarkdownText
-							text={valueToMarkdownPreview(args)}
-							className="tool-detail-markdown"
-						/>
-					</div>
-					{end ? (
+			{detailsOpen ? (
+				<>
+					{toolPatch ? <ToolDiff patch={toolPatch} /> : null}
+					<section className="tool-details-grid">
 						<div>
-							<strong>Result</strong>
+							<strong>Arguments</strong>
 							<MarkdownText
-								text={valueToMarkdownPreview(toolOutput(end.payload))}
+								text={valueToMarkdownPreview(args)}
 								className="tool-detail-markdown"
 							/>
 						</div>
-					) : null}
-				</section>
-			)}
+						{end ? (
+							<div>
+								<strong>Result</strong>
+								<MarkdownText
+									text={valueToMarkdownPreview(toolOutput(end.payload))}
+									className="tool-detail-markdown"
+								/>
+							</div>
+						) : null}
+					</section>
+				</>
+			) : null}
 		</details>
 	);
 }
