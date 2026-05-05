@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AgentProfile } from "@aware/shared";
 import { db } from "../db/client";
+import { mainPrompt } from "../flue/agents/main";
 import { EXA_RETIRED_TOOL_NAMES, EXA_TOOL_NAMES } from "../flue/tools";
+import { retiredDefaultAgentPromptPrefixes } from "../prompts";
 
 const now = () => new Date().toISOString();
 
@@ -14,15 +16,13 @@ type DefaultAgentProfile = Pick<
 const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "task"];
 const mainTools = [...writeTools, ...EXA_TOOL_NAMES];
 
-const retiredDefaultAgentSignatures = [
-	{ name: "ImpactAnalysis", promptPrefix: "You are ImpactAnalysis," },
-	{ name: "Plan", promptPrefix: "You are Plan," },
-	{ name: "Code", promptPrefix: "You are Code," },
-	{ name: "Test", promptPrefix: "You are Test," },
-	{ name: "Review", promptPrefix: "You are Review," },
-	{ name: "Debug", promptPrefix: "You are Debug," },
-	{ name: "Shipping", promptPrefix: "You are Shipping," },
-];
+const retiredDefaultAgentSignatures = retiredDefaultAgentPromptPrefixes
+	.split("\n")
+	.map((line) => {
+		const [name, promptPrefix] = line.split("|");
+		if (!name || !promptPrefix) throw new Error("Invalid retired agent signature");
+		return { name, promptPrefix };
+	});
 
 export const defaultAgentProfiles: DefaultAgentProfile[] = [
 	{
@@ -30,24 +30,7 @@ export const defaultAgentProfiles: DefaultAgentProfile[] = [
 		provider: "openai-codex",
 		model: "openai-codex/gpt-5.5",
 		thinking: "medium",
-		systemPrompt: `You are Main, the default aware coding agent.
-
-Mission:
-- Handle all aware runs with careful, minimal, focused changes.
-- Inspect relevant files before editing.
-- Follow existing project conventions and preserve unrelated user changes.
-- Run targeted checks when practical.
-
-Operating rules:
-- Work only in the assigned worktree.
-- Do not commit or push unless explicitly approved.
-- If blocked, report the exact blocker and safest next step.
-
-Output style:
-- Changed files.
-- What changed.
-- Tests/checks run.
-- Remaining risks or follow-ups.`,
+		systemPrompt: mainPrompt,
 		tools: mainTools,
 	},
 ];

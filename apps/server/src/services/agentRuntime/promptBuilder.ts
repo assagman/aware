@@ -1,4 +1,9 @@
 import type { AgentProfile, Annotation, Task } from "@aware/shared";
+import {
+	annotationSentPromptTemplate,
+	runInstructionsPrompt,
+	taskPromptTemplate,
+} from "../../prompts";
 
 function serializeAnnotations(annotations: Annotation[]) {
 	return annotations
@@ -30,37 +35,20 @@ export function buildPrompt(input: {
 	message?: string;
 }) {
 	const isAnnotationSent = input.task.title === "annotation-sent";
-	const instructions = [
-		"Instructions:",
-		"- Work only in assigned worktree under /workspace/<category>/<slug>.",
-		"- Do not create or switch git worktrees; Worktree agent resolves this before run start.",
-		"- Keep changes minimal and focused.",
-		"- Respect exact file paths and line ranges in annotations.",
-		"- If line numbers seem stale, inspect nearby code before editing.",
-		"- Do not run git commit or git push unless user explicitly approves.",
-	];
+	const instructions = runInstructionsPrompt.split("\n");
 	if (isAnnotationSent) {
-		return [
-			serializeAnnotations(input.annotations) ||
-				input.message ||
-				input.task.body,
-			"",
-			...instructions,
-		].join("\n");
+		return annotationSentPromptTemplate
+			.replace(
+				"{{body}}",
+				serializeAnnotations(input.annotations) || input.message || input.task.body,
+			)
+			.replace("{{instructions}}", instructions.join("\n"));
 	}
-	return [
-		`Task: ${input.task.title}`,
-		input.task.body,
-		"",
-		"User message:",
-		input.message || input.task.body,
-		"",
-		"Available agents:",
-		serializeAgents(input.agents) || "(none)",
-		"",
-		"Selected annotations:",
-		serializeAnnotations(input.annotations) || "(none)",
-		"",
-		...instructions,
-	].join("\n");
+	return taskPromptTemplate
+		.replace("{{taskTitle}}", input.task.title)
+		.replace("{{taskBody}}", input.task.body)
+		.replace("{{userMessage}}", input.message || input.task.body)
+		.replace("{{agents}}", serializeAgents(input.agents) || "(none)")
+		.replace("{{annotations}}", serializeAnnotations(input.annotations) || "(none)")
+		.replace("{{instructions}}", instructions.join("\n"));
 }
