@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import {
 	currentBranch,
 	isBareRepository,
+	isInsideWorkTree,
 	repoRoot,
 	worktreePaths,
 	worktreeRoot,
@@ -36,11 +37,12 @@ export async function addProject(path: string): Promise<Project> {
 async function listedExistingWorktreePaths(project: Project) {
 	const root = await worktreeRoot(project.rootPath);
 	const paths = new Set<string>();
-	if (!(await isBareRepository(project.rootPath).catch(() => false)))
+	if (await isInsideWorkTree(project.rootPath).catch(() => false))
 		paths.add(await assertHostWorkspacePath(project.rootPath, root));
 	for (const path of await worktreePaths(project.rootPath)) {
 		try {
 			await lstat(path);
+			if (!(await isInsideWorkTree(path))) continue;
 			paths.add(await assertHostWorkspacePath(path, root));
 		} catch {
 			// Ignore prunable/missing/non-workspace worktrees; active state must only
@@ -143,6 +145,7 @@ async function doListWorktrees() {
 	const rows = await listStoredWorktrees();
 	const visible: Worktree[] = [];
 	for (const worktree of rows) {
+		if (!(await isInsideWorkTree(worktree.path).catch(() => false))) continue;
 		if (await isBareRepository(worktree.path).catch(() => false)) continue;
 		visible.push(worktree);
 	}

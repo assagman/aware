@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { diff, git, worktreeRoot } from "./gitService";
+import { diff, git, isInsideWorkTree, worktreeRoot } from "./gitService";
 
 const temps: string[] = [];
 
@@ -48,6 +48,16 @@ describe("git service", () => {
 		await git(bare, ["worktree", "add", main, "main"]);
 
 		expect(await worktreeRoot(main)).toBe(await realpath(bare));
+	});
+
+	it("detects git directories that are not work trees", async () => {
+		const root = await tempDir();
+		const gitDir = join(root, "gitdir");
+		const main = join(root, "main");
+		await git(root, ["init", "--separate-git-dir", gitDir, main]);
+
+		expect(await isInsideWorkTree(gitDir)).toBe(false);
+		expect(await isInsideWorkTree(main)).toBe(true);
 	});
 
 	it("uses parent workspace root for nested non-bare worktrees", async () => {

@@ -63,6 +63,15 @@ export async function isBareRepository(path: string) {
 	return stdout.trim() === "true";
 }
 
+export async function isInsideWorkTree(path: string) {
+	try {
+		const { stdout } = await git(path, ["rev-parse", "--is-inside-work-tree"]);
+		return stdout.trim() === "true";
+	} catch {
+		return false;
+	}
+}
+
 export async function worktreePaths(path: string) {
 	const { stdout } = await git(path, ["worktree", "list", "--porcelain"]);
 	return stdout
