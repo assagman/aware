@@ -436,9 +436,9 @@ export class FlueRuntime {
 			cwd: input.worktreePath,
 		});
 		const profileRole = "aware-agent-profile";
-		const resolveRuntimeModel = (modelRef: string) => {
-			const resolved = resolveModel(modelRef);
-			return provider === "openai-codex" && runtimeApiKey
+		const resolveRuntimeModel: typeof resolveModel = (modelConfig, providers) => {
+			const resolved = resolveModel(modelConfig, providers);
+			return resolved && provider === "openai-codex" && runtimeApiKey
 				? { ...resolved, provider: "openai" }
 				: resolved;
 		};
