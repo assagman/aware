@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, sep, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -95,6 +95,16 @@ export async function worktreeRoot(path: string) {
 		? commonDir
 		: resolve(path, commonDir);
 	if (await isBareRepository(absoluteCommonDir).catch(() => false))
+		return realpathOrResolve(absoluteCommonDir);
+	const worktreeGitDirMarker = `${sep}.git${sep}worktrees${sep}`;
+	const linkedWorktreeMarkerIndex = absoluteCommonDir.indexOf(
+		worktreeGitDirMarker,
+	);
+	if (linkedWorktreeMarkerIndex >= 0) {
+		const primaryTopLevel = absoluteCommonDir.slice(0, linkedWorktreeMarkerIndex);
+		return realpathOrResolve(dirname(primaryTopLevel));
+	}
+	if (basename(absoluteCommonDir) !== ".git")
 		return realpathOrResolve(absoluteCommonDir);
 	const paths = await worktreePaths(path).catch(() => []);
 	const primaryWorktree = paths.find(

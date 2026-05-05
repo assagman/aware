@@ -50,6 +50,29 @@ describe("git service", () => {
 		expect(await worktreeRoot(main)).toBe(await realpath(bare));
 	});
 
+	it("uses non-bare shared git directory as worktree root", async () => {
+		const root = await tempDir();
+		const gitDir = join(root, "repo");
+		const main = join(root, "main");
+		const feature = join(root, "feature");
+		await git(root, ["init", "--separate-git-dir", gitDir, main]);
+		await writeFile(join(main, "README.md"), "# test\n");
+		await git(main, ["add", "README.md"]);
+		await git(main, [
+			"-c",
+			"user.name=test",
+			"-c",
+			"user.email=test@example.com",
+			"commit",
+			"-m",
+			"init",
+		]);
+		await git(main, ["worktree", "add", "-b", "feature", feature]);
+
+		expect(await worktreeRoot(main)).toBe(await realpath(gitDir));
+		expect(await worktreeRoot(feature)).toBe(await realpath(gitDir));
+	});
+
 	it("detects git directories that are not work trees", async () => {
 		const root = await tempDir();
 		const gitDir = join(root, "gitdir");
