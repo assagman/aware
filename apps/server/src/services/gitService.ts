@@ -26,6 +26,22 @@ export async function git(cwd: string, args: string[]) {
 	throw new Error("git spawn failed");
 }
 
+async function gitAllowExitOne(cwd: string, args: string[]) {
+	try {
+		return await git(cwd, args);
+	} catch (error) {
+		const exitCode = (error as { code?: unknown }).code;
+		if (exitCode === 1) {
+			const { stdout = "", stderr = "" } = error as {
+				stdout?: string;
+				stderr?: string;
+			};
+			return { stdout, stderr };
+		}
+		throw error;
+	}
+}
+
 export async function repoRoot(path: string) {
 	try {
 		const { stdout } = await git(path, ["rev-parse", "--show-toplevel"]);
@@ -94,6 +110,23 @@ export type DiffMode =
 	| "last"
 	| "commit";
 
+async function untrackedDiff(path: string) {
+	const { stdout } = await git(path, [
+		"ls-files",
+		"--others",
+		"--exclude-standard",
+		"-z",
+	]);
+	const files = stdout.split("\0").filter(Boolean);
+	const patches = await Promise.all(
+		files.map(async (file) =>
+			(await gitAllowExitOne(path, ["diff", "--no-index", "--", "/dev/null", file]))
+				.stdout,
+		),
+	);
+	return patches.filter(Boolean).join("\n");
+}
+
 export async function diff(
 	path: string,
 	mode: DiffMode = "unstaged",
@@ -108,7 +141,9 @@ export async function diff(
 		return (await git(path, ["diff", "HEAD~1..HEAD"])).stdout;
 	if (mode === "commit")
 		return (await git(path, ["diff", `${commit}^..${commit}`])).stdout;
-	return (await git(path, ["diff"])).stdout;
+	return [(await git(path, ["diff"])).stdout, await untrackedDiff(path)]
+		.filter(Boolean)
+		.join("\n");
 }
 
 export type GitCommit = {

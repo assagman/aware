@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { git, worktreeRoot } from "./gitService";
+import { diff, git, worktreeRoot } from "./gitService";
 
 const temps: string[] = [];
 
@@ -10,6 +10,12 @@ async function tempDir() {
 	const path = await mkdtemp(join(tmpdir(), "aware-git-"));
 	temps.push(path);
 	return path;
+}
+
+async function gitRepo() {
+	const dir = await tempDir();
+	await git(dir, ["init"]);
+	return dir;
 }
 
 afterEach(async () => {
@@ -66,5 +72,29 @@ describe("git service", () => {
 
 		expect(await worktreeRoot(main)).toBe(await realpath(root));
 		expect(await worktreeRoot(nestedWorktree)).toBe(await realpath(root));
+	});
+
+	it("includes untracked files in unstaged diffs", async () => {
+		const dir = await gitRepo();
+		await writeFile(join(dir, "new.txt"), "hello\n");
+
+		const patch = await diff(dir, "unstaged");
+
+		expect(patch).toContain("diff --git a/new.txt b/new.txt");
+		expect(patch).toContain("new file mode");
+		expect(patch).toContain("+hello");
+	});
+
+	it("excludes ignored untracked files", async () => {
+		const dir = await gitRepo();
+		await writeFile(join(dir, ".gitignore"), "*.log\n");
+		await writeFile(join(dir, "ignored.log"), "ignored\n");
+		await writeFile(join(dir, "visible.txt"), "visible\n");
+
+		const patch = await diff(dir, "unstaged");
+
+		expect(patch).toContain("diff --git a/.gitignore b/.gitignore");
+		expect(patch).toContain("diff --git a/visible.txt b/visible.txt");
+		expect(patch).not.toContain("ignored.log");
 	});
 });
