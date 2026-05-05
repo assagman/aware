@@ -47,6 +47,14 @@ tasks.patch("/:id", async (c) => {
 	);
 	return c.json(await updateTask(c.req.param("id"), patch));
 });
+tasks.post("/:id/done", async (c) => {
+	const task = (await listTasks()).find((t) => t.id === c.req.param("id"));
+	if (!task) return c.json({ error: "missing task" }, 404);
+	if (task.status === "done") return c.json(task);
+	if (task.status !== "need_review")
+		return c.json({ error: `task is ${task.status}` }, 409);
+	return c.json(await updateTask(task.id, { status: "done" }));
+});
 tasks.post("/:id/start", async (c) => {
 	const task = (await listTasks()).find((t) => t.id === c.req.param("id"));
 	if (!task) return c.json({ error: "missing task" }, 404);

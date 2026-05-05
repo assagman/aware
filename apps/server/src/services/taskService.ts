@@ -9,8 +9,10 @@ import { db } from "../db/client";
 
 const now = () => new Date().toISOString();
 
-function taskStatusFromRun(status: RunStatus): TaskStatus {
-	return status === "cancelled" ? "failed" : status;
+function taskStatusFromRun(task: Task, status: RunStatus): TaskStatus {
+	if (status === "cancelled") return "failed";
+	if (status === "done") return task.status === "done" ? "done" : "need_review";
+	return status;
 }
 
 export async function listTasks(
@@ -31,7 +33,7 @@ export async function listTasks(
 		return {
 			...task,
 			title: task.title === "Direct chat" ? "task" : task.title,
-			status: latestRun ? taskStatusFromRun(latestRun.status) : task.status,
+			status: latestRun ? taskStatusFromRun(task, latestRun.status) : task.status,
 		};
 	});
 }

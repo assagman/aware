@@ -591,6 +591,12 @@ pre {
 	border-top: 1px solid #242832;
 }
 
+.run-input-actions {
+	grid-column: 1 / -1;
+	display: flex;
+	justify-content: flex-end;
+}
+
 .run-input-bar textarea {
 	width: calc(100% - 16px);
 	min-height: 68px;
@@ -1134,6 +1140,11 @@ pre {
 .status-queued {
 	border-color: #eab308;
 	color: #fde68a;
+}
+
+.status-need_review {
+	border-color: #38bdf8;
+	color: #bae6fd;
 }
 
 .status-done {
