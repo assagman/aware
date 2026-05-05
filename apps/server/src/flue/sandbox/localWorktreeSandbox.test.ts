@@ -34,6 +34,37 @@ describe("local worktree sandbox", () => {
 		expect(await readFile(join(worktree, "note.txt"), "utf8")).toBe("ok");
 	});
 
+	it("exposes host global skills at the session cwd without writing into the worktree", async () => {
+		const root = await tempDir();
+		const worktree = join(root, "feat", "foo");
+		const globalSkills = join(await tempDir(), "skills");
+		await mkdir(worktree, { recursive: true });
+		await mkdir(join(globalSkills, "demo"), { recursive: true });
+		await writeFile(
+			join(globalSkills, "demo", "SKILL.md"),
+			"---\nname: demo\ndescription: Demo skill\n---\n\nUse demo.\n",
+		);
+
+		const env = await bashFactoryToSessionEnv(
+			await createLocalWorktreeSandbox({
+				workspaceRoot: root,
+				cwd: worktree,
+				globalSkillsDir: globalSkills,
+			}),
+		);
+
+		expect(await env.readdir(".agents/skills")).toEqual(["demo"]);
+		expect(await env.readFile(".agents/skills/demo/SKILL.md")).toContain(
+			"name: demo",
+		);
+		await expect(
+			env.writeFile(".agents/skills/demo/SKILL.md", "changed"),
+		).rejects.toThrow();
+		expect(
+			await readFile(join(globalSkills, "demo", "SKILL.md"), "utf8"),
+		).toContain("Use demo.");
+	});
+
 	it("passes heredoc stdin to host python commands", async () => {
 		const root = await tempDir();
 		const env = await bashFactoryToSessionEnv(
