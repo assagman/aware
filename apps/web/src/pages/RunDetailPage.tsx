@@ -22,6 +22,7 @@ import {
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
+import { TaskLink } from "../components/TaskLink";
 
 type Payload = Record<string, unknown>;
 
@@ -821,9 +822,13 @@ export function RunDetailPage() {
 		() => visibleRuns.find((r) => r.id === runId),
 		[visibleRuns, runId],
 	);
+	const taskById = useMemo(
+		() => Object.fromEntries(tasks.map((task) => [task.id, task])),
+		[tasks],
+	);
 	const selectedTask = useMemo(
-		() => tasks.find((task) => task.id === selectedRun?.taskId),
-		[tasks, selectedRun?.taskId],
+		() => (selectedRun ? taskById[selectedRun.taskId] : undefined),
+		[taskById, selectedRun],
 	);
 	const worktreeNames = useMemo(
 		() =>
@@ -1085,21 +1090,36 @@ export function RunDetailPage() {
 				</div>
 				<div className="runs-list" aria-label="Runs list">
 					{!loadingRuns && visibleRuns.length === 0 ? <p className="empty-state">No runs.</p> : null}
-					{visibleRuns.map((r) => (
-						<button
-							key={r.id}
-							type="button"
-							className={r.id === runId ? "run-row selected" : "run-row"}
-							onClick={() => { setRunId(r.id); setSelectedRunId(r.id); setPageState("runs", { runId: r.id }); }}
-						>
-							<strong>{r.id.slice(0, 8)}</strong>
-							<span className={`task-status status-${r.status}`}>
-								{r.status}
-							</span>
-							<small>task {r.taskId.slice(0, 8)}</small>
-							<small>{worktreeNames[r.worktreeId] ?? "worktree"}</small>
-						</button>
-					))}
+					{visibleRuns.map((r) => {
+						const task = taskById[r.taskId];
+						return (
+							<div
+								key={r.id}
+								role="button"
+								tabIndex={0}
+								className={r.id === runId ? "run-row selected" : "run-row"}
+								onClick={() => { setRunId(r.id); setSelectedRunId(r.id); setPageState("runs", { runId: r.id }); }}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" || e.key === " ") {
+										setRunId(r.id);
+										setSelectedRunId(r.id);
+										setPageState("runs", { runId: r.id });
+									}
+								}}
+							>
+								<strong>{r.id.slice(0, 8)}</strong>
+								<span className={`task-status status-${r.status}`}>
+									{r.status}
+								</span>
+								<small>
+									<TaskLink taskId={r.taskId} projectId={task?.projectId}>
+										{task?.title ?? `task ${r.taskId.slice(0, 8)}`}
+									</TaskLink>
+								</small>
+								<small>{worktreeNames[r.worktreeId] ?? "worktree"}</small>
+							</div>
+						);
+					})}
 				</div>
 			</aside>
 			<div className="run-main">
@@ -1118,6 +1138,9 @@ export function RunDetailPage() {
 								Status: <strong>{selectedRun.status}</strong>
 							</span>
 							<span>
+								Task: <strong><TaskLink taskId={selectedRun.taskId} projectId={selectedTask?.projectId}>{selectedTask?.title ?? selectedRun.taskId.slice(0, 8)}</TaskLink></strong>
+							</span>
+							<span>
 								Main agent: <strong>{activeAgent}</strong>
 							</span>
 						</>
@@ -1132,6 +1155,17 @@ export function RunDetailPage() {
 					</button>
 					<ProcessIndicator state={processState} />
 				</div>
+				{selectedTask ? (
+					<div className="run-task-card">
+						<strong>Task</strong>
+						<TaskLink taskId={selectedTask.id} projectId={selectedTask.projectId}>
+							{selectedTask.title}
+						</TaskLink>
+						<span className={`task-status status-${selectedTask.status}`}>
+							{selectedTask.status.replace(/_/g, " ")}
+						</span>
+					</div>
+				) : null}
 				<div
 					className="run-chat-scroll"
 					ref={chatScrollRef}

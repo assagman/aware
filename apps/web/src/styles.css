@@ -484,11 +484,13 @@ pre {
 	display: grid;
 	grid-template-columns: 1fr auto;
 	gap: 4px;
+	padding: 6px 8px;
 	text-align: left;
 	border: 1px solid #242832;
 	border-radius: 8px;
 	background: #11151c;
 	color: inherit;
+	cursor: pointer;
 }
 
 .run-row.selected {
@@ -513,6 +515,30 @@ pre {
 .run-header small,
 .empty-state {
 	color: #94a3b8;
+}
+
+.run-task-card {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 0;
+	border-bottom: 1px solid #242832;
+	color: #cbd5e1;
+}
+
+.run-task-card a,
+.run-header a,
+.run-row a,
+.task-run-links a {
+	color: #93c5fd;
+	text-decoration: none;
+}
+
+.run-task-card a:hover,
+.run-header a:hover,
+.run-row a:hover,
+.task-run-links a:hover {
+	text-decoration: underline;
 }
 
 .run-process-indicator {
@@ -1118,6 +1144,33 @@ pre {
 	margin: 6px 0 0;
 	color: #cbd5e1;
 	white-space: pre-wrap;
+}
+
+.task-runs-block {
+	display: grid;
+	gap: 6px;
+	padding: 10px;
+	background: #11151c;
+	border: 1px solid #242832;
+	border-radius: 8px;
+}
+
+.task-run-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.task-run-links a {
+	padding: 3px 8px;
+	border: 1px solid #334155;
+	border-radius: 999px;
+	background: #0b1220;
+	font-size: 12px;
+}
+
+.task-run-links.compact {
+	margin-top: 6px;
 }
 
 .task-row-actions {
