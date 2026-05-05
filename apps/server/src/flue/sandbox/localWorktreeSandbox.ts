@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, posix, resolve } from "node:path";
 import type { BashFactory } from "@flue/sdk/client";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
 import {
@@ -8,7 +9,9 @@ import {
 	defineCommand,
 	InMemoryFs,
 	MountableFs,
+	OverlayFs,
 	ReadWriteFs,
+	type IFileSystem,
 } from "just-bash";
 import {
 	assertHostWorkspacePath,
@@ -146,7 +149,147 @@ function capBashExecTimeout(bash: Bash) {
 type WorkspaceSandboxOptions = {
 	workspaceRoot: string;
 	cwd: string;
+	globalSkillsDir?: string;
 };
+
+type RoutedFs = {
+	fs: IFileSystem;
+	path: string;
+};
+
+function defaultGlobalSkillsDir() {
+	return process.env.AWARE_GLOBAL_SKILLS_DIR ?? join(homedir(), ".agents", "skills");
+}
+
+function existingDirectory(path: string) {
+	try {
+		return existsSync(path) && statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+class WorkspaceSkillsFs implements IFileSystem {
+	private readonly workspaceFs: IFileSystem;
+	private readonly skillsFs?: IFileSystem;
+
+	constructor(options: {
+		workspaceRoot: string;
+		globalSkillsDir?: string | undefined;
+	}) {
+		this.workspaceFs = new ReadWriteFs({ root: options.workspaceRoot });
+		const skillsDir = options.globalSkillsDir ?? defaultGlobalSkillsDir();
+		if (existingDirectory(skillsDir)) {
+			this.skillsFs = new OverlayFs({
+				root: skillsDir,
+				mountPoint: "/",
+				readOnly: true,
+			});
+		}
+	}
+
+	private route(path: string): RoutedFs {
+		if (this.skillsFs) {
+			const normalized = posix.normalize(path.startsWith("/") ? path : `/${path}`);
+			const marker = "/.agents/skills";
+			const markerIndex = normalized.indexOf(marker);
+			if (markerIndex >= 0) {
+				const rest = normalized.slice(markerIndex + marker.length);
+				if (!rest || rest.startsWith("/"))
+					return { fs: this.skillsFs, path: rest || "/" };
+			}
+		}
+		return { fs: this.workspaceFs, path };
+	}
+
+	readFile: IFileSystem["readFile"] = (path, options) => {
+		const routed = this.route(path);
+		return routed.fs.readFile(routed.path, options);
+	};
+	readFileBuffer: IFileSystem["readFileBuffer"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.readFileBuffer(routed.path);
+	};
+	writeFile: IFileSystem["writeFile"] = (path, content, options) => {
+		const routed = this.route(path);
+		return routed.fs.writeFile(routed.path, content, options);
+	};
+	appendFile: IFileSystem["appendFile"] = (path, content, options) => {
+		const routed = this.route(path);
+		return routed.fs.appendFile(routed.path, content, options);
+	};
+	exists: IFileSystem["exists"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.exists(routed.path);
+	};
+	stat: IFileSystem["stat"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.stat(routed.path);
+	};
+	lstat: IFileSystem["lstat"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.lstat(routed.path);
+	};
+	mkdir: IFileSystem["mkdir"] = (path, options) => {
+		const routed = this.route(path);
+		return routed.fs.mkdir(routed.path, options);
+	};
+	readdir: IFileSystem["readdir"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.readdir(routed.path);
+	};
+	readdirWithFileTypes(path: string) {
+		const routed = this.route(path);
+		return routed.fs.readdirWithFileTypes?.(routed.path) ?? Promise.resolve([]);
+	}
+	rm: IFileSystem["rm"] = (path, options) => {
+		const routed = this.route(path);
+		return routed.fs.rm(routed.path, options);
+	};
+	cp: IFileSystem["cp"] = (src, dest, options) => {
+		const from = this.route(src);
+		const to = this.route(dest);
+		if (from.fs === to.fs) return from.fs.cp(from.path, to.path, options);
+		throw new Error("Cross-filesystem copy is not supported for global skills");
+	};
+	mv: IFileSystem["mv"] = (src, dest) => {
+		const from = this.route(src);
+		const to = this.route(dest);
+		if (from.fs === to.fs) return from.fs.mv(from.path, to.path);
+		throw new Error("Cross-filesystem move is not supported for global skills");
+	};
+	resolvePath: IFileSystem["resolvePath"] = (base, path) =>
+		this.workspaceFs.resolvePath(base, path);
+	getAllPaths: IFileSystem["getAllPaths"] = () => [
+		...this.workspaceFs.getAllPaths(),
+	];
+	chmod: IFileSystem["chmod"] = (path, mode) => {
+		const routed = this.route(path);
+		return routed.fs.chmod(routed.path, mode);
+	};
+	symlink: IFileSystem["symlink"] = (target, linkPath) => {
+		const routed = this.route(linkPath);
+		return routed.fs.symlink(target, routed.path);
+	};
+	link: IFileSystem["link"] = (existingPath, newPath) => {
+		const from = this.route(existingPath);
+		const to = this.route(newPath);
+		if (from.fs === to.fs) return from.fs.link(from.path, to.path);
+		throw new Error("Cross-filesystem link is not supported for global skills");
+	};
+	readlink: IFileSystem["readlink"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.readlink(routed.path);
+	};
+	realpath: IFileSystem["realpath"] = (path) => {
+		const routed = this.route(path);
+		return routed.fs.realpath(routed.path);
+	};
+	utimes: IFileSystem["utimes"] = (path, atime, mtime) => {
+		const routed = this.route(path);
+		return routed.fs.utimes(routed.path, atime, mtime);
+	};
+}
 
 function hostCommand(workspaceRoot: string, name: string, bin = name) {
 	return defineCommand(name, async (args, ctx) => {
@@ -207,12 +350,16 @@ function hostCommands(workspaceRoot: string) {
 export async function createLocalWorktreeSandbox({
 	workspaceRoot,
 	cwd,
+	globalSkillsDir,
 }: WorkspaceSandboxOptions): Promise<BashFactory> {
 	const root = resolve(workspaceRoot);
 	const hostCwd = await assertHostWorkspacePath(cwd, root);
 	const sandboxCwd = hostToSandboxPath(hostCwd, root);
 	const fs = new MountableFs({ base: new InMemoryFs() });
-	fs.mount(SANDBOX_WORKSPACE_ROOT, new ReadWriteFs({ root }));
+	fs.mount(
+		SANDBOX_WORKSPACE_ROOT,
+		new WorkspaceSkillsFs({ workspaceRoot: root, globalSkillsDir }),
+	);
 	const customCommands = hostCommands(root);
 	return () =>
 		capBashExecTimeout(
