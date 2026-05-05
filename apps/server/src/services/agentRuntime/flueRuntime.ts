@@ -14,6 +14,11 @@ import { assertAllowedWorktree, listProjects } from "../projectService";
 import { ensureMutableWorktree } from "../worktreeAgentService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
+import {
+	agentProfileInstructionsBlockTemplate,
+	globalAgentInstructionsBlockTemplate,
+	renderPromptTemplate,
+} from "../../prompts";
 import { buildPrompt } from "./promptBuilder";
 import { runEventHub } from "./runEventHub";
 
@@ -75,13 +80,14 @@ function agentProfileRoleInstructions(
 ) {
 	return [
 		globalInstructions
-			? [
-					"Global instructions from ~/.agents/AGENTS.md:",
+			? renderPromptTemplate(globalAgentInstructionsBlockTemplate, {
 					globalInstructions,
-				].join("\n")
+				})
 			: "",
 		agentPrompt
-			? ["Aware agent profile instructions:", agentPrompt].join("\n")
+			? renderPromptTemplate(agentProfileInstructionsBlockTemplate, {
+					agentPrompt,
+				})
 			: "",
 	]
 		.filter(Boolean)

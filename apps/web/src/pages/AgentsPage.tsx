@@ -12,6 +12,7 @@ import {
 	type MDXEditorMethods,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import defaultNewAgentSystemPrompt from "../prompts/default-new-agent-system-prompt.md?raw";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 import { getPageState, setPageState } from "../app/pageState";
@@ -65,8 +66,7 @@ const defaultForm: AgentForm = {
 	model: "openai-codex/gpt-5.5",
 	thinking: "medium",
 	temperature: 0.2,
-	systemPrompt:
-		"Inspect first, make minimal focused edits, do not commit/push without approval.",
+	systemPrompt: defaultNewAgentSystemPrompt.trim(),
 };
 
 function MarkdownEditor({

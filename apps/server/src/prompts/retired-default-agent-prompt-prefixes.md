@@ -1,0 +1,7 @@
+ImpactAnalysis|You are ImpactAnalysis,
+Plan|You are Plan,
+Code|You are Code,
+Test|You are Test,
+Review|You are Review,
+Debug|You are Debug,
+Shipping|You are Shipping,

@@ -1,4 +1,10 @@
 import type { AgentProfile, Annotation, Task } from "@aware/shared";
+import {
+	annotationSentPromptTemplate,
+	renderPromptTemplate,
+	runInstructionsPrompt,
+	taskPromptTemplate,
+} from "../../prompts";
 
 function serializeAnnotations(annotations: Annotation[]) {
 	return annotations
@@ -30,37 +36,19 @@ export function buildPrompt(input: {
 	message?: string;
 }) {
 	const isAnnotationSent = input.task.title === "annotation-sent";
-	const instructions = [
-		"Instructions:",
-		"- Work only in assigned worktree under /workspace/<category>/<slug>.",
-		"- Do not create or switch git worktrees; Worktree agent resolves this before run start.",
-		"- Keep changes minimal and focused.",
-		"- Respect exact file paths and line ranges in annotations.",
-		"- If line numbers seem stale, inspect nearby code before editing.",
-		"- Do not run git commit or git push unless user explicitly approves.",
-	];
+	const instructions = runInstructionsPrompt.split("\n");
 	if (isAnnotationSent) {
-		return [
-			serializeAnnotations(input.annotations) ||
-				input.message ||
-				input.task.body,
-			"",
-			...instructions,
-		].join("\n");
+		return renderPromptTemplate(annotationSentPromptTemplate, {
+			body: serializeAnnotations(input.annotations) || input.message || input.task.body,
+			instructions: instructions.join("\n"),
+		});
 	}
-	return [
-		`Task: ${input.task.title}`,
-		input.task.body,
-		"",
-		"User message:",
-		input.message || input.task.body,
-		"",
-		"Available agents:",
-		serializeAgents(input.agents) || "(none)",
-		"",
-		"Selected annotations:",
-		serializeAnnotations(input.annotations) || "(none)",
-		"",
-		...instructions,
-	].join("\n");
+	return renderPromptTemplate(taskPromptTemplate, {
+		taskTitle: input.task.title,
+		taskBody: input.task.body,
+		userMessage: input.message || input.task.body,
+		agents: serializeAgents(input.agents) || "(none)",
+		annotations: serializeAnnotations(input.annotations) || "(none)",
+		instructions: instructions.join("\n"),
+	});
 }
