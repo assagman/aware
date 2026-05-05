@@ -16,6 +16,7 @@ export const chat = new Hono();
 
 chat.post("/", async (c) => {
 	const body = await c.req.json();
+	if (!body.worktreeId) return c.json({ error: "missing worktree" }, 400);
 	const requestedWorktree = await assertAllowedWorktree(body.worktreeId);
 	if (body.projectId && body.projectId !== requestedWorktree.projectId)
 		return c.json({ error: "worktree does not belong to chat project" }, 400);

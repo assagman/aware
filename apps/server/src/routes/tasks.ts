@@ -16,11 +16,13 @@ export const tasks = new Hono();
 tasks.get("/", async (c) => {
 	const filter: { projectId?: string } = {};
 	const projectId = c.req.query("projectId");
+	if (projectId === "") return c.json([]);
 	if (projectId) filter.projectId = projectId;
 	return c.json(await listTasks(filter));
 });
 tasks.post("/", async (c) => {
 	const body = await c.req.json();
+	if (!body.projectId) return c.json({ error: "missing project" }, 400);
 	if (body.worktreeId) {
 		const worktree = await assertAllowedWorktree(body.worktreeId);
 		if (worktree.projectId !== body.projectId)

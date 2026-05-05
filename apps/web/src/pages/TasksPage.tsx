@@ -64,6 +64,7 @@ export function TasksPage() {
 		if (!nextProjectId) {
 			setTasks([]);
 			setRuns([]);
+			setLoadingTasks(false);
 			return;
 		}
 		setLoadingTasks(true);
@@ -82,11 +83,11 @@ export function TasksPage() {
 	};
 	useEffect(() => {
 		load(projectId);
-	}, []);
+	}, [projectId]);
 	useEffect(() => {
 		const syncSelection = () => {
 			const nextProjectId = getSelectedProjectId("tasks");
-			if (nextProjectId && nextProjectId !== projectId) chooseProject(nextProjectId);
+			if (nextProjectId !== projectId) chooseProject(nextProjectId);
 		};
 		window.addEventListener("aware-selection", syncSelection);
 		return () => window.removeEventListener("aware-selection", syncSelection);
@@ -99,7 +100,6 @@ export function TasksPage() {
 		setBody("");
 		setTaskWorktreeId("");
 		setPageState("tasks", { selectedTaskId: "", title: "", body: "", worktreeId: "" });
-		load(id);
 	}
 	const visibleTasks = useMemo(() => {
 		return tasks
@@ -240,7 +240,7 @@ export function TasksPage() {
 				{loadingTasks ? <BusyIndicator label="Loading tasks" /> : null}
 			</div>
 			{!hasSelection ? (
-				<p className="tasks-empty">Select project from header.</p>
+				<p className="tasks-empty">No project selected.</p>
 			) : null}
 			<div className="tasks-layout">
 				<form
