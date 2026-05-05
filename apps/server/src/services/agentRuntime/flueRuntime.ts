@@ -6,6 +6,7 @@ import type { AgentProfile, AgentRun, Annotation, Task } from "@aware/shared";
 import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import { listAgentProfiles } from "../agentProfileService";
+import { resolveAgentTools } from "../../flue/tools";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import { revertDefaultBranchMutation } from "../defaultBranchGuard";
 import { worktreeRoot } from "../gitService";
@@ -474,6 +475,7 @@ export class FlueRuntime {
 			model,
 			persist: flueSessionStore,
 			role: profileRole,
+			tools: resolveAgentTools(agent.tools),
 		});
 		const session = (await flueAgent.session(
 			run.sessionId,

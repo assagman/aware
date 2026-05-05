@@ -12,6 +12,7 @@ const authPath = join(homedir(), ".pi", "agent", "auth.json");
 const oauthProvider = "openai-codex";
 
 const providerEnv: Record<string, string[]> = {
+	exa: ["EXA_API_KEY"],
 	"kimi-coding": ["KIMI_API_KEY"],
 	zai: ["Z_AI_API_KEY", "ZAI_API_KEY"],
 };

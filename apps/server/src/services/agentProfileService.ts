@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentProfile } from "@aware/shared";
 import { db } from "../db/client";
+import { EXA_RETIRED_TOOL_NAMES, EXA_TOOL_NAMES } from "../flue/tools";
 
 const now = () => new Date().toISOString();
 
@@ -11,6 +12,7 @@ type DefaultAgentProfile = Pick<
 	Partial<Pick<AgentProfile, "thinking">>;
 
 const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "task"];
+const mainTools = [...writeTools, ...EXA_TOOL_NAMES];
 
 const retiredDefaultAgentSignatures = [
 	{ name: "ImpactAnalysis", promptPrefix: "You are ImpactAnalysis," },
@@ -46,7 +48,7 @@ Output style:
 - What changed.
 - Tests/checks run.
 - Remaining risks or follow-ups.`,
-		tools: writeTools,
+		tools: mainTools,
 	},
 ];
 
@@ -113,12 +115,28 @@ async function ensureDefaultAgentProfiles() {
 	const rows = await removeRetiredDefaultAgentProfiles(
 		await db.list<AgentProfile>("agentProfiles"),
 	);
-	const names = new Set(rows.map((agent) => normalizeName(agent.name)));
 	for (const profile of defaultAgentProfiles) {
-		if (!names.has(normalizeName(profile.name))) {
+		const existing = rows.find(
+			(agent) => normalizeName(agent.name) === normalizeName(profile.name),
+		);
+		if (!existing) {
 			const created = await createAgentProfile(profile);
 			rows.push(created);
-			names.add(normalizeName(created.name));
+			continue;
+		}
+		const activeTools = existing.tools.filter(
+			(tool) => !EXA_RETIRED_TOOL_NAMES.includes(tool),
+		);
+		const missingTools = profile.tools.filter(
+			(tool) => !activeTools.includes(tool),
+		);
+		const nextTools = [...activeTools, ...missingTools];
+		if (nextTools.length !== existing.tools.length || missingTools.length) {
+			const updated = await db.update<AgentProfile>("agentProfiles", existing.id, {
+				tools: nextTools,
+				updatedAt: now(),
+			});
+			if (updated) rows[rows.indexOf(existing)] = updated;
 		}
 	}
 	const defaultOrder = new Map(
