@@ -165,9 +165,10 @@ export function FilesPage() {
 		else setAnnotations([]);
 	}
 	async function loadTree(id = worktreeId) {
-		if (!id) {
+		if (!projectId || !id) {
 			setPaths([]);
-			setError("Select worktree.");
+			setTreeLoading(false);
+			setError(projectId ? "No worktree selected." : "No project selected.");
 			return;
 		}
 		setTreeLoading(true);
@@ -190,32 +191,36 @@ export function FilesPage() {
 		}
 	}
 	async function loadDiffs(id = worktreeId) {
-		if (!id) return;
+		if (!projectId || !id) {
+			setDiffPatches({ committed: "", staged: "", unstaged: "" });
+			setDiffLoading(false);
+			return;
+		}
 		setDiffLoading(true);
 		try {
-		const fetchPatch = (mode: "main" | "staged" | "unstaged") =>
-			fetch(`/api/diffs/git?${new URLSearchParams({ worktreeId: id, mode })}`).then(
-				(r) => r.text(),
-			);
-		const [committed, staged, unstaged] = await Promise.all([
-			fetchPatch("main"),
-			fetchPatch("staged"),
-			fetchPatch("unstaged"),
-		]);
-		setDiffPatches({ committed, staged, unstaged });
-		setSelectedDiff(null);
-		setSelectedDiffFile("");
-		await loadAnnotations(id);
+			const fetchPatch = (mode: "main" | "staged" | "unstaged") =>
+				fetch(`/api/diffs/git?${new URLSearchParams({ worktreeId: id, mode })}`).then(
+					(r) => r.text(),
+				);
+			const [committed, staged, unstaged] = await Promise.all([
+				fetchPatch("main"),
+				fetchPatch("staged"),
+				fetchPatch("unstaged"),
+			]);
+			setDiffPatches({ committed, staged, unstaged });
+			setSelectedDiff(null);
+			setSelectedDiffFile("");
+			await loadAnnotations(id);
 		} finally {
 			setDiffLoading(false);
 		}
 	}
 	useEffect(() => {
-		void loadTree();
-		void loadDiffs();
-	}, []);
+		void loadTree(worktreeId);
+		void loadDiffs(worktreeId);
+	}, [projectId, worktreeId]);
 	useEffect(() => {
-		if (!worktreeId) return;
+		if (!projectId || !worktreeId) return;
 		const source = new EventSource(`${API_BASE}/events/worktrees?${new URLSearchParams({ worktreeId })}`);
 		const refreshCurrent = () => {
 			if (!worktreeId) return;
@@ -232,7 +237,7 @@ export function FilesPage() {
 			refreshCurrent();
 		});
 		return () => source.close();
-	}, [worktreeId, file, viewMode]);
+	}, [projectId, worktreeId, file, viewMode]);
 	useEffect(() => {
 		if (annotationMode) noteRef.current?.focus();
 	}, [annotationMode]);
@@ -246,7 +251,7 @@ export function FilesPage() {
 		const syncSelection = () => {
 			const nextProjectId = getSelectedProjectId("files");
 			const nextWorktreeId = getSelectedWorktreeId("files");
-			if (nextProjectId && nextProjectId !== projectId) {
+			if (nextProjectId !== projectId) {
 				chooseProject(nextProjectId);
 				return;
 			}
@@ -274,8 +279,6 @@ export function FilesPage() {
 		setContent("");
 		setPageState("files", { file: "", annotationMode: null, anchorLine: null, endLine: null });
 		setDiffPatches({ committed: "", staged: "", unstaged: "" });
-		void loadTree(id);
-		void loadDiffs(id);
 	}
 	async function readFile(path: string, id = worktreeId, switchToFile = true) {
 		if (!id) return;
@@ -424,7 +427,7 @@ export function FilesPage() {
 			<section className="card tree-pane">
 				<div className="panel-head"><h2>{viewMode === "diff" ? "Changed Files" : "File Tree"}</h2>{treeLoading || diffLoading ? <BusyIndicator label={viewMode === "diff" ? "Loading diffs" : "Loading tree"} /> : null}</div>
 				{error ? <p className="error">{error}</p> : null}
-				{treePaths.length ? <FileTreeView paths={treePaths} selectedPath={file} onOpen={(path) => void readFile(path, worktreeId, viewMode !== "diff")} /> : <p>{viewMode === "diff" ? "No changed files." : "Select worktree to load tree."}</p>}
+				{treePaths.length ? <FileTreeView paths={treePaths} selectedPath={file} onOpen={(path) => void readFile(path, worktreeId, viewMode !== "diff")} /> : <p>{!projectId ? "No project selected." : !worktreeId ? "No worktree selected." : viewMode === "diff" ? "No changed files." : "No files."}</p>}
 			</section>
 			<section className="card editor-pane files-view-pane" ref={editorRef}>
 				<div className="panel-head files-view-head">

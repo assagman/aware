@@ -56,11 +56,15 @@ export function WorktreeColumn({
 	}, [projectId, stateKey]);
 	useEffect(() => {
 		if (!loaded) return;
+		if (!projectId) {
+			if (!allowAll && value) onChange("");
+			return;
+		}
 		const hasValue = filtered.some((w) => w.id === value);
 		if (allowAll && (!value || (value !== "all" && !hasValue))) onChange("all");
 		if (!allowAll && !value && filtered[0]) onChange(filtered[0].id);
 		if (!allowAll && value && !hasValue) onChange(filtered[0]?.id ?? "");
-	}, [allowAll, filtered, loaded, onChange, value]);
+	}, [allowAll, filtered, loaded, onChange, projectId, value]);
 	async function addWorktree() {
 		if (!projectId || !path.trim() || saving) return;
 		setSaving(true);
@@ -130,7 +134,7 @@ export function WorktreeColumn({
 				{projectId && !filtered.length ? (
 					<p className="empty-state">No worktrees.</p>
 				) : null}
-				{!projectId ? <p className="empty-state">Select project.</p> : null}
+				{!projectId ? <p className="empty-state">No project selected.</p> : null}
 			</div>
 
 		</section>

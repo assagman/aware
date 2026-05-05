@@ -77,11 +77,15 @@ export function WorktreePicker({
 	}, [projectId]);
 	useEffect(() => {
 		if (!loaded) return;
+		if (!projectId) {
+			if (!allowAll && value) onChange("");
+			return;
+		}
 		const hasValue = filtered.some((worktree) => worktree.id === value);
 		if (allowAll && (!value || (value !== "all" && !hasValue))) onChange("all");
 		if (!allowAll && !value && filtered[0]) onChange(filtered[0].id);
 		if (!allowAll && value && !hasValue) onChange(filtered[0]?.id ?? "");
-	}, [allowAll, filtered, loaded, onChange, value]);
+	}, [allowAll, filtered, loaded, onChange, projectId, value]);
 	async function addWorktree() {
 		if (!projectId || !path.trim() || saving) return;
 		setSaving(true);
@@ -102,7 +106,7 @@ export function WorktreePicker({
 		<div className="fuzzy-picker worktree-picker">
 			<button type="button" className="fuzzy-picker-trigger" onClick={() => setOpen((next) => !next)} disabled={!projectId}>
 				<span>Worktree</span>
-				<strong>{value === "all" ? "All worktrees" : selected ? `${worktreeName(selected)} — ${selected.branch || "worktree"}` : "Select worktree"}</strong>
+				<strong>{!projectId ? "No project selected" : value === "all" ? "All worktrees" : selected ? `${worktreeName(selected)} — ${selected.branch || "worktree"}` : "Select worktree"}</strong>
 				{!loaded ? <BusyIndicator label="" /> : null}
 			</button>
 			{open ? (

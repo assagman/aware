@@ -23,11 +23,13 @@ export function WorktreeSelect({
 	const [projectId, setProjectId] = useState(getSelectedProjectId("tasks"));
 	const filtered = useMemo(
 		() =>
-			worktrees.filter(
-				(w) =>
-					(!projectId || w.projectId === projectId) &&
-					(!excludeDefaultBranches || !["main", "master"].includes(w.branch)),
-			),
+			projectId
+				? worktrees.filter(
+						(w) =>
+							w.projectId === projectId &&
+							(!excludeDefaultBranches || !["main", "master"].includes(w.branch)),
+					)
+				: [],
 		[excludeDefaultBranches, projectId, worktrees],
 	);
 	async function refresh() {
@@ -52,8 +54,10 @@ export function WorktreeSelect({
 	return (
 		<label className="worktree-select">
 			{label}{" "}
-			<select value={value} onChange={(e) => onChange(e.target.value)}>
-				{allowAll ? (
+			<select value={value} onChange={(e) => onChange(e.target.value)} disabled={!projectId}>
+				{!projectId ? (
+					<option value="">No project selected</option>
+				) : allowAll ? (
 					<option value="all">all</option>
 				) : (
 					<option value="">{placeholder}</option>

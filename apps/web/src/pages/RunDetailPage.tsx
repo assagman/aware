@@ -872,6 +872,15 @@ export function RunDetailPage() {
 		nextFilter = worktreeFilter,
 		options: { silent?: boolean } = {},
 	) {
+		if (!projectId) {
+			setRuns([]);
+			setRunId("");
+			setSelectedRunId("");
+			setEvents([]);
+			setLoadingRuns(false);
+			setLoadingEvents(false);
+			return;
+		}
 		if (!options.silent) setLoadingRuns(true);
 		try {
 			const rows = await apiGet<AgentRun[]>(`/runs?worktreeId=${nextFilter}`);
@@ -914,15 +923,15 @@ export function RunDetailPage() {
 		}
 	}
 	useEffect(() => {
-		void loadRuns();
+		void loadRuns(worktreeFilter);
 		void loadTasks();
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
-	}, []);
+	}, [projectId, worktreeFilter]);
 	useEffect(() => {
 		const syncSelection = () => {
 			const nextProjectId = getSelectedProjectId("runs");
 			const nextWorktreeFilter = getSelectedWorktreeId("runs") || "all";
-			if (nextProjectId && nextProjectId !== projectId) {
+			if (nextProjectId !== projectId) {
 				chooseProject(nextProjectId);
 				return;
 			}
@@ -944,16 +953,14 @@ export function RunDetailPage() {
 		setSelectedWorktreeId("all", "runs");
 		setWorktreeFilter("all");
 		setPageState("runs", { worktreeFilter: "all" });
-		void loadRuns("all");
 	}
 	function chooseWorktree(id: string) {
 		setSelectedWorktreeId(id, "runs");
 		setWorktreeFilter(id);
 		setPageState("runs", { worktreeFilter: id });
-		void loadRuns(id);
 	}
 	useEffect(() => {
-		if (!runId) return;
+		if (!projectId || !runId) return;
 		let closed = false;
 		let fallbackTimer: number | undefined;
 		void loadEvents(runId);
@@ -1038,7 +1045,7 @@ export function RunDetailPage() {
 			source.close();
 			if (fallbackTimer) window.clearInterval(fallbackTimer);
 		};
-	}, [runId, selectedRun?.status, worktreeFilter]);
+	}, [projectId, runId, selectedRun?.status, worktreeFilter]);
 	useEffect(() => {
 		if (selectedRun?.status === "running")
 			bottomRef.current?.scrollIntoView({ block: "end" });
@@ -1089,7 +1096,8 @@ export function RunDetailPage() {
 					{loadingRuns ? <BusyIndicator label="Loading runs" /> : null}
 				</div>
 				<div className="runs-list" aria-label="Runs list">
-					{!loadingRuns && visibleRuns.length === 0 ? <p className="empty-state">No runs.</p> : null}
+					{!projectId ? <p className="empty-state">No project selected.</p> : null}
+					{projectId && !loadingRuns && visibleRuns.length === 0 ? <p className="empty-state">No runs.</p> : null}
 					{visibleRuns.map((r) => {
 						const task = taskById[r.taskId];
 						return (

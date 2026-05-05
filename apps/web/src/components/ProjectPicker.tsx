@@ -53,7 +53,9 @@ export function ProjectPicker({
 		try {
 			const rows = await apiGet<Project[]>("/projects");
 			setProjects(rows);
+			const hasSelected = rows.some((project) => project.id === value);
 			if (!value && rows[0]) onChange(rows[0].id);
+			else if (value && !hasSelected) onChange(rows[0]?.id ?? "");
 		} finally {
 			setLoading(false);
 		}
