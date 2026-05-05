@@ -6,6 +6,7 @@ type WorktreeScope = "files" | "runs" | "tasks";
 type Selection = {
 	selectedProjectIds: Partial<Record<ProjectScope, string>>;
 	selectedWorktreeIds: Partial<Record<WorktreeScope, string>>;
+	selectedWorktreeId: string;
 	selectedTaskId: string;
 	selectedRunId: string;
 };
@@ -13,16 +14,28 @@ type Selection = {
 const empty: Selection = {
 	selectedProjectIds: {},
 	selectedWorktreeIds: {},
+	selectedWorktreeId: "",
 	selectedTaskId: "",
 	selectedRunId: "",
 };
 
+function lastScopedWorktreeId(
+	selectedWorktreeIds: Partial<Record<WorktreeScope, string>>,
+) {
+	return ["files", "runs", "tasks"]
+		.map((scope) => selectedWorktreeIds[scope as WorktreeScope] || "")
+		.find((id) => id && id !== "all") || "";
+}
+
 function read(): Selection {
 	try {
 		const raw = JSON.parse(localStorage.getItem(KEY) || "{}") as Partial<Selection>;
+		const selectedWorktreeIds = raw.selectedWorktreeIds || {};
 		return {
 			selectedProjectIds: raw.selectedProjectIds || {},
-			selectedWorktreeIds: raw.selectedWorktreeIds || {},
+			selectedWorktreeIds,
+			selectedWorktreeId:
+				raw.selectedWorktreeId || lastScopedWorktreeId(selectedWorktreeIds),
 			selectedTaskId: raw.selectedTaskId || "",
 			selectedRunId: raw.selectedRunId || "",
 		};
@@ -53,20 +66,29 @@ export function setSelectedProjectId(id: string, scope: ProjectScope) {
 		...current,
 		selectedProjectIds: { ...current.selectedProjectIds, [scope]: id },
 		selectedWorktreeIds: { ...current.selectedWorktreeIds, [scope]: "" },
+		selectedWorktreeId: "",
 		selectedTaskId: "",
 		selectedRunId: "",
 	});
 }
 
 export function getSelectedWorktreeId(scope: WorktreeScope) {
-	return read().selectedWorktreeIds[scope] || "";
+	const current = read();
+	const scoped = current.selectedWorktreeIds[scope] || "";
+	return scoped === "all" ? scoped : current.selectedWorktreeId || scoped;
 }
 
 export function setSelectedWorktreeId(id: string, scope: WorktreeScope) {
 	const current = read();
+	const selectedWorktreeIds =
+		id && id !== "all"
+			? { files: id, runs: id, tasks: id }
+			: { ...current.selectedWorktreeIds, [scope]: id };
 	write({
 		...current,
-		selectedWorktreeIds: { ...current.selectedWorktreeIds, [scope]: id },
+		selectedWorktreeIds,
+		selectedWorktreeId:
+			id && id !== "all" ? id : current.selectedWorktreeId,
 		selectedTaskId: "",
 		selectedRunId: "",
 	});
