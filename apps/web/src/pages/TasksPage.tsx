@@ -11,6 +11,7 @@ import {
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
+import { RunLink } from "../components/RunLink";
 import { WorktreeSelect } from "../components/WorktreeSelect";
 
 type TaskFilter = "active" | "done" | "all";
@@ -40,6 +41,7 @@ const initialTasksState = getPageState("tasks", {
 
 export function TasksPage() {
 	const [tasks, setTasks] = useState<Task[]>([]);
+	const [runs, setRuns] = useState<AgentRun[]>([]);
 	const [projectId, setProjectIdState] = useState(getSelectedProjectId("tasks"));
 	const [title, setTitle] = useState(initialTasksState.title);
 	const [body, setBody] = useState(initialTasksState.body);
@@ -61,13 +63,21 @@ export function TasksPage() {
 	const load = (nextProjectId = projectId) => {
 		if (!nextProjectId) {
 			setTasks([]);
+			setRuns([]);
 			return;
 		}
 		setLoadingTasks(true);
-		void apiGet<Task[]>(
-			`/tasks?${new URLSearchParams({ projectId: nextProjectId })}`,
-		)
-			.then(setTasks)
+		void Promise.all([
+			apiGet<Task[]>(
+				`/tasks?${new URLSearchParams({ projectId: nextProjectId })}`,
+			),
+			apiGet<AgentRun[]>("/runs?worktreeId=all"),
+		])
+			.then(([nextTasks, nextRuns]) => {
+				setTasks(nextTasks);
+				const taskIds = new Set(nextTasks.map((task) => task.id));
+				setRuns(nextRuns.filter((run) => taskIds.has(run.taskId)));
+			})
 			.finally(() => setLoadingTasks(false));
 	};
 	useEffect(() => {
@@ -109,7 +119,31 @@ export function TasksPage() {
 				);
 			});
 	}, [tasks, taskFilter, taskSort]);
+	const runsByTaskId = useMemo(() => {
+		const groups = new Map<string, AgentRun[]>();
+		for (const run of runs) {
+			const group = groups.get(run.taskId) ?? [];
+			group.push(run);
+			groups.set(run.taskId, group);
+		}
+		for (const group of groups.values())
+			group.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+		return groups;
+	}, [runs]);
 	const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+	const selectedTaskRuns = selectedTask ? (runsByTaskId.get(selectedTask.id) ?? []) : [];
+	useEffect(() => {
+		if (!selectedTask) return;
+		setTitle(selectedTask.title);
+		setBody(selectedTask.body);
+		setTaskWorktreeId(selectedTask.worktreeId ?? "");
+		setPageState("tasks", {
+			selectedTaskId: selectedTask.id,
+			title: selectedTask.title,
+			body: selectedTask.body,
+			worktreeId: selectedTask.worktreeId ?? "",
+		});
+	}, [selectedTask]);
 	function newTask() {
 		setSelectedTaskIdState("");
 		setTitle("");
@@ -280,6 +314,22 @@ export function TasksPage() {
 							? "Agent will use this attached worktree."
 							: "Worktree agent will create a host worktree; agents see it as /workspace/<category>/<slug>."}
 					</p>
+					{selectedTask ? (
+						<div className="task-runs-block">
+							<strong>Related runs ({selectedTaskRuns.length})</strong>
+							{selectedTaskRuns.length ? (
+								<div className="task-run-links">
+									{selectedTaskRuns.map((run) => (
+										<RunLink key={run.id} runId={run.id} projectId={selectedTask.projectId}>
+											{`${run.id.slice(0, 8)} · ${run.status}`}
+										</RunLink>
+									))}
+								</div>
+							) : (
+								<small>No runs yet.</small>
+							)}
+						</div>
+					) : null}
 					<label className="task-body-field">
 						Details
 						<textarea
@@ -336,6 +386,8 @@ export function TasksPage() {
 						{visibleTasks.map((t) => {
 							const isStarting = startingTaskId === t.id;
 							const canStart = t.status !== "done" && t.status !== "running";
+							const taskRuns = runsByTaskId.get(t.id) ?? [];
+							const latestRun = taskRuns[0];
 							return (
 								<article
 									key={t.id}
@@ -354,7 +406,20 @@ export function TasksPage() {
 										{t.body ? <p>{t.body}</p> : null}
 										<small>
 											{t.worktreeId ? "attached worktree" : "new worktree"}
+											{taskRuns.length ? ` · ${taskRuns.length} run${taskRuns.length === 1 ? "" : "s"}` : " · no runs"}
 										</small>
+										{latestRun ? (
+											<div className="task-run-links compact">
+												<RunLink runId={latestRun.id} projectId={t.projectId}>
+													{`latest ${latestRun.id.slice(0, 8)} · ${latestRun.status}`}
+												</RunLink>
+												{taskRuns.slice(1, 4).map((run) => (
+													<RunLink key={run.id} runId={run.id} projectId={t.projectId}>
+														{run.id.slice(0, 8)}
+													</RunLink>
+												))}
+											</div>
+										) : null}
 									</div>
 									<div className="task-row-actions">
 										<span className={`task-status status-${t.status}`}>
