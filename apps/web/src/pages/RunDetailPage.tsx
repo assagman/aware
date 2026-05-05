@@ -801,6 +801,9 @@ export function RunDetailPage() {
 	const [nowMs, setNowMs] = useState(Date.now());
 	const bottomRef = useRef<HTMLDivElement | null>(null);
 	const chatScrollRef = useRef<HTMLDivElement | null>(null);
+	const currentRunIdRef = useRef(runId);
+	const eventsRequestRef = useRef(0);
+	currentRunIdRef.current = runId;
 	const worktreeProjectIds = useMemo(
 		() => Object.fromEntries(worktrees.map((w) => [w.id, w.projectId])),
 		[worktrees],
@@ -832,20 +835,24 @@ export function RunDetailPage() {
 			),
 		[worktrees],
 	);
+	const selectedEvents = useMemo(
+		() => events.filter((event) => event.runId === runId),
+		[events, runId],
+	);
 	const activeAgent = useMemo(
-		() => activeAgentLabel(selectedRun, events),
-		[selectedRun, events],
+		() => activeAgentLabel(selectedRun, selectedEvents),
+		[selectedRun, selectedEvents],
 	);
 	const processState: ProcessState = useMemo(() => {
 		if (selectedRun?.status !== "running") return "idle";
-		const latestEvent = events.at(-1);
+		const latestEvent = selectedEvents.at(-1);
 		if (!latestEvent) return "live";
 		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
 		return ageMs > RUN_STALLED_AFTER_MS ? "stalled" : "live";
-	}, [events, nowMs, selectedRun?.status]);
+	}, [selectedEvents, nowMs, selectedRun?.status]);
 	const stalledNotice = useMemo(() => {
 		if (selectedRun?.status !== "running") return undefined;
-		const latestEvent = events.at(-1);
+		const latestEvent = selectedEvents.at(-1);
 		if (!latestEvent) return undefined;
 		const ageMs = nowMs - new Date(latestEvent.createdAt).getTime();
 		if (ageMs <= RUN_STALLED_AFTER_MS) return undefined;
@@ -855,7 +862,7 @@ export function RunDetailPage() {
 			remaining: formatDuration(remainingMs),
 			lastEventType: latestEvent.type,
 		};
-	}, [events, nowMs, selectedRun?.status]);
+	}, [selectedEvents, nowMs, selectedRun?.status]);
 	async function loadRuns(
 		nextFilter = worktreeFilter,
 		options: { silent?: boolean } = {},
@@ -884,9 +891,13 @@ export function RunDetailPage() {
 	}
 	async function loadEvents(id = runId, options: { silent?: boolean } = {}) {
 		if (!id) return;
+		const requestId = ++eventsRequestRef.current;
 		if (!options.silent) setLoadingEvents(true);
 		try {
-			setEvents(await apiGet<RunEvent[]>(`/runs/${id}/events`));
+			const nextEvents = await apiGet<RunEvent[]>(`/runs/${id}/events`);
+			if (currentRunIdRef.current !== id || eventsRequestRef.current !== requestId)
+				return;
+			setEvents(nextEvents);
 			if (!options.silent) {
 				window.requestAnimationFrame(() =>
 					restoreScroll(`runs-chat-scroll:${id}`, chatScrollRef.current),
@@ -894,7 +905,7 @@ export function RunDetailPage() {
 			}
 			setSelectedRunId(id);
 		} finally {
-			if (!options.silent) setLoadingEvents(false);
+			if (!options.silent && currentRunIdRef.current === id) setLoadingEvents(false);
 		}
 	}
 	useEffect(() => {
@@ -919,6 +930,9 @@ export function RunDetailPage() {
 		const timer = window.setInterval(() => setNowMs(Date.now()), 5000);
 		return () => window.clearInterval(timer);
 	}, []);
+	useEffect(() => {
+		setEvents([]);
+	}, [runId]);
 	function chooseProject(id: string) {
 		setSelectedProjectId(id, "runs");
 		setProjectIdState(id);
@@ -963,6 +977,7 @@ export function RunDetailPage() {
 			startPolling();
 		};
 		const handleEvent = (event: MessageEvent<string>) => {
+			if (closed || currentRunIdRef.current !== runId) return;
 			try {
 				const seq = Number(event.lastEventId);
 				const payload = JSON.parse(event.data) as unknown;
@@ -1022,7 +1037,7 @@ export function RunDetailPage() {
 	useEffect(() => {
 		if (selectedRun?.status === "running")
 			bottomRef.current?.scrollIntoView({ block: "end" });
-	}, [events.length, selectedRun?.status]);
+	}, [selectedEvents.length, selectedRun?.status]);
 	async function cancelRun() {
 		if (!runId || cancellingRun) return;
 		setCancellingRun(true);
@@ -1132,7 +1147,7 @@ export function RunDetailPage() {
 							/>
 						</section>
 					) : null}
-					<ChatTimeline events={events} />
+					<ChatTimeline events={selectedEvents} />
 					<div ref={bottomRef} />
 				</div>
 				<RunInputBar
