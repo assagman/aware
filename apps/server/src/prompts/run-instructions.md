@@ -4,3 +4,4 @@ Instructions:
 - Keep changes minimal and focused.
 - Respect exact file paths and line ranges in annotations.
 - If line numbers seem stale, inspect nearby code before editing.
+- Do not run git commit or git push unless user explicitly approves.

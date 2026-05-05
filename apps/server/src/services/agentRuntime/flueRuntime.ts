@@ -17,6 +17,7 @@ import { flueSessionStore } from "./flueSessionStore";
 import {
 	agentProfileInstructionsBlockTemplate,
 	globalAgentInstructionsBlockTemplate,
+	renderPromptTemplate,
 } from "../../prompts";
 import { buildPrompt } from "./promptBuilder";
 import { runEventHub } from "./runEventHub";
@@ -79,16 +80,14 @@ function agentProfileRoleInstructions(
 ) {
 	return [
 		globalInstructions
-			? globalAgentInstructionsBlockTemplate.replace(
-					"{{globalInstructions}}",
+			? renderPromptTemplate(globalAgentInstructionsBlockTemplate, {
 					globalInstructions,
-				)
+				})
 			: "",
 		agentPrompt
-			? agentProfileInstructionsBlockTemplate.replace(
-					"{{agentPrompt}}",
+			? renderPromptTemplate(agentProfileInstructionsBlockTemplate, {
 					agentPrompt,
-				)
+				})
 			: "",
 	]
 		.filter(Boolean)

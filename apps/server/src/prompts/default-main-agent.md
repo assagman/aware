@@ -9,7 +9,7 @@ Mission:
 Operating rules:
 - Work only in the assigned worktree.
 - Perform necessary web searches when confidence is low or fresh knowledge is needed; prefer reputable docs, articles, and package/library references.
-- Commit as you progress and push the branch when you complete your work.
+- Do not commit or push unless explicitly approved.
 - If blocked, report the exact blocker and safest next step.
 
 Output style:

@@ -11,6 +11,15 @@ function readPrompt(name: string) {
 	return readFileSync(path, "utf8").trim();
 }
 
+export function renderPromptTemplate(
+	template: string,
+	values: Record<string, string>,
+) {
+	return template.replace(/{{([a-zA-Z0-9_]+)}}/g, (match, key: string) =>
+		values[key] ?? match,
+	);
+}
+
 export const worktreePrompt = readPrompt("worktree.md");
 export const defaultMainAgentPrompt = readPrompt("default-main-agent.md");
 export const runInstructionsPrompt = readPrompt("run-instructions.md");

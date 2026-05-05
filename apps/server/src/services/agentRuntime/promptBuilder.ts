@@ -1,6 +1,7 @@
 import type { AgentProfile, Annotation, Task } from "@aware/shared";
 import {
 	annotationSentPromptTemplate,
+	renderPromptTemplate,
 	runInstructionsPrompt,
 	taskPromptTemplate,
 } from "../../prompts";
@@ -37,18 +38,17 @@ export function buildPrompt(input: {
 	const isAnnotationSent = input.task.title === "annotation-sent";
 	const instructions = runInstructionsPrompt.split("\n");
 	if (isAnnotationSent) {
-		return annotationSentPromptTemplate
-			.replace(
-				"{{body}}",
-				serializeAnnotations(input.annotations) || input.message || input.task.body,
-			)
-			.replace("{{instructions}}", instructions.join("\n"));
+		return renderPromptTemplate(annotationSentPromptTemplate, {
+			body: serializeAnnotations(input.annotations) || input.message || input.task.body,
+			instructions: instructions.join("\n"),
+		});
 	}
-	return taskPromptTemplate
-		.replace("{{taskTitle}}", input.task.title)
-		.replace("{{taskBody}}", input.task.body)
-		.replace("{{userMessage}}", input.message || input.task.body)
-		.replace("{{agents}}", serializeAgents(input.agents) || "(none)")
-		.replace("{{annotations}}", serializeAnnotations(input.annotations) || "(none)")
-		.replace("{{instructions}}", instructions.join("\n"));
+	return renderPromptTemplate(taskPromptTemplate, {
+		taskTitle: input.task.title,
+		taskBody: input.task.body,
+		userMessage: input.message || input.task.body,
+		agents: serializeAgents(input.agents) || "(none)",
+		annotations: serializeAnnotations(input.annotations) || "(none)",
+		instructions: instructions.join("\n"),
+	});
 }
