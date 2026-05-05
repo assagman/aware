@@ -77,9 +77,10 @@ export function WorktreePicker({
 	}, [projectId]);
 	useEffect(() => {
 		if (!loaded) return;
-		if (allowAll && !value) onChange("all");
+		const hasValue = filtered.some((worktree) => worktree.id === value);
+		if (allowAll && (!value || (value !== "all" && !hasValue))) onChange("all");
 		if (!allowAll && !value && filtered[0]) onChange(filtered[0].id);
-		if (!allowAll && value && !filtered.some((worktree) => worktree.id === value)) onChange(filtered[0]?.id ?? "");
+		if (!allowAll && value && !hasValue) onChange(filtered[0]?.id ?? "");
 	}, [allowAll, filtered, loaded, onChange, value]);
 	async function addWorktree() {
 		if (!projectId || !path.trim() || saving) return;

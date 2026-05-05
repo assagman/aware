@@ -137,6 +137,7 @@ export function TasksPage() {
 	}
 	function chooseTaskWorktree(id: string) {
 		setTaskWorktreeId(id);
+		if (id) setSelectedWorktreeId(id, "tasks");
 		setPageState("tasks", { worktreeId: id });
 	}
 	async function save() {
