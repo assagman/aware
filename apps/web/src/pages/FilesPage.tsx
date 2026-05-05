@@ -21,7 +21,6 @@ import {
 import { AnnotationsPanel } from "../components/AnnotationsPanel";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { RunLink } from "../components/RunLink";
-import { WorktreePicker } from "../components/WorktreePicker";
 import { FileTreeView } from "../components/FileTreeView";
 
 type ViewMode = "file" | "diff";
@@ -246,11 +245,16 @@ export function FilesPage() {
 	useEffect(() => {
 		const syncSelection = () => {
 			const nextProjectId = getSelectedProjectId("files");
-			if (nextProjectId && nextProjectId !== projectId) chooseProject(nextProjectId);
+			const nextWorktreeId = getSelectedWorktreeId("files");
+			if (nextProjectId && nextProjectId !== projectId) {
+				chooseProject(nextProjectId);
+				return;
+			}
+			if (nextWorktreeId !== worktreeId) chooseWorktree(nextWorktreeId);
 		};
 		window.addEventListener("aware-selection", syncSelection);
 		return () => window.removeEventListener("aware-selection", syncSelection);
-	}, [projectId]);
+	}, [projectId, worktreeId]);
 
 	function chooseProject(id: string) {
 		setSelectedProjectId(id, "files");
@@ -415,9 +419,6 @@ export function FilesPage() {
 	return (
 		<section id="files" className="files-page full-workspace">
 			<div className="files-main">
-				<div className="page-picker-row">
-					<WorktreePicker projectId={projectId} value={worktreeId} onChange={chooseWorktree} />
-				</div>
 				<div className="files-file-group">
 					<div className="files-file-row">
 			<section className="card tree-pane">

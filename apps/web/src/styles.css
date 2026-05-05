@@ -28,7 +28,7 @@ body {
 
 .app-header {
 	display: grid;
-	grid-template-columns: auto 1fr auto;
+	grid-template-columns: auto 1fr auto auto;
 	align-items: center;
 	gap: 16px;
 	padding: 10px 16px;
@@ -1895,15 +1895,6 @@ pre {
 	margin: 0 4px;
 }
 
-.page-picker-row {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	gap: 10px;
-	padding: 10px 16px 0;
-	overflow: visible;
-}
-
 .files-page,
 .runs-shell,
 .tasks-shell {
@@ -1947,12 +1938,12 @@ pre {
 	padding: 0 16px 16px;
 }
 
-.tasks-shell .tasks-page {
-	margin-top: 16px;
+.runs-shell {
+	padding-top: 10px;
 }
 
-.runs-shell .page-picker-row {
-	padding-right: 0;
+.tasks-shell .tasks-page {
+	margin-top: 16px;
 }
 
 .run-page {
@@ -1968,7 +1959,6 @@ pre {
 		min-width: 0;
 	}
 
-	.page-picker-row,
 	.files-file-group,
 	.tasks-shell,
 	.runs-shell {
@@ -1980,10 +1970,6 @@ pre {
 		grid-template-columns: 1fr;
 		overflow: auto;
 	}
-}
-
-.full-workspace > .page-picker-row {
-	overflow: visible;
 }
 
 .runs-shell > .run-page {
