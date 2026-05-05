@@ -28,7 +28,7 @@ export type AgentProfile = {
 	createdAt: string;
 	updatedAt: string;
 };
-export type TaskStatus = "draft" | "queued" | "running" | "done" | "failed";
+export type TaskStatus = "draft" | "queued" | "running" | "need_review" | "done" | "failed";
 export type Task = {
 	id: ID;
 	projectId: ID;

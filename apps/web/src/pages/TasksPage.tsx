@@ -18,11 +18,16 @@ type TaskSort = "status-updated" | "updated" | "title";
 
 const statusOrder: Record<TaskStatus, number> = {
 	running: 0,
-	queued: 1,
-	failed: 2,
-	draft: 3,
-	done: 4,
+	need_review: 1,
+	queued: 2,
+	failed: 3,
+	draft: 4,
+	done: 5,
 };
+
+function statusLabel(status: TaskStatus) {
+	return status.replace(/_/g, " ");
+}
 
 const initialTasksState = getPageState("tasks", {
 	title: "",
@@ -215,7 +220,7 @@ export function TasksPage() {
 							<h3>{selectedTaskId ? "Edit task" : "New task"}</h3>
 							{selectedTask ? (
 								<span className={`task-status status-${selectedTask.status}`}>
-									{selectedTask.status}
+									{statusLabel(selectedTask.status)}
 								</span>
 							) : null}
 						</div>
@@ -352,7 +357,7 @@ export function TasksPage() {
 									</div>
 									<div className="task-row-actions">
 										<span className={`task-status status-${t.status}`}>
-											{t.status}
+											{statusLabel(t.status)}
 										</span>
 										{canStart ? (
 											<button

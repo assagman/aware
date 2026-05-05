@@ -1,4 +1,4 @@
-import type { AgentRun, RunEvent, Worktree } from "@aware/shared";
+import type { AgentRun, RunEvent, Task, Worktree } from "@aware/shared";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -721,12 +721,18 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 function RunInputBar({
 	initialMessage,
 	runId,
+	canMarkDone,
+	markingDone,
 	sendingMessage,
+	onMarkDone,
 	onSend,
 }: {
 	initialMessage: string;
 	runId: string;
+	canMarkDone: boolean;
+	markingDone: boolean;
 	sendingMessage: boolean;
+	onMarkDone: () => Promise<void>;
 	onSend: (message: string) => Promise<void>;
 }) {
 	const [draft, setDraft] = useState(initialMessage);
@@ -743,6 +749,15 @@ function RunInputBar({
 	}
 	return (
 		<div className="run-input-bar">
+			<div className="run-input-actions">
+				<button
+					type="button"
+					onClick={() => void onMarkDone()}
+					disabled={!canMarkDone || markingDone}
+				>
+					{markingDone ? "Marking…" : "Done"}
+				</button>
+			</div>
 			<textarea
 				value={draft}
 				onChange={(e) => setDraft(e.target.value)}
@@ -770,6 +785,7 @@ const initialRunsState = getPageState("runs", { message: "", runId: "", worktree
 
 export function RunDetailPage() {
 	const [runs, setRuns] = useState<AgentRun[]>([]);
+	const [tasks, setTasks] = useState<Task[]>([]);
 	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
 	const [projectId, setProjectIdState] = useState(getSelectedProjectId("runs"));
 	const [worktreeFilter, setWorktreeFilter] = useState(
@@ -781,6 +797,7 @@ export function RunDetailPage() {
 	const [loadingEvents, setLoadingEvents] = useState(false);
 	const [sendingMessage, setSendingMessage] = useState(false);
 	const [cancellingRun, setCancellingRun] = useState(false);
+	const [markingDone, setMarkingDone] = useState(false);
 	const [nowMs, setNowMs] = useState(Date.now());
 	const bottomRef = useRef<HTMLDivElement | null>(null);
 	const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -800,6 +817,10 @@ export function RunDetailPage() {
 	const selectedRun = useMemo(
 		() => visibleRuns.find((r) => r.id === runId),
 		[visibleRuns, runId],
+	);
+	const selectedTask = useMemo(
+		() => tasks.find((task) => task.id === selectedRun?.taskId),
+		[tasks, selectedRun?.taskId],
 	);
 	const worktreeNames = useMemo(
 		() =>
@@ -858,6 +879,9 @@ export function RunDetailPage() {
 			if (!options.silent) setLoadingRuns(false);
 		}
 	}
+	async function loadTasks() {
+		setTasks(await apiGet<Task[]>("/tasks"));
+	}
 	async function loadEvents(id = runId, options: { silent?: boolean } = {}) {
 		if (!id) return;
 		if (!options.silent) setLoadingEvents(true);
@@ -875,6 +899,7 @@ export function RunDetailPage() {
 	}
 	useEffect(() => {
 		void loadRuns();
+		void loadTasks();
 		void apiGet<Worktree[]>("/worktrees").then(setWorktrees);
 	}, []);
 	useEffect(() => {
@@ -960,6 +985,7 @@ export function RunDetailPage() {
 				}
 				if (event.type === "result" || event.type === "error") {
 					void loadRuns(worktreeFilter, { silent: true });
+					void loadTasks();
 				}
 			} catch {
 				source.close();
@@ -1006,6 +1032,22 @@ export function RunDetailPage() {
 		await loadEvents(runId);
 		} finally {
 			setCancellingRun(false);
+		}
+	}
+	async function markSelectedRunDone() {
+		if (
+			!selectedRun ||
+			selectedRun.status !== "done" ||
+			selectedTask?.status !== "need_review" ||
+			markingDone
+		)
+			return;
+		setMarkingDone(true);
+		try {
+			await apiPost(`/tasks/${selectedRun.taskId}/done`, {});
+			await Promise.all([loadRuns(worktreeFilter, { silent: true }), loadTasks()]);
+		} finally {
+			setMarkingDone(false);
 		}
 	}
 	const sendMessage = useCallback(async (nextMessage: string) => {
@@ -1096,7 +1138,13 @@ export function RunDetailPage() {
 				<RunInputBar
 					initialMessage={initialRunsState.message}
 					runId={runId}
+					canMarkDone={
+						selectedRun?.status === "done" &&
+						selectedTask?.status === "need_review"
+					}
+					markingDone={markingDone}
 					sendingMessage={sendingMessage}
+					onMarkDone={markSelectedRunDone}
 					onSend={sendMessage}
 				/>
 			</div>

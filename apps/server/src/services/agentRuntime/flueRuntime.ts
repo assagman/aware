@@ -223,7 +223,7 @@ export class FlueRuntime {
 				await markAnnotationsSent(input.annotationIds);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", input.task.id, {
-				status: "done",
+				status: "need_review",
 				updatedAt: now(),
 			});
 		} catch (error) {
@@ -281,7 +281,7 @@ export class FlueRuntime {
 			await this.flushLogs(run.id);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", input.task.id, {
-				status: "done",
+				status: "need_review",
 				updatedAt: now(),
 			});
 		} catch (error) {
@@ -378,7 +378,7 @@ export class FlueRuntime {
 			await this.flushLogs(run.id);
 			await db.update("runs", run.id, { status: "done", endedAt: now() });
 			await db.update("tasks", task?.id ?? run.taskId, {
-				status: "done",
+				status: "need_review",
 				updatedAt: now(),
 			});
 		} catch (error) {
