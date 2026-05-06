@@ -6,11 +6,15 @@ const rows: {
 	tasks: Task[];
 	runs: AgentRun[];
 	worktrees: Worktree[];
+	annotations: [];
+	annotationTaskSuggestions: [];
 } = {
 	projects: [],
 	tasks: [],
 	runs: [],
 	worktrees: [],
+	annotations: [],
+	annotationTaskSuggestions: [],
 };
 
 vi.mock("../../db/client", () => ({
@@ -21,6 +25,7 @@ vi.mock("../../db/client", () => ({
 
 vi.mock("../projectService", () => ({
 	listProjects: vi.fn(async () => rows.projects),
+	listStoredWorktrees: vi.fn(async () => rows.worktrees),
 	listWorktrees: vi.fn(async () => rows.worktrees),
 }));
 
@@ -129,8 +134,8 @@ describe("graph projection layout", () => {
 		const addEdge = projection.edges.find((edge) => edge.id === `run:run-child->add-run:${task.id}:task:next:run-child`);
 
 		expect(addRunCenterY(addNextNode)).toBe(runCenterY(childNode));
-		expect(addRunCenterX(addNextNode)).toBe(760 + 2 * 340 + 120);
-		expect(gateNode.position.x).toBe(760 + 3 * 340);
+		expect(addRunCenterX(addNextNode)).toBe(1820 + 2 * 340 + 120);
+		expect(gateNode.position.x).toBe(1820 + 3 * 340);
 		expect(addEdge).toMatchObject({ source: "run:run-child", target: `add-run:${task.id}:task:next:run-child`, kind: "run" });
 	});
 });

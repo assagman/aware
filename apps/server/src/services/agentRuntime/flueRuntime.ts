@@ -179,6 +179,10 @@ export type StartChatInput = {
 	annotations: Annotation[];
 	annotationIds?: string[];
 	taskTitle?: string;
+	taskSource?: Task["source"];
+	lane?: RunLane;
+	affectsTaskStatus?: boolean;
+	completedStatus?: RunStatus;
 };
 
 export class FlueRuntime {
@@ -190,6 +194,8 @@ export class FlueRuntime {
 			title: input.taskTitle ?? "task",
 			body: input.message,
 			status: "running",
+			...(input.taskSource ? { source: input.taskSource } : {}),
+			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
 			createdAt: now(),
 			updatedAt: now(),
 		};
@@ -197,9 +203,12 @@ export class FlueRuntime {
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: task.id,
+			projectId: input.projectId,
 			worktreeId: input.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),
+			...(input.lane ? { lane: input.lane } : {}),
+			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
 			...(mainAgent
 				? {
 						mainAgentProfileId: mainAgent.id,
@@ -227,6 +236,8 @@ export class FlueRuntime {
 			agents: input.agents,
 			prompt,
 			annotationIds: input.annotationIds ?? input.annotations.map((a) => a.id),
+			...(input.affectsTaskStatus !== undefined ? { affectsTaskStatus: input.affectsTaskStatus } : {}),
+			...(input.completedStatus ? { completedStatus: input.completedStatus } : {}),
 		});
 		return run;
 	}
@@ -275,6 +286,7 @@ export class FlueRuntime {
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: input.task.id,
+			projectId: input.task.projectId,
 			worktreeId: input.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),

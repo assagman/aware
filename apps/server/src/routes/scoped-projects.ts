@@ -9,6 +9,8 @@ import {
 } from "@aware/shared";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { createAnnotation, listAnnotations, listAnnotationTaskSuggestions } from "../services/annotationService";
+import { startAnnotationRun, startAnnotationTaskApprovalRun, startAnnotationTaskGeneratorRun } from "../services/annotationWorkflowService";
 import { getGitDiff } from "../services/diffService";
 import { listTree, readProjectFile } from "../services/fileService";
 import { startGraphAgentRunCommand } from "../services/graphAgentRunner";
@@ -56,6 +58,33 @@ const graphAgentRunInputSchema = z.object({
 	mode: z.enum(["task_runs", "gate_runs", "ship_prep"]),
 });
 
+const createAnnotationInputSchema = z.object({
+	worktreeId: z.string().min(1),
+	kind: z.enum(["file", "line", "range", "diff"]),
+	filePath: z.string().optional(),
+	side: z.enum(["old", "new", "additions", "deletions"]).optional(),
+	startLine: z.number().int().positive().optional(),
+	endLine: z.number().int().positive().optional(),
+	text: z.string().default(""),
+	context: z.string().optional(),
+	selectedText: z.string().optional(),
+});
+
+const annotationRunInputSchema = z.object({
+	annotationIds: z.array(z.string().min(1)).min(1).optional(),
+	message: z.string().optional(),
+	mode: z.enum(["combined", "separate"]).default("combined"),
+});
+
+const annotationTaskApprovalInputSchema = z.object({
+	suggestions: z.array(z.object({
+		id: z.string().optional(),
+		title: z.string().min(1),
+		body: z.string().default(""),
+		annotationIds: z.array(z.string()).optional(),
+	})).min(1),
+});
+
 scopedProjects.get("/:projectId", async (c) => {
 	try {
 		return c.json(await getProjectOrThrow(c.req.param("projectId")));
@@ -68,6 +97,103 @@ scopedProjects.get("/:projectId/graph", async (c) => {
 	try {
 		await getProjectOrThrow(c.req.param("projectId"));
 		return c.json(await buildGraphProjection(c.req.param("projectId"), { history: c.req.query("history") === "1" }));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.get("/:projectId/annotations", async (c) => {
+	try {
+		await getProjectOrThrow(c.req.param("projectId"));
+		const worktreeId = c.req.query("worktreeId");
+		if (worktreeId) await getWorktreeInProjectOrThrow(c.req.param("projectId"), worktreeId);
+		return c.json(await listAnnotations({
+			projectId: c.req.param("projectId"),
+			...(worktreeId ? { worktreeId } : {}),
+		}));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/annotations", async (c) => {
+	try {
+		const body = createAnnotationInputSchema.parse(await json(c));
+		await getWorktreeInProjectOrThrow(c.req.param("projectId"), body.worktreeId);
+		return c.json(await createAnnotation({
+			projectId: c.req.param("projectId"),
+			worktreeId: body.worktreeId,
+			kind: body.kind,
+			text: body.text,
+			...(body.filePath ? { filePath: body.filePath } : {}),
+			...(body.side ? { side: body.side } : {}),
+			...(body.startLine ? { startLine: body.startLine } : {}),
+			...(body.endLine ? { endLine: body.endLine } : {}),
+			...(body.context ? { context: body.context } : {}),
+			...(body.selectedText ? { selectedText: body.selectedText } : {}),
+		}));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/annotations/:annotationId/runs", async (c) => {
+	try {
+		const body = annotationRunInputSchema.parse(await json(c));
+		return c.json(await startAnnotationRun({
+			projectId: c.req.param("projectId"),
+			annotationIds: [c.req.param("annotationId")],
+			...(body.message ? { message: body.message } : {}),
+		}));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/annotations/runs", async (c) => {
+	try {
+		const body = annotationRunInputSchema.parse(await json(c));
+		const annotationIds = body.annotationIds ?? (await listAnnotations({ projectId: c.req.param("projectId") })).map((annotation) => annotation.id);
+		if (body.mode === "separate")
+			return c.json(await Promise.all(annotationIds.map((annotationId) => startAnnotationRun({
+				projectId: c.req.param("projectId"),
+				annotationIds: [annotationId],
+				...(body.message ? { message: body.message } : {}),
+			}))));
+		return c.json(await startAnnotationRun({
+			projectId: c.req.param("projectId"),
+			annotationIds,
+			...(body.message ? { message: body.message } : {}),
+		}));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.get("/:projectId/annotation-tasks", async (c) => {
+	try {
+		await getProjectOrThrow(c.req.param("projectId"));
+		return c.json(await listAnnotationTaskSuggestions(c.req.param("projectId")));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/annotation-tasks/generate", async (c) => {
+	try {
+		return c.json(await startAnnotationTaskGeneratorRun(c.req.param("projectId")));
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/annotation-tasks/approve", async (c) => {
+	try {
+		const body = annotationTaskApprovalInputSchema.parse(await json(c));
+		return c.json(await startAnnotationTaskApprovalRun({
+			projectId: c.req.param("projectId"),
+			suggestions: body.suggestions,
+		}));
 	} catch (error) {
 		return errorResponse(c, error);
 	}

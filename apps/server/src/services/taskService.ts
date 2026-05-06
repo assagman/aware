@@ -24,11 +24,12 @@ function taskStatusFromRuns(task: Task, runs: AgentRun[]): TaskStatus {
 
 export async function listTasks(
 	filter: Partial<Pick<Task, "projectId" | "worktreeId">> = {},
-	options: { includeArchived?: boolean; archivedOnly?: boolean } = {},
+	options: { includeArchived?: boolean; archivedOnly?: boolean; includeSystem?: boolean } = {},
 ) {
 	const tasks = (await db.list<Task>("tasks")).filter(
 		(task) =>
 			!task.deletedAt &&
+			(options.includeSystem || !task.source || task.source === "user") &&
 			(options.includeArchived || !task.archivedAt) &&
 			(!options.archivedOnly || Boolean(task.archivedAt)) &&
 			(!filter.projectId || task.projectId === filter.projectId) &&
@@ -46,12 +47,25 @@ export async function listTasks(
 }
 
 export async function createTask(
-	input: Pick<Task, "projectId" | "title" | "body"> & { worktreeId?: string },
+	input: Pick<Task, "projectId" | "title" | "body"> & {
+		worktreeId?: string;
+		source?: Task["source"];
+		annotationIds?: string[];
+		annotationTaskSuggestionId?: string;
+		sourceAnnotationIds?: string[];
+	},
 ) {
 	const row: Task = {
-		...input,
 		id: randomUUID(),
+		projectId: input.projectId,
+		title: input.title,
+		body: input.body,
 		status: "draft",
+		...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+		...(input.source ? { source: input.source } : {}),
+		...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
+		...(input.annotationTaskSuggestionId ? { annotationTaskSuggestionId: input.annotationTaskSuggestionId } : {}),
+		...(input.sourceAnnotationIds?.length ? { sourceAnnotationIds: input.sourceAnnotationIds } : {}),
 		createdAt: now(),
 		updatedAt: now(),
 	};

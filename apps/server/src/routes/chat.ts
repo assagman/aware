@@ -60,7 +60,9 @@ chat.post("/", async (c) => {
 		message,
 		annotations: runAnnotations,
 		annotationIds: runAnnotations.map((a) => a.id),
-		taskTitle: isAnnotationSent ? "annotation-sent" : "task",
+		taskTitle: isAnnotationSent ? "annotation-sent" : "Direct chat",
+		taskSource: isAnnotationSent ? "annotation-run" : "direct-chat",
+		...(isAnnotationSent ? { lane: "annotation" as const } : {}),
 	});
 	await markAnnotationsProcessing(
 		runAnnotations.map((a) => a.id),

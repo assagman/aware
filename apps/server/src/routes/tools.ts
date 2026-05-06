@@ -54,6 +54,8 @@ const descriptions: Record<keyof typeof graphCommandSchemas, string> = {
 	open_run: "Open canonical run route.",
 	open_files: "Open worktree files route.",
 	open_diffs: "Open worktree diffs route.",
+	open_annotations: "Open project annotations route.",
+	open_annotation_tasks: "Open AnnotationTasks approval route.",
 };
 
 tools.get("/graph", (c) =>
