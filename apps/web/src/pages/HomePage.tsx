@@ -14,8 +14,6 @@ import type {
 } from "@aware/shared";
 import type { GitStatus, GitStatusEntry } from "@pierre/trees";
 import type { OnDiffLineClickProps, SelectedLineRange } from "@pierre/diffs";
-import { parsePatchFiles } from "@pierre/diffs";
-import { FileDiff } from "@pierre/diffs/react";
 import {
 	Background,
 	BaseEdge,
@@ -43,12 +41,15 @@ import { Link, useNavigate } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
-import { bundledLanguages, codeToHtml } from "shiki";
+import { createBundledHighlighter, createSingletonShorthands } from "shiki/core";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
+import { parsePatchFiles } from "../app/parsePatchFiles";
 import { getPageState, setPageState } from "../app/pageState";
 import { setSelectedRunId, setSelectedTaskId } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { FileTreeView } from "../components/FileTreeView";
+import { SimpleFileDiff as FileDiff } from "../components/SimpleFileDiff";
 import { WorktreePicker } from "../components/WorktreePicker";
 
 type Payload = Record<string, unknown>;
@@ -524,17 +525,17 @@ const languageByExtension: Record<string, string> = {
 	zsh: "shellscript",
 	fish: "fish",
 	py: "python",
-	rb: "ruby",
+	rb: "text",
 	go: "go",
 	rs: "rust",
 	java: "java",
 	kt: "kotlin",
 	c: "c",
 	h: "c",
-	cpp: "cpp",
-	cc: "cpp",
-	cxx: "cpp",
-	hpp: "cpp",
+	cpp: "c",
+	cc: "c",
+	cxx: "c",
+	hpp: "c",
 	cs: "csharp",
 	php: "php",
 	swift: "swift",
@@ -546,6 +547,55 @@ const languageByExtension: Record<string, string> = {
 	patch: "diff",
 };
 
+const SHIKI_THEME = "vitesse-dark";
+
+const shikiLanguages = {
+	bash: () => import("@shikijs/langs/bash"),
+	c: () => import("@shikijs/langs/c"),
+	cmake: () => import("@shikijs/langs/cmake"),
+	csharp: () => import("@shikijs/langs/csharp"),
+	css: () => import("@shikijs/langs/css"),
+	diff: () => import("@shikijs/langs/diff"),
+	docker: () => import("@shikijs/langs/docker"),
+	dotenv: () => import("@shikijs/langs/dotenv"),
+	fish: () => import("@shikijs/langs/fish"),
+	go: () => import("@shikijs/langs/go"),
+	html: () => import("@shikijs/langs/html"),
+	ini: () => import("@shikijs/langs/ini"),
+	java: () => import("@shikijs/langs/java"),
+	javascript: () => import("@shikijs/langs/javascript"),
+	json: () => import("@shikijs/langs/json"),
+	jsonc: () => import("@shikijs/langs/jsonc"),
+	jsx: () => import("@shikijs/langs/jsx"),
+	kotlin: () => import("@shikijs/langs/kotlin"),
+	less: () => import("@shikijs/langs/less"),
+	make: () => import("@shikijs/langs/make"),
+	markdown: () => import("@shikijs/langs/markdown"),
+	mdx: () => import("@shikijs/langs/mdx"),
+	php: () => import("@shikijs/langs/php"),
+	python: () => import("@shikijs/langs/python"),
+	rust: () => import("@shikijs/langs/rust"),
+	sass: () => import("@shikijs/langs/sass"),
+	scss: () => import("@shikijs/langs/scss"),
+	shellscript: () => import("@shikijs/langs/shellscript"),
+	sql: () => import("@shikijs/langs/sql"),
+	swift: () => import("@shikijs/langs/swift"),
+	toml: () => import("@shikijs/langs/toml"),
+	tsx: () => import("@shikijs/langs/tsx"),
+	typescript: () => import("@shikijs/langs/typescript"),
+	xml: () => import("@shikijs/langs/xml"),
+	yaml: () => import("@shikijs/langs/yaml"),
+	zsh: () => import("@shikijs/langs/zsh"),
+} as const;
+
+type ShikiLanguage = keyof typeof shikiLanguages;
+
+const { codeToHtml: codeToHighlightedHtml } = createSingletonShorthands(createBundledHighlighter({
+	langs: shikiLanguages,
+	themes: { [SHIKI_THEME]: () => import("@shikijs/themes/vitesse-dark") },
+	engine: () => createJavaScriptRegexEngine({ forgiving: true }),
+}));
+
 function fileLanguage(path: string) {
 	const name = basename(path).toLowerCase();
 	if (languageByFilename[name]) return languageByFilename[name];
@@ -553,15 +603,20 @@ function fileLanguage(path: string) {
 	return languageByExtension[extension] ?? "text";
 }
 
-async function highlightedFileHtml(path: string, content: string) {
-	const languages = bundledLanguages as Record<string, unknown>;
+function supportedShikiLanguage(path: string): ShikiLanguage | "text" {
 	const preferred = fileLanguage(path);
-	const lang = preferred in languages ? preferred : "text";
-	const html = await codeToHtml(content || " ", {
-		lang,
-		theme: "vitesse-dark",
-	});
-	return html.replaceAll('</span>\n<span class="line">', '</span><span class="line">');
+	return preferred in shikiLanguages ? (preferred as ShikiLanguage) : "text";
+}
+
+async function highlightedFileHtml(path: string, content: string) {
+	const lang = supportedShikiLanguage(path);
+	try {
+		const html = await codeToHighlightedHtml(content || " ", { lang, theme: SHIKI_THEME });
+		return html.replaceAll('</span>\n<span class="line">', '</span><span class="line">');
+	} catch {
+		const html = await codeToHighlightedHtml(content || " ", { lang: "text", theme: SHIKI_THEME });
+		return html.replaceAll('</span>\n<span class="line">', '</span><span class="line">');
+	}
 }
 
 function decorateHighlightedFileHtml(html: string, selectedStart?: number, selectedEnd?: number) {

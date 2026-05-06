@@ -14,6 +14,8 @@
     "@mdxeditor/editor": "^3.55.0",
     "@pierre/diffs": "^1.1.20",
     "@pierre/trees": "^1.0.0-beta.3",
+    "@shikijs/langs": "3.23.0",
+    "@shikijs/themes": "3.23.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.10.2",
     "react": "^19.0.0",
