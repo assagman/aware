@@ -1340,13 +1340,13 @@ function NodeCard({
 		.join(" ");
 	return (
 		<div className={classes}>
-			{actions ? <div className="run-node-actions">{actions}</div> : null}
 			<small>{eyebrow}</small>
 			<strong>{title}</strong>
 			{status ? (
 				<span className={`task-status status-${status}`}>{labelStatus(status)}</span>
 			) : null}
 			{meta ? <p>{meta}</p> : null}
+			{actions ? <div className="node-card-actions">{actions}</div> : null}
 		</div>
 	);
 }
@@ -1359,8 +1359,46 @@ function AddRunNodeCard({ label }: { label: string }) {
 	);
 }
 
+const NODE_QUICK_ACTION_COMMANDS = new Set(["open_files", "open_diffs", "open_checkpoint", "open_ship", "open_annotations", "open_annotation_tasks"]);
+
+type GraphIconName = "archive" | "annotation" | "checkpoint" | "diffs" | "files" | "play" | "retry" | "ship" | "tasks" | "trash";
+
+function GraphIcon({ name }: { name: GraphIconName }) {
+	return (
+		<svg className="node-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+			{name === "archive" ? <><path d="M4 7h16" /><path d="M6 7v12h12V7" /><path d="M9 11h6" /><path d="M8 4h8l2 3H6l2-3Z" /></> : null}
+			{name === "annotation" ? <><path d="M5 19l4-1 9-9-3-3-9 9-1 4Z" /><path d="M13 8l3 3" /><path d="M5 21h14" /></> : null}
+			{name === "checkpoint" ? <><path d="M6 21V4" /><path d="M7 5h10l-2 4 2 4H7" /></> : null}
+			{name === "diffs" ? <><path d="M7 7h10" /><path d="M13 3l4 4-4 4" /><path d="M17 17H7" /><path d="M11 13l-4 4 4 4" /></> : null}
+			{name === "files" ? <><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h4" /></> : null}
+			{name === "play" ? <path d="M8 5v14l11-7-11-7Z" /> : null}
+			{name === "retry" ? <><path d="M4 12a8 8 0 0 1 13-6" /><path d="M17 3v5h-5" /><path d="M20 12a8 8 0 0 1-13 6" /><path d="M7 21v-5h5" /></> : null}
+			{name === "ship" ? <><path d="M12 3c3 2 5 5 5 9l-5 9-5-9c0-4 2-7 5-9Z" /><path d="M9 14h6" /><circle cx="12" cy="9" r="1.8" /></> : null}
+			{name === "tasks" ? <><path d="M9 6h10" /><path d="M9 12h10" /><path d="M9 18h10" /><path d="M4 6l1 1 2-2" /><path d="M4 12l1 1 2-2" /><path d="M4 18l1 1 2-2" /></> : null}
+			{name === "trash" ? <><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 14h10l1-14" /><path d="M9 7V4h6v3" /></> : null}
+		</svg>
+	);
+}
+
+function graphActionIcon(command: string): GraphIconName {
+	if (command === "open_files") return "files";
+	if (command === "open_diffs") return "diffs";
+	if (command === "open_checkpoint") return "checkpoint";
+	if (command === "open_ship") return "ship";
+	if (command === "open_annotation_tasks") return "tasks";
+	return "annotation";
+}
+
+function isNodeQuickAction(item: GraphAction) {
+	return Boolean(item.href && NODE_QUICK_ACTION_COMMANDS.has(item.command));
+}
+
+function hasTaskNodeActions(actions: GraphAction[]) {
+	return actions.some(isNodeQuickAction) || actions.some((item) => item.command === "archive_task");
+}
+
 function NodeQuickActions({ actions, onNavigate }: { actions: GraphAction[]; onNavigate: (href: string) => void }) {
-	const quick = actions.filter((item) => item.href && ["open_files", "open_diffs", "open_checkpoint", "open_ship", "open_annotations", "open_annotation_tasks"].includes(item.command));
+	const quick = actions.filter(isNodeQuickAction);
 	if (!quick.length) return null;
 	return (
 		<span className="node-quick-actions">
@@ -1368,12 +1406,14 @@ function NodeQuickActions({ actions, onNavigate }: { actions: GraphAction[]; onN
 				<button
 					key={item.id}
 					type="button"
+					aria-label={item.label}
+					data-tooltip={item.label}
 					onClick={(event) => {
 						event.stopPropagation();
 						if (item.href) onNavigate(item.href);
 					}}
 				>
-					{item.label.replace(/^Open\s+/i, "")}
+					<GraphIcon name={graphActionIcon(item.command)} />
 				</button>
 			))}
 		</span>
@@ -1404,15 +1444,15 @@ function TaskNodeActions({
 				<button
 					type="button"
 					className="task-node-archive-button"
-					title="Archive task and cleanup task worktree/local branch"
 					aria-label="Archive task"
+					data-tooltip="Archive task"
 					disabled={archiving || !onArchiveTask}
 					onClick={(event) => {
 						event.stopPropagation();
 						onArchiveTask?.();
 					}}
 				>
-					🗄
+					<GraphIcon name="archive" />
 				</button>
 			) : null}
 		</span>
@@ -1445,39 +1485,39 @@ function RunNodeActions({
 		>
 			<button
 				type="button"
-				title="Retry from original request"
 				aria-label="Retry run from original request"
+				data-tooltip="Retry run"
 				disabled={!canRetry || busy || !onRetryRun}
 				onClick={(event) => {
 					event.stopPropagation();
 					onRetryRun?.(run.id);
 				}}
 			>
-				↻
+				<GraphIcon name="retry" />
 			</button>
 			<button
 				type="button"
-				title="Continue stopped run"
 				aria-label="Continue stopped run"
+				data-tooltip="Continue run"
 				disabled={!canContinue || busy || !onContinueRun}
 				onClick={(event) => {
 					event.stopPropagation();
 					onContinueRun?.(run.id);
 				}}
 			>
-				▶
+				<GraphIcon name="play" />
 			</button>
 			<button
 				type="button"
-				title="Trash run"
 				aria-label="Trash run"
+				data-tooltip="Trash run"
 				disabled={!canDelete || busy || !onDeleteRun}
 				onClick={(event) => {
 					event.stopPropagation();
 					onDeleteRun?.(run.id);
 				}}
 			>
-				🗑
+				<GraphIcon name="trash" />
 			</button>
 		</span>
 	);
@@ -1534,9 +1574,11 @@ const EDGE_ROUTE_CLEARANCE = 10;
 
 function fallbackGraphNodeSize(node: GraphNode) {
 	if (node.data.kind === "add-run") return { width: 62, height: 58 };
-	if (node.data.kind === "add-task") return { width: 240, height: 92 };
+	if (node.data.kind === "add-task") return { width: 240, height: 58 };
 	if (node.data.kind === "project") return { width: 240, height: 136 };
-	return { width: 240, height: 116 };
+	if (node.data.kind === "annotation") return { width: 240, height: 202 };
+	if (node.data.kind === "annotation-tasks") return { width: 240, height: 188 };
+	return { width: 240, height: 168 };
 }
 
 function graphNodeObstacle(node: GraphNode): EdgeObstacle | undefined {
@@ -2090,6 +2132,30 @@ function renderGraphProjection({
 	const runsById = new Map(projection.runs.map((run) => [run.id, run]));
 	const nodes: GraphNode[] = projection.nodes.map((node) => {
 		const run = node.kind === "run" && node.runId ? runsById.get(node.runId) : undefined;
+		const actions = run ? (
+			<RunNodeActions
+				run={run}
+				busy={busyRunId === run.id}
+				onContinueRun={onContinueRun}
+				onRetryRun={onRetryRun}
+				onDeleteRun={onDeleteRun}
+			/>
+		) : node.kind === "task" && hasTaskNodeActions(node.actions) ? (
+			<TaskNodeActions
+				actions={node.actions}
+				onNavigate={onNavigate}
+				archiving={archivingTaskId === node.taskId}
+				onArchiveTask={node.projectId && node.taskId && onArchiveTask ? () => onArchiveTask(node.projectId!, node.taskId!) : undefined}
+			/>
+		) : node.actions.some(isNodeQuickAction) ? (
+			<span
+				onClick={(event) => event.stopPropagation()}
+				onMouseDown={(event) => event.stopPropagation()}
+				onPointerDown={(event) => event.stopPropagation()}
+			>
+				<NodeQuickActions actions={node.actions} onNavigate={onNavigate} />
+			</span>
+		) : undefined;
 		const label = node.kind === "add-run" ? (
 			<AddRunNodeCard label={node.eyebrow} />
 		) : (
@@ -2099,30 +2165,7 @@ function renderGraphProjection({
 				status={node.status}
 				meta={projectionMeta(node.meta)}
 				accent={node.accent}
-				actions={run ? (
-					<RunNodeActions
-						run={run}
-						busy={busyRunId === run.id}
-						onContinueRun={onContinueRun}
-						onRetryRun={onRetryRun}
-						onDeleteRun={onDeleteRun}
-					/>
-				) : node.kind === "task" ? (
-					<TaskNodeActions
-						actions={node.actions}
-						onNavigate={onNavigate}
-						archiving={archivingTaskId === node.taskId}
-						onArchiveTask={node.projectId && node.taskId && onArchiveTask ? () => onArchiveTask(node.projectId!, node.taskId!) : undefined}
-					/>
-				) : (
-					<span
-						onClick={(event) => event.stopPropagation()}
-						onMouseDown={(event) => event.stopPropagation()}
-						onPointerDown={(event) => event.stopPropagation()}
-					>
-						<NodeQuickActions actions={node.actions} onNavigate={onNavigate} />
-					</span>
-				)}
+				actions={actions}
 			/>
 		);
 		return {

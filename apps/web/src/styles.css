@@ -2297,10 +2297,11 @@ pre {
 
 .home-node-card {
 	position: relative;
-	display: grid;
-	gap: 7px;
+	display: flex;
 	min-height: 116px;
 	padding: 16px;
+	flex-direction: column;
+	gap: 7px;
 	border: 1px solid var(--home-border);
 	border-radius: 18px;
 	background: linear-gradient(145deg, rgb(7 26 19 / 98%), rgb(4 14 10 / 98%));
@@ -2345,14 +2346,16 @@ pre {
 
 .home-node-card.plus {
 	min-height: 92px;
-	place-items: center start;
+	align-items: flex-start;
+	justify-content: center;
 	border-style: dashed;
 	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 12%), rgb(6 23 16 / 90%));
 }
 
 .home-node-card.candidate {
 	min-height: 58px;
-	place-items: center;
+	align-items: center;
+	justify-content: center;
 	padding: 12px 16px;
 }
 
@@ -2470,9 +2473,7 @@ pre {
 
 .home-node-card.deleted::after {
 	content: "trashed";
-	position: absolute;
-	right: 10px;
-	bottom: 8px;
+	align-self: flex-end;
 	color: var(--home-muted);
 	font-size: 10px;
 	font-weight: 900;
@@ -2480,33 +2481,41 @@ pre {
 	text-transform: uppercase;
 }
 
-.run-node-actions {
-	position: absolute;
-	top: 8px;
-	right: 8px;
-}
-
-.home-node-card.has-actions > small {
-	padding-right: 92px;
+.node-card-actions {
+	display: flex;
+	order: 10;
+	width: 100%;
+	min-width: 0;
+	margin-top: auto;
+	padding-top: 8px;
+	align-items: flex-end;
+	justify-content: flex-end;
+	gap: 4px;
+	border-top: 1px solid rgb(var(--home-accent-rgb) / 14%);
 }
 
 .node-quick-actions {
 	display: flex;
+	max-width: 100%;
+	min-width: 0;
 	flex-wrap: wrap;
+	justify-content: flex-end;
 	gap: 4px;
 }
 
 .node-quick-actions button {
+	max-width: 100%;
 	min-width: 0;
-	padding: 4px 7px;
-	border-radius: 8px;
-	font-size: 10px;
-	text-transform: uppercase;
+	overflow: visible;
 }
 
 .run-node-action-group,
 .task-node-action-group {
 	display: flex;
+	max-width: 100%;
+	min-width: 0;
+	flex-wrap: wrap;
+	justify-content: flex-end;
 	gap: 4px;
 }
 
@@ -2514,23 +2523,92 @@ pre {
 	align-items: center;
 }
 
+.node-quick-actions button,
 .run-node-action-group button,
 .task-node-action-group button {
+	position: relative;
 	display: grid;
 	place-items: center;
-	width: 24px;
-	height: 24px;
+	width: 26px;
+	height: 26px;
 	min-width: 0;
 	margin: 0;
 	padding: 0;
 	border: 1px solid rgb(var(--home-accent-rgb) / 42%);
-	border-radius: 8px;
+	border-radius: 10px;
 	background: rgb(2 8 6 / 84%);
 	color: var(--home-accent);
-	font-size: 12px;
 	line-height: 1;
 }
 
+.node-card-actions button[data-tooltip]::before,
+.node-card-actions button[data-tooltip]::after {
+	position: absolute;
+	right: 50%;
+	bottom: calc(100% + 8px);
+	z-index: 60;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+}
+
+.node-card-actions button[data-tooltip]::before {
+	content: "";
+	width: 8px;
+	height: 8px;
+	background: #dffefa;
+	box-shadow: 0 10px 24px rgb(0 0 0 / 32%);
+	transform: translate(50%, 6px) rotate(45deg);
+}
+
+.node-card-actions button[data-tooltip]::after {
+	content: attr(data-tooltip);
+	width: max-content;
+	max-width: 170px;
+	padding: 6px 8px;
+	border: 1px solid rgb(var(--home-accent-rgb) / 28%);
+	border-radius: 9px;
+	background: #dffefa;
+	box-shadow: 0 10px 24px rgb(0 0 0 / 32%);
+	color: #04110f;
+	font-size: 11px;
+	font-weight: 800;
+	line-height: 1.2;
+	text-align: center;
+	white-space: normal;
+	transform: translate(50%, 4px);
+}
+
+.node-card-actions button[data-tooltip]:hover::before,
+.node-card-actions button[data-tooltip]:hover::after,
+.node-card-actions button[data-tooltip]:focus-visible::before,
+.node-card-actions button[data-tooltip]:focus-visible::after {
+	opacity: 1;
+	visibility: visible;
+}
+
+.node-card-actions button[data-tooltip]:hover::before,
+.node-card-actions button[data-tooltip]:focus-visible::before {
+	transform: translate(50%, 2px) rotate(45deg);
+}
+
+.node-card-actions button[data-tooltip]:hover::after,
+.node-card-actions button[data-tooltip]:focus-visible::after {
+	transform: translate(50%, 0);
+}
+
+.node-action-icon {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.8;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.node-quick-actions button:hover:not(:disabled),
 .run-node-action-group button:hover:not(:disabled),
 .task-node-action-group button:hover:not(:disabled) {
 	border-color: var(--home-accent);
@@ -2541,6 +2619,7 @@ pre {
 	color: var(--home-red) !important;
 }
 
+.node-quick-actions button:disabled,
 .run-node-action-group button:disabled,
 .task-node-action-group button:disabled {
 	opacity: 0.34;

@@ -85,7 +85,7 @@ function node(projection: Awaited<ReturnType<typeof buildGraphProjection>>, id: 
 	return found!;
 }
 
-const runCenterY = (item: { position: { y: number } }) => item.position.y + 58;
+const runCenterY = (item: { position: { y: number } }) => item.position.y + 84;
 const addRunCenterY = (item: { position: { y: number } }) => item.position.y + 29;
 const runCenterX = (item: { position: { x: number } }) => item.position.x + 120;
 const addRunCenterX = (item: { position: { x: number } }) => item.position.x + 31;
@@ -148,7 +148,7 @@ describe("graph projection layout", () => {
 		const first = node(projection, "annotation-run:annotation-1:annotation-run-a");
 		const second = node(projection, "annotation-run:annotation-1:annotation-run-b");
 
-		expect(second.position.y - first.position.y).toBeGreaterThanOrEqual(116);
+		expect(second.position.y - first.position.y).toBeGreaterThanOrEqual(168);
 	});
 
 	it("places sequential candidates in their future depth before the gate", async () => {
