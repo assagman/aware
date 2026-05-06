@@ -1626,6 +1626,7 @@ type EdgeObstacle = { id: string; left: number; right: number; top: number; bott
 
 const EDGE_NODE_MARGIN = 16;
 const EDGE_ROUTE_CLEARANCE = 10;
+const EDGE_ENDPOINT_OVERLAP = 6;
 
 function fallbackGraphNodeSize(node: GraphNode) {
 	if (node.data.kind === "add-run") return { width: 62, height: 58 };
@@ -1775,6 +1776,35 @@ function routeAroundNodes(start: EdgePoint, end: EdgePoint, obstacles: EdgeObsta
 	return compactRoute(Math.abs(start.y - end.y) < 1 ? [start, end] : [start, { x: busX, y: start.y }, { x: busX, y: end.y }, end]);
 }
 
+function overlapStartEndpoint(point: EdgePoint, direction: EdgePoint) {
+	if (Math.abs(direction.x) >= Math.abs(direction.y) && Math.abs(direction.x) > 0.001) {
+		return { x: point.x - Math.sign(direction.x) * EDGE_ENDPOINT_OVERLAP, y: point.y };
+	}
+	if (Math.abs(direction.y) > 0.001) return { x: point.x, y: point.y - Math.sign(direction.y) * EDGE_ENDPOINT_OVERLAP };
+	return point;
+}
+
+function overlapEndEndpoint(point: EdgePoint, direction: EdgePoint) {
+	if (Math.abs(direction.x) >= Math.abs(direction.y) && Math.abs(direction.x) > 0.001) {
+		return { x: point.x + Math.sign(direction.x) * EDGE_ENDPOINT_OVERLAP, y: point.y };
+	}
+	if (Math.abs(direction.y) > 0.001) return { x: point.x, y: point.y + Math.sign(direction.y) * EDGE_ENDPOINT_OVERLAP };
+	return point;
+}
+
+function overlapRouteEndpoints(route: EdgePoint[], source: string, target: string) {
+	if (route.length < 2) return route;
+	const next = route[1]!;
+	const start = route[0]!;
+	const previous = route.at(-2)!;
+	const end = route.at(-1)!;
+	return [
+		source.startsWith("add-run:") ? start : overlapStartEndpoint(start, { x: next.x - start.x, y: next.y - start.y }),
+		...route.slice(1, -1),
+		target.startsWith("add-run:") ? end : overlapEndEndpoint(end, { x: end.x - previous.x, y: end.y - previous.y }),
+	];
+}
+
 function routePath(route: EdgePoint[]) {
 	const [start, ...rest] = route;
 	return `M ${start!.x},${start!.y} ${rest.map((point) => `L ${point.x},${point.y}`).join(" ")}`;
@@ -1804,7 +1834,8 @@ function HomeOrthogonalEdge({
 	};
 	const start = withGap(sourceX, sourceY, targetX, targetY, source);
 	const end = withGap(targetX, targetY, sourceX, sourceY, target);
-	const path = routePath(routeAroundNodes(start, end, graphEdgeObstacles(getNodes() as GraphNode[], source, target)));
+	const route = routeAroundNodes(start, end, graphEdgeObstacles(getNodes() as GraphNode[], source, target));
+	const path = routePath(overlapRouteEndpoints(route, source, target));
 	return (
 		<BaseEdge
 			id={id}

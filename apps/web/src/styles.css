@@ -2521,7 +2521,7 @@ pre {
 	text-shadow: 0 0 18px rgb(var(--home-green-rgb) / 34%);
 }
 
-.add-run-node .react-flow__handle {
+.home-flow-node .react-flow__handle {
 	opacity: 0;
 	pointer-events: none;
 }
