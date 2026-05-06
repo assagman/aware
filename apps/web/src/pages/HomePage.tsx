@@ -1064,12 +1064,7 @@ function NodeQuickActions({ actions, onNavigate }: { actions: GraphAction[]; onN
 	const quick = actions.filter((item) => item.href && ["open_files", "open_diffs", "open_checkpoint", "open_ship"].includes(item.command));
 	if (!quick.length) return null;
 	return (
-		<span
-			className="node-quick-actions"
-			onClick={(event) => event.stopPropagation()}
-			onMouseDown={(event) => event.stopPropagation()}
-			onPointerDown={(event) => event.stopPropagation()}
-		>
+		<span className="node-quick-actions">
 			{quick.map((item) => (
 				<button
 					key={item.id}
@@ -1082,6 +1077,45 @@ function NodeQuickActions({ actions, onNavigate }: { actions: GraphAction[]; onN
 					{item.label.replace(/^Open\s+/i, "")}
 				</button>
 			))}
+		</span>
+	);
+}
+
+function TaskNodeActions({
+	actions,
+	onNavigate,
+	onArchiveTask,
+	archiving,
+}: {
+	actions: GraphAction[];
+	onNavigate: (href: string) => void;
+	onArchiveTask?: (() => void) | undefined;
+	archiving?: boolean | undefined;
+}) {
+	const archiveAction = actions.find((item) => item.command === "archive_task");
+	return (
+		<span
+			className="task-node-action-group"
+			onClick={(event) => event.stopPropagation()}
+			onMouseDown={(event) => event.stopPropagation()}
+			onPointerDown={(event) => event.stopPropagation()}
+		>
+			<NodeQuickActions actions={actions} onNavigate={onNavigate} />
+			{archiveAction ? (
+				<button
+					type="button"
+					className="task-node-archive-button"
+					title="Archive task and cleanup task worktree/local branch"
+					aria-label="Archive task"
+					disabled={archiving || !onArchiveTask}
+					onClick={(event) => {
+						event.stopPropagation();
+						onArchiveTask?.();
+					}}
+				>
+					🗄
+				</button>
+			) : null}
 		</span>
 	);
 }
@@ -1577,14 +1611,18 @@ function renderGraphProjection({
 	onContinueRun,
 	onRetryRun,
 	onDeleteRun,
+	onArchiveTask,
 	busyRunId,
+	archivingTaskId,
 	onNavigate,
 }: {
 	projection: GraphProjection | null;
 	onContinueRun?: ((runId: string) => void) | undefined;
 	onRetryRun?: ((runId: string) => void) | undefined;
 	onDeleteRun?: ((runId: string) => void) | undefined;
+	onArchiveTask?: ((projectId: string, taskId: string) => void) | undefined;
 	busyRunId?: string;
+	archivingTaskId?: string;
 	onNavigate: (href: string) => void;
 }) {
 	if (!projection) return { nodes: [], edges: [] };
@@ -1608,8 +1646,21 @@ function renderGraphProjection({
 						onRetryRun={onRetryRun}
 						onDeleteRun={onDeleteRun}
 					/>
+				) : node.kind === "task" ? (
+					<TaskNodeActions
+						actions={node.actions}
+						onNavigate={onNavigate}
+						archiving={archivingTaskId === node.taskId}
+						onArchiveTask={node.projectId && node.taskId && onArchiveTask ? () => onArchiveTask(node.projectId!, node.taskId!) : undefined}
+					/>
 				) : (
-					<NodeQuickActions actions={node.actions} onNavigate={onNavigate} />
+					<span
+						onClick={(event) => event.stopPropagation()}
+						onMouseDown={(event) => event.stopPropagation()}
+						onPointerDown={(event) => event.stopPropagation()}
+					>
+						<NodeQuickActions actions={node.actions} onNavigate={onNavigate} />
+					</span>
 				)}
 			/>
 		);
@@ -2149,15 +2200,17 @@ export function HomePage({
 	projectsLoading,
 	projectsLoaded,
 	projectsError,
+	history = false,
 }: {
 	projectId?: string;
 	projects: Project[];
 	projectsLoading: boolean;
 	projectsLoaded: boolean;
 	projectsError: string;
+	history?: boolean;
 }) {
 	const navigate = useNavigate();
-	const scopeKey = projectId || "global";
+	const scopeKey = `${projectId || "global"}:${history ? "history" : "active"}`;
 	const [projection, setProjection] = useState<GraphProjection | null>(null);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [runs, setRuns] = useState<AgentRun[]>([]);
@@ -2167,6 +2220,7 @@ export function HomePage({
 	const [error, setError] = useState("");
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [busyRunId, setBusyRunId] = useState("");
+	const [archivingTaskId, setArchivingTaskId] = useState("");
 	const refreshSeq = useRef(0);
 	const selectedProject = projects.find((project) => project.id === projectId);
 	const worktreeById = useMemo(() => new Map(worktrees.map((worktree) => [worktree.id, worktree])), [worktrees]);
@@ -2193,8 +2247,9 @@ export function HomePage({
 		const requestedScope = scopeKey;
 		if (!silent) setLoading(true);
 		try {
+			const query = history ? "?history=1" : "";
 			const nextProjection = await apiGet<GraphProjection>(
-				projectId ? `/projects/${encodeURIComponent(projectId)}/graph` : "/graph",
+				projectId ? `/projects/${encodeURIComponent(projectId)}/graph${query}` : `/graph${query}`,
 			);
 			if (refreshSeq.current !== requestId) return;
 			setProjection((current) => sameJson(current, nextProjection) ? current : nextProjection);
@@ -2211,7 +2266,7 @@ export function HomePage({
 		} finally {
 			if (refreshSeq.current === requestId && !silent) setLoading(false);
 		}
-	}, [projectId, scopeKey]);
+	}, [history, projectId, scopeKey]);
 	useEffect(() => { void refresh(); }, [refresh]);
 	const hasActiveRuns = loadedScope === scopeKey && runs.some((run) => run.status === "running" || run.status === "queued");
 	useEffect(() => {
@@ -2307,7 +2362,7 @@ export function HomePage({
 		}
 	}, [busyRunId, navigate, refresh, runs, tasks]);
 	const deleteRun = useCallback(async (runId: string) => {
-		if (busyRunId) return;
+		if (busyRunId || history) return;
 		const source = runs.find((run) => run.id === runId);
 		const task = source ? tasks.find((row) => row.id === source.taskId) : undefined;
 		if (!source || !task) return;
@@ -2318,16 +2373,29 @@ export function HomePage({
 		} finally {
 			setBusyRunId("");
 		}
-	}, [busyRunId, refresh, runs, tasks]);
+	}, [busyRunId, history, refresh, runs, tasks]);
+	const archiveTaskFromNode = useCallback(async (targetProjectId: string, targetTaskId: string) => {
+		if (history || archivingTaskId) return;
+		if (!window.confirm("Archive task and remove its task worktree/local branch if present?")) return;
+		setArchivingTaskId(targetTaskId);
+		try {
+			await apiPost(`/projects/${encodeURIComponent(targetProjectId)}/tasks/${encodeURIComponent(targetTaskId)}/archive`, { cleanup: true });
+			await refresh(true);
+		} finally {
+			setArchivingTaskId("");
+		}
+	}, [archivingTaskId, history, refresh]);
 	const canRenderGraph = Boolean(projection && loadedScope === scopeKey && (!projectId || selectedProject));
 	const graph = useMemo(() => canRenderGraph ? renderGraphProjection({
 		projection,
-		onContinueRun: (runId) => { void continueRun(runId); },
-		onRetryRun: (runId) => { void retryRun(runId); },
-		onDeleteRun: (runId) => { void deleteRun(runId); },
+		onContinueRun: history ? undefined : (runId) => { void continueRun(runId); },
+		onRetryRun: history ? undefined : (runId) => { void retryRun(runId); },
+		onDeleteRun: history ? undefined : (runId) => { void deleteRun(runId); },
+		onArchiveTask: history ? undefined : (targetProjectId, targetTaskId) => { void archiveTaskFromNode(targetProjectId, targetTaskId); },
 		busyRunId,
+		archivingTaskId,
 		onNavigate: navigate,
-	}) : { nodes: [], edges: [] }, [busyRunId, canRenderGraph, continueRun, deleteRun, navigate, projection, retryRun]);
+	}) : { nodes: [], edges: [] }, [archiveTaskFromNode, archivingTaskId, busyRunId, canRenderGraph, continueRun, deleteRun, history, navigate, projection, retryRun]);
 	const graphLayoutSignature = useMemo(() => graph.nodes.map((node) => `${node.id}:${Math.round(node.position.x)},${Math.round(node.position.y)}`).join("|"), [graph.nodes]);
 	const handleGraphMoveEnd = useCallback((_: MouseEvent | TouchEvent | null, viewport: Viewport) => {
 		saveGraphViewport(scopeKey, viewport);
@@ -2353,16 +2421,18 @@ export function HomePage({
 			{selectedProject && projectWorktree ? (
 				<nav className="home-project-toolbar" aria-label="Project workspace">
 					<div>
-						<strong>{selectedProject.name}</strong>
-						<small>{projectWorktree.branch || projectWorktree.path}</small>
+						<strong>{history ? `${selectedProject.name} history` : selectedProject.name}</strong>
+						<small>{history ? "Archived tasks" : projectWorktree.branch || projectWorktree.path}</small>
 					</div>
-					<Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/files`}>Files</Link>
-					<Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/diffs`}>Diffs</Link>
+					{history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}`}>Active graph</Link> : <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/history`}>History</Link>}
+					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/files`}>Files</Link> : null}
+					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/diffs`}>Diffs</Link> : null}
 				</nav>
 			) : null}
 			<div className="home-graph-shell">
 				<div className="home-graph-actions">
 					{graphBusy ? <BusyIndicator label={canRenderGraph ? "Syncing graph" : "Loading graph"} /> : null}
+					{history && !projectId ? <Link className="home-action-link" to="/">Active graph</Link> : null}
 					<button type="button" onClick={() => void refresh()} disabled={loading || projectBootstrapping}>Refresh</button>
 				</div>
 				{projectBootstrapping || graphHydrating ? (
@@ -2372,8 +2442,8 @@ export function HomePage({
 					</div>
 				) : !projection?.nodes.length ? (
 					<div className="home-empty">
-						<h3>No graph nodes</h3>
-						<p>Add a project or task. Graph opens here.</p>
+						<h3>{history ? "No history yet" : "No graph nodes"}</h3>
+						<p>{history ? "Archived tasks appear here." : "Add a project or task. Graph opens here."}</p>
 					</div>
 				) : (
 					<ReactFlow

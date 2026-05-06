@@ -34,6 +34,7 @@ export function ShippingPage() {
 	const [loading, setLoading] = useState(true);
 	const [shipping, setShipping] = useState(false);
 	const [graphing, setGraphing] = useState(false);
+	const [archiving, setArchiving] = useState(false);
 	const [error, setError] = useState("");
 	const [shipError, setShipError] = useState("");
 	const [graphError, setGraphError] = useState("");
@@ -114,6 +115,21 @@ export function ShippingPage() {
 		}
 	}
 
+	async function markTaskDone() {
+		if (!task || archiving) return;
+		setArchiving(true);
+		setShipError("");
+		try {
+			await apiPost(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/archive`, { status: "done" });
+			navigate(`/projects/${encodeURIComponent(projectId)}/history`);
+		} catch (nextError) {
+			setShipError(nextError instanceof Error ? nextError.message : String(nextError));
+			await load();
+		} finally {
+			setArchiving(false);
+		}
+	}
+
 	if (loading && !task)
 		return <section className="home-page route-state-page"><div className="home-empty"><BusyIndicator label="Loading ship gate" /></div></section>;
 	if (error)
@@ -141,6 +157,7 @@ export function ShippingPage() {
 					<Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoint`}>Gate</Link>
 					{worktree ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/worktrees/${encodeURIComponent(worktree.id)}/files`}>Files</Link> : null}
 					{worktree ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/worktrees/${encodeURIComponent(worktree.id)}/diffs`}>Diffs</Link> : null}
+					<button type="button" disabled={archiving} onClick={() => void markTaskDone()}>{archiving ? "Archiving…" : "Mark Task done"}</button>
 					<button type="button" onClick={() => void load()}>Refresh</button>
 				</div>
 			</header>

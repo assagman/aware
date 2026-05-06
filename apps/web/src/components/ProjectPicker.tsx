@@ -20,6 +20,59 @@ function fuzzyScore(value: string, query: string) {
 	return score - text.length / 1000;
 }
 
+export function AddProjectButton({ onCreated }: { onCreated?: (project: Project) => void | Promise<void> }) {
+	const initialState = getPageState("project-picker", { path: "" });
+	const [open, setOpen] = useState(false);
+	const [path, setPath] = useState(initialState.path);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState("");
+	async function addProject() {
+		if (!path.trim() || saving) return;
+		setSaving(true);
+		try {
+			const project = await apiPost<Project>("/projects", { path: path.trim() });
+			setPath("");
+			setPageState("project-picker", { path: "" });
+			setError("");
+			await onCreated?.(project);
+			setOpen(false);
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setSaving(false);
+		}
+	}
+	return (
+		<div className="add-project-control">
+			<button type="button" className="home-action-link add-project-button" onClick={() => setOpen(true)}>Add Project</button>
+			{open ? (
+				<div className="home-modal-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
+					<section className="home-modal add-project-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+						<div className="home-modal-head">
+							<div>
+								<small>Project</small>
+								<h2>Add Project</h2>
+							</div>
+							<button type="button" onClick={() => setOpen(false)}>×</button>
+						</div>
+						<form className="home-form" onSubmit={(event) => { event.preventDefault(); void addProject(); }}>
+							<label>
+								Git repo path
+								<input value={path} onChange={(event) => { setPath(event.target.value); setPageState("project-picker", { path: event.target.value }); }} placeholder="/path/to/git/repo" autoFocus />
+							</label>
+							{error ? <p className="error">{error}</p> : null}
+							<div className="home-modal-actions">
+								<button type="button" onClick={() => setOpen(false)}>Cancel</button>
+								<button type="submit" disabled={!path.trim() || saving}>{saving ? "Adding…" : "Add Project"}</button>
+							</div>
+						</form>
+					</section>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 export function ProjectPicker({
 	value,
 	projects,

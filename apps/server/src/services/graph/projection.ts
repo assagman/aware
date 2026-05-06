@@ -12,7 +12,7 @@ import type {
 	Worktree,
 } from "@aware/shared";
 import { db } from "../../db/client";
-import { listProjects, listWorktrees } from "../projectService";
+import { listProjects, listStoredWorktrees, listWorktrees } from "../projectService";
 import { listTasks } from "../taskService";
 
 const taskStatusOrder: Record<TaskStatus, number> = {
@@ -237,12 +237,15 @@ function diffsHref(projectId: string, worktreeId: string, file?: string) {
 	return file ? `${base}?${new URLSearchParams({ file })}` : base;
 }
 
-export async function buildGraphProjection(projectId?: string): Promise<GraphProjection> {
+export async function buildGraphProjection(
+	projectId?: string,
+	options: { history?: boolean } = {},
+): Promise<GraphProjection> {
 	const [allProjects, allTasks, allRuns, allWorktrees] = await Promise.all([
 		listProjects(),
-		listTasks(projectId ? { projectId } : {}),
+		listTasks(projectId ? { projectId } : {}, options.history ? { includeArchived: true, archivedOnly: true } : {}),
 		db.list<AgentRun>("runs"),
-		listWorktrees(),
+		options.history ? listStoredWorktrees() : listWorktrees(),
 	]);
 	const projects = projectId
 		? allProjects.filter((project) => project.id === projectId)
@@ -314,14 +317,17 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 				payload: { projectId: project.id },
 				href: projectHref(project.id),
 			}),
-			action({
-				label: "Create task",
-				command: "create_task",
-				inputSchema: "create_task",
-				payload: { projectId: project.id },
-			}),
 		];
-		if (defaultWorktree)
+		if (!options.history)
+			projectActions.push(
+				action({
+					label: "Create task",
+					command: "create_task",
+					inputSchema: "create_task",
+					payload: { projectId: project.id },
+				}),
+			);
+		if (!options.history && defaultWorktree)
 			projectActions.push(
 				action({
 					label: "Open files",
@@ -369,14 +375,23 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					payload: { projectId: project.id, taskId: task.id },
 					href: taskHref(project.id, task.id),
 				}),
-				action({
-					label: "Update task",
-					command: "update_task",
-					inputSchema: "update_task",
-					payload: { projectId: project.id, taskId: task.id },
-				}),
 			];
-			if (worktree)
+			if (!options.history)
+				taskActions.push(
+					action({
+						label: "Update task",
+						command: "update_task",
+						inputSchema: "update_task",
+						payload: { projectId: project.id, taskId: task.id },
+					}),
+					action({
+						label: "Archive task",
+						command: "archive_task",
+						inputSchema: "archive_task",
+						payload: { projectId: project.id, taskId: task.id, cleanup: true },
+					}),
+				);
+			if (!options.history && worktree)
 				taskActions.push(
 					action({
 						label: "Open diffs",
@@ -523,7 +538,7 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 						status: run.status,
 						animated: run.status === "running",
 					});
-					if (input.allowNext !== false && !run.deletedAt && !hasActiveLaneChild(run.id, input.lane)) {
+					if (!options.history && input.allowNext !== false && !run.deletedAt && !hasActiveLaneChild(run.id, input.lane)) {
 						const addNextStepId = sequentialAddRunId(task.id, input.lane, run.id);
 						const addNextAction = action({
 							label: "New sequential run",
@@ -566,33 +581,35 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 				startX: GRAPH_X.run,
 			});
 
-			const addParallelId = `add-run:${task.id}:parallel`;
-			const addParallelAction = action({
-				label: "New parallel run",
-				command: "start_run",
-				inputSchema: "start_run",
-				payload: { projectId: project.id, taskId: task.id, relation: "parallel", lane: "task" },
-			});
-			nodes.push({
-				id: addParallelId,
-				kind: "add-run",
-				projectId: project.id,
-				taskId: task.id,
-				relation: "parallel",
-				lane: "task",
-				eyebrow: "NEW PARALLEL RUN",
-				title: "",
-				accent: "plus candidate",
-				position: candidatePositionFromLayout(taskCandidateLayout, addParallelId, GRAPH_X.run),
-				actions: [addParallelAction],
-			});
-			actions.push(addParallelAction);
-			edges.push({
-				id: `${taskNodeId}->${addParallelId}`,
-				source: taskNodeId,
-				target: addParallelId,
-				kind: "add",
-			});
+			if (!options.history) {
+				const addParallelId = `add-run:${task.id}:parallel`;
+				const addParallelAction = action({
+					label: "New parallel run",
+					command: "start_run",
+					inputSchema: "start_run",
+					payload: { projectId: project.id, taskId: task.id, relation: "parallel", lane: "task" },
+				});
+				nodes.push({
+					id: addParallelId,
+					kind: "add-run",
+					projectId: project.id,
+					taskId: task.id,
+					relation: "parallel",
+					lane: "task",
+					eyebrow: "NEW PARALLEL RUN",
+					title: "",
+					accent: "plus candidate",
+					position: candidatePositionFromLayout(taskCandidateLayout, addParallelId, GRAPH_X.run),
+					actions: [addParallelAction],
+				});
+				actions.push(addParallelAction);
+				edges.push({
+					id: `${taskNodeId}->${addParallelId}`,
+					source: taskNodeId,
+					target: addParallelId,
+					kind: "add",
+				});
+			}
 
 			if (activeTaskRuns.length) {
 				const gateNodeId = `checkpoint:${task.id}`;
@@ -607,7 +624,7 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					payload: { projectId: project.id, taskId: task.id },
 					href: checkpointHref(project.id, task.id),
 				});
-				const markGateAction = action({
+				const markGateAction = options.history ? undefined : action({
 					label: "Mark gate",
 					command: "create_checkpoint",
 					inputSchema: "create_checkpoint",
@@ -625,27 +642,36 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					meta: [`${activeTaskLaneRuns.filter((run) => run.status === "done").length}/${activeTaskLaneRuns.length} task runs done`],
 					position: { x: gateX, y: y - 64 },
 					href: checkpointHref(project.id, task.id),
-					actions: [openGateAction, markGateAction],
+					actions: [openGateAction, markGateAction].filter((item): item is GraphAction => Boolean(item)),
 				});
-				actions.push(openGateAction, markGateAction);
+				actions.push(...[openGateAction, markGateAction].filter((item): item is GraphAction => Boolean(item)));
 				if (taskLeafRuns.length) {
 					for (const run of taskLeafRuns) {
 						const addNextStepId = sequentialAddRunId(task.id, "task", run.id);
 						edges.push(
-							{
-								id: `run:${run.id}->${addNextStepId}`,
-								source: `run:${run.id}`,
-								target: addNextStepId,
-								kind: "run",
-								status: run.status,
-								animated: run.status === "running",
-							},
-							{
+							options.history
+								? {
+									id: `run:${run.id}->${gateNodeId}`,
+									source: `run:${run.id}`,
+									target: gateNodeId,
+									kind: "checkpoint",
+									status: run.status,
+									animated: run.status === "running",
+								}
+								: {
+									id: `run:${run.id}->${addNextStepId}`,
+									source: `run:${run.id}`,
+									target: addNextStepId,
+									kind: "run",
+									status: run.status,
+									animated: run.status === "running",
+								},
+							...(options.history ? [] : [{
 								id: `${addNextStepId}->${gateNodeId}`,
 								source: addNextStepId,
 								target: gateNodeId,
-								kind: "checkpoint",
-							},
+								kind: "checkpoint" as const,
+							}]),
 						);
 					}
 				} else {
@@ -657,33 +683,35 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					});
 				}
 
-				const addGateId = `add-run:${task.id}:gate`;
-				const addGateAction = action({
-					label: "New gate run",
-					command: "start_run",
-					inputSchema: "start_run",
-					payload: { projectId: project.id, taskId: task.id, relation: "parallel", lane: "gate" },
-				});
-				nodes.push({
-					id: addGateId,
-					kind: "add-run",
-					projectId: project.id,
-					taskId: task.id,
-					relation: "parallel",
-					lane: "gate",
-					eyebrow: "NEW GATE RUN",
-					title: "",
-					accent: "plus candidate",
-					position: candidatePositionFromLayout(gateCandidateLayout, addGateId, gateStartX),
-					actions: [addGateAction],
-				});
-				actions.push(addGateAction);
-				edges.push({
-					id: `${gateNodeId}->${addGateId}`,
-					source: gateNodeId,
-					target: addGateId,
-					kind: "add",
-				});
+				if (!options.history) {
+					const addGateId = `add-run:${task.id}:gate`;
+					const addGateAction = action({
+						label: "New gate run",
+						command: "start_run",
+						inputSchema: "start_run",
+						payload: { projectId: project.id, taskId: task.id, relation: "parallel", lane: "gate" },
+					});
+					nodes.push({
+						id: addGateId,
+						kind: "add-run",
+						projectId: project.id,
+						taskId: task.id,
+						relation: "parallel",
+						lane: "gate",
+						eyebrow: "NEW GATE RUN",
+						title: "",
+						accent: "plus candidate",
+						position: candidatePositionFromLayout(gateCandidateLayout, addGateId, gateStartX),
+						actions: [addGateAction],
+					});
+					actions.push(addGateAction);
+					edges.push({
+						id: `${gateNodeId}->${addGateId}`,
+						source: gateNodeId,
+						target: addGateId,
+						kind: "add",
+					});
+				}
 
 				const gateFutureMaxDepth = maxDepthWithNextCandidates(gateLayout, gateRuns, "gate");
 				pushRunLane({
@@ -700,7 +728,7 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					payload: { projectId: project.id, taskId: task.id },
 					href: shipHref(project.id, task.id),
 				});
-				const startShipAction = action({
+				const startShipAction = options.history ? undefined : action({
 					label: "Start shipping",
 					command: "start_shipping",
 					inputSchema: "start_shipping",
@@ -729,28 +757,37 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 					],
 					position: { x: shipX, y: y - 64 },
 					href: shipHref(project.id, task.id),
-					actions: [openShipAction, startShipAction],
+					actions: [openShipAction, startShipAction].filter((item): item is GraphAction => Boolean(item)),
 				});
-				actions.push(openShipAction, startShipAction);
+				actions.push(...[openShipAction, startShipAction].filter((item): item is GraphAction => Boolean(item)));
 				const gateLeafRuns = activeGateRuns.filter((run) => !hasActiveLaneChild(run.id, "gate"));
 				if (gateLeafRuns.length) {
 					for (const run of gateLeafRuns) {
 						const addNextStepId = sequentialAddRunId(task.id, "gate", run.id);
 						edges.push(
-							{
-								id: `run:${run.id}->${addNextStepId}`,
-								source: `run:${run.id}`,
-								target: addNextStepId,
-								kind: "gate",
-								status: run.status,
-								animated: run.status === "running",
-							},
-							{
+							options.history
+								? {
+									id: `run:${run.id}->${shipNodeId}`,
+									source: `run:${run.id}`,
+									target: shipNodeId,
+									kind: "ship",
+									status: run.status,
+									animated: run.status === "running",
+								}
+								: {
+									id: `run:${run.id}->${addNextStepId}`,
+									source: `run:${run.id}`,
+									target: addNextStepId,
+									kind: "gate",
+									status: run.status,
+									animated: run.status === "running",
+								},
+							...(options.history ? [] : [{
 								id: `${addNextStepId}->${shipNodeId}`,
 								source: addNextStepId,
 								target: shipNodeId,
-								kind: "ship",
-							},
+								kind: "ship" as const,
+							}]),
 						);
 					}
 				} else {
@@ -771,32 +808,34 @@ export async function buildGraphProjection(projectId?: string): Promise<GraphPro
 			}
 		}
 
-		const addTaskY = rows.length
-			? rows.at(-1)!.top + rows.at(-1)!.height - 96
-			: graphCenterY + 140;
-		const addTaskAction = action({
-			label: "New task",
-			command: "create_task",
-			inputSchema: "create_task",
-			payload: { projectId: project.id },
-		});
-		nodes.push({
-			id: `add-task:${project.id}`,
-			kind: "add-task",
-			projectId: project.id,
-			eyebrow: "NEW TASK",
-			title: "",
-			accent: "plus candidate",
-			position: { x: GRAPH_X.task, y: addTaskY },
-			actions: [addTaskAction],
-		});
-		actions.push(addTaskAction);
-		edges.push({
-			id: `${projectNodeId}->add-task:${project.id}`,
-			source: projectNodeId,
-			target: `add-task:${project.id}`,
-			kind: "add",
-		});
+		if (!options.history) {
+			const addTaskY = rows.length
+				? rows.at(-1)!.top + rows.at(-1)!.height - 96
+				: graphCenterY + 140;
+			const addTaskAction = action({
+				label: "New task",
+				command: "create_task",
+				inputSchema: "create_task",
+				payload: { projectId: project.id },
+			});
+			nodes.push({
+				id: `add-task:${project.id}`,
+				kind: "add-task",
+				projectId: project.id,
+				eyebrow: "NEW TASK",
+				title: "",
+				accent: "plus candidate",
+				position: { x: GRAPH_X.task, y: addTaskY },
+				actions: [addTaskAction],
+			});
+			actions.push(addTaskAction);
+			edges.push({
+				id: `${projectNodeId}->add-task:${project.id}`,
+				source: projectNodeId,
+				target: `add-task:${project.id}`,
+				kind: "add",
+			});
+		}
 	}
 
 	return {

@@ -10,7 +10,7 @@ export function RunPage() {
 			projectId={projectId}
 			taskId={taskId}
 			runId={runId}
-			onBack={() => navigate("/")}
+			onBack={() => navigate(-1)}
 			onChanged={() => undefined}
 		/>
 	);

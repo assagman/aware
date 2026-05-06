@@ -1,4 +1,5 @@
 import {
+	graphArchiveTaskInputSchema,
 	graphCreateTaskInputSchema,
 	graphRetryRunInputSchema,
 	graphSendRunMessageInputSchema,
@@ -12,6 +13,7 @@ import { getGitDiff } from "../services/diffService";
 import { listTree, readProjectFile } from "../services/fileService";
 import { startGraphAgentRunCommand } from "../services/graphAgentRunner";
 import {
+	archiveTaskCommand,
 	createCheckpointCommand,
 	createTaskCommand,
 	deleteRunCommand,
@@ -25,8 +27,9 @@ import {
 import { buildGraphProjection } from "../services/graph/projection";
 import {
 	getProjectOrThrow,
+	getRunInStoredTaskOrThrow,
 	getRunInTaskOrThrow,
-	getTaskInProjectOrThrow,
+	getStoredTaskInProjectOrThrow,
 	getWorktreeInProjectOrThrow,
 	RouteValidationError,
 } from "../services/graph/validation";
@@ -64,7 +67,7 @@ scopedProjects.get("/:projectId", async (c) => {
 scopedProjects.get("/:projectId/graph", async (c) => {
 	try {
 		await getProjectOrThrow(c.req.param("projectId"));
-		return c.json(await buildGraphProjection(c.req.param("projectId")));
+		return c.json(await buildGraphProjection(c.req.param("projectId"), { history: c.req.query("history") === "1" }));
 	} catch (error) {
 		return errorResponse(c, error);
 	}
@@ -89,7 +92,7 @@ scopedProjects.post("/:projectId/tasks", async (c) => {
 scopedProjects.get("/:projectId/tasks/:taskId", async (c) => {
 	try {
 		return c.json(
-			await getTaskInProjectOrThrow(
+			await getStoredTaskInProjectOrThrow(
 				c.req.param("projectId"),
 				c.req.param("taskId"),
 			),
@@ -121,6 +124,23 @@ scopedProjects.post("/:projectId/tasks/:taskId/done", async (c) => {
 		return c.json(
 			await markTaskDoneCommand(
 				graphTaskIdentityInputSchema.parse({
+					projectId: c.req.param("projectId"),
+					taskId: c.req.param("taskId"),
+				}),
+			),
+		);
+	} catch (error) {
+		return errorResponse(c, error);
+	}
+});
+
+scopedProjects.post("/:projectId/tasks/:taskId/archive", async (c) => {
+	try {
+		const body = await json(c);
+		return c.json(
+			await archiveTaskCommand(
+				graphArchiveTaskInputSchema.parse({
+					...body,
 					projectId: c.req.param("projectId"),
 					taskId: c.req.param("taskId"),
 				}),
@@ -196,7 +216,7 @@ scopedProjects.post("/:projectId/tasks/:taskId/runs", async (c) => {
 scopedProjects.get("/:projectId/tasks/:taskId/runs/:runId", async (c) => {
 	try {
 		return c.json(
-			await getRunInTaskOrThrow(
+			await getRunInStoredTaskOrThrow(
 				c.req.param("projectId"),
 				c.req.param("taskId"),
 				c.req.param("runId"),

@@ -17,16 +17,36 @@ export async function getProjectOrThrow(projectId: string): Promise<Project> {
 	return project;
 }
 
-export async function getTaskInProjectOrThrow(
+export async function getStoredTaskInProjectOrThrow(
 	projectId: string,
 	taskId: string,
 ): Promise<Task> {
 	await getProjectOrThrow(projectId);
-	const task = (await listTasks()).find((row) => row.id === taskId);
+	const task = (await listTasks({ projectId }, { includeArchived: true })).find((row) => row.id === taskId);
 	if (!task) throw new RouteValidationError("missing task", 404);
-	if (task.projectId !== projectId)
-		throw new RouteValidationError("task does not belong to project", 404);
 	return task;
+}
+
+export async function getTaskInProjectOrThrow(
+	projectId: string,
+	taskId: string,
+): Promise<Task> {
+	const task = await getStoredTaskInProjectOrThrow(projectId, taskId);
+	if (task.archivedAt) throw new RouteValidationError("task archived", 409);
+	return task;
+}
+
+export async function getRunInStoredTaskOrThrow(
+	projectId: string,
+	taskId: string,
+	runId: string,
+): Promise<AgentRun> {
+	await getStoredTaskInProjectOrThrow(projectId, taskId);
+	const run = (await db.list<AgentRun>("runs")).find((row) => row.id === runId);
+	if (!run) throw new RouteValidationError("missing run", 404);
+	if (run.taskId !== taskId)
+		throw new RouteValidationError("run does not belong to task", 404);
+	return run;
 }
 
 export async function getRunInTaskOrThrow(

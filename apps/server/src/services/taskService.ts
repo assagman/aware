@@ -24,11 +24,13 @@ function taskStatusFromRuns(task: Task, runs: AgentRun[]): TaskStatus {
 
 export async function listTasks(
 	filter: Partial<Pick<Task, "projectId" | "worktreeId">> = {},
+	options: { includeArchived?: boolean; archivedOnly?: boolean } = {},
 ) {
 	const tasks = (await db.list<Task>("tasks")).filter(
 		(task) =>
-			!task.archivedAt &&
 			!task.deletedAt &&
+			(options.includeArchived || !task.archivedAt) &&
+			(!options.archivedOnly || Boolean(task.archivedAt)) &&
 			(!filter.projectId || task.projectId === filter.projectId) &&
 			(!filter.worktreeId || task.worktreeId === filter.worktreeId),
 	);
@@ -38,7 +40,7 @@ export async function listTasks(
 		return {
 			...task,
 			title: task.title === "Direct chat" ? "task" : task.title,
-			status: taskRuns.length ? taskStatusFromRuns(task, taskRuns) : task.status,
+			status: !task.archivedAt && taskRuns.length ? taskStatusFromRuns(task, taskRuns) : task.status,
 		};
 	});
 }
@@ -58,6 +60,19 @@ export async function createTask(
 
 export async function updateTask(id: string, patch: Partial<Task>) {
 	return db.update<Task>("tasks", id, { ...patch, updatedAt: now() });
+}
+
+export async function archiveTask(id: string, patch: Partial<Pick<Task, "status">> = {}) {
+	return updateTask(id, { ...patch, archivedAt: now() });
+}
+
+export async function archiveTasksForWorktree(worktreeId: string, archivedAt = now()) {
+	const tasks = await db.list<Task>("tasks");
+	await Promise.all(
+		tasks
+			.filter((task) => task.worktreeId === worktreeId && !task.archivedAt && !task.deletedAt)
+			.map((task) => updateTask(task.id, { archivedAt })),
+	);
 }
 
 export async function allTaskRunsDone(taskId: string) {

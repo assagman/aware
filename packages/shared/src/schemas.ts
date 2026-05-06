@@ -14,6 +14,7 @@ export const worktreeSchema = z.object({
 	path: z.string(),
 	branch: z.string(),
 	baseBranch: z.string().optional(),
+	deletedAt: z.string().optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -102,6 +103,10 @@ export const graphTaskIdentityInputSchema = z.object({
 	projectId: idSchema,
 	taskId: idSchema,
 });
+export const graphArchiveTaskInputSchema = graphTaskIdentityInputSchema.extend({
+	cleanup: z.boolean().optional(),
+	status: z.enum(["draft", "queued", "running", "need_review", "done", "failed"]).optional(),
+});
 export const graphStartRunInputSchema = z.object({
 	projectId: idSchema,
 	taskId: idSchema,
@@ -143,6 +148,7 @@ export const graphCommandSchemas = {
 	create_task: graphCreateTaskInputSchema,
 	update_task: graphUpdateTaskInputSchema,
 	mark_task_done: graphTaskIdentityInputSchema,
+	archive_task: graphArchiveTaskInputSchema,
 	start_run: graphStartRunInputSchema,
 	send_run_message: graphSendRunMessageInputSchema,
 	retry_run: graphRetryRunInputSchema,

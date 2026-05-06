@@ -1,10 +1,13 @@
-import type { AgentRun, RunLane, RunRelation, Task } from "@aware/shared";
+import { lstat } from "node:fs/promises";
+import type { AgentRun, RunLane, RunRelation, Task, Worktree } from "@aware/shared";
 import { db } from "../../db/client";
 import { flueRuntime } from "../agentRuntime/flueRuntime";
-import { assertAllowedWorktree, addProject } from "../projectService";
+import { isDefaultBranch } from "../defaultBranchGuard";
+import { git } from "../gitService";
+import { assertAllowedWorktree, addProject, listStoredWorktrees } from "../projectService";
 import { listMainAgentsForRun, listShippingAgentsForRun } from "../shippingAgentService";
 import { worktreeAgent } from "../worktreeAgentService";
-import { createTask, updateTask } from "../taskService";
+import { archiveTask, createTask, updateTask } from "../taskService";
 import {
 	getProjectOrThrow,
 	getRunInTaskOrThrow,
@@ -28,6 +31,40 @@ function runLane(run: AgentRun): RunLane {
 
 function activeRuns(runs: AgentRun[]) {
 	return runs.filter((run) => !run.deletedAt);
+}
+
+async function branchExists(projectPath: string, branch: string) {
+	try {
+		await git(projectPath, ["show-ref", "--verify", `refs/heads/${branch}`]);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function pathExists(path: string) {
+	try {
+		await lstat(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function cleanupTaskWorktree(projectPath: string, worktree: Worktree | undefined) {
+	if (!worktree || isDefaultBranch(worktree))
+		return { worktreeRemoved: false, branchDeleted: false, skipped: true };
+	const worktreeExists = await pathExists(worktree.path);
+	if (worktreeExists) await git(projectPath, ["worktree", "remove", "--force", worktree.path]);
+	const canDeleteBranch = worktree.branch && !isDefaultBranch(worktree) && await branchExists(projectPath, worktree.branch);
+	if (canDeleteBranch) await git(projectPath, ["branch", "-D", worktree.branch]);
+	const deletedAt = new Date().toISOString();
+	await db.update<Worktree>("worktrees", worktree.id, { deletedAt, updatedAt: deletedAt });
+	return {
+		worktreeRemoved: worktreeExists,
+		branchDeleted: Boolean(canDeleteBranch),
+		skipped: false,
+	};
 }
 
 export async function createProjectCommand(input: { path: string }) {
@@ -72,6 +109,22 @@ export async function updateTaskCommand(input: {
 	if (input.deletedAt !== undefined && input.deletedAt !== null)
 		patch.deletedAt = input.deletedAt;
 	return updateTask(task.id, patch as Partial<Task>);
+}
+
+export async function archiveTaskCommand(input: {
+	projectId: string;
+	taskId: string;
+	cleanup?: boolean | undefined;
+	status?: Task["status"] | undefined;
+}) {
+	const task = await getTaskInProjectOrThrow(input.projectId, input.taskId);
+	const project = await getProjectOrThrow(input.projectId);
+	const worktree = task.worktreeId
+		? (await listStoredWorktrees()).find((row) => row.id === task.worktreeId && row.projectId === project.id)
+		: undefined;
+	const cleanup = input.cleanup ? await cleanupTaskWorktree(project.rootPath, worktree) : undefined;
+	const archived = await archiveTask(task.id, input.status ? { status: input.status } : {});
+	return { task: archived, cleanup };
 }
 
 async function assertParentRun(input: {

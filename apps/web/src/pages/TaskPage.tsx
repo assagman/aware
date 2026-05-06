@@ -46,10 +46,8 @@ export function TaskPage() {
 	async function load() {
 		setLoading(true);
 		try {
-			const [nextTask, graph] = await Promise.all([
-				apiGet<Task>(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`),
-				apiGet<GraphProjection>(`/projects/${encodeURIComponent(projectId)}/graph`),
-			]);
+			const nextTask = await apiGet<Task>(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`);
+			const graph = await apiGet<GraphProjection>(`/projects/${encodeURIComponent(projectId)}/graph${nextTask.archivedAt ? "?history=1" : ""}`);
 			setTask(nextTask);
 			setTitle(nextTask.title);
 			setBody(nextTask.body);
@@ -74,11 +72,12 @@ export function TaskPage() {
 	const gateRuns = runs.filter((run) => runLane(run) === "gate");
 	const graphRuns = runs.filter((run) => runLane(run) === "graph");
 	const activeGraphRun = graphRuns.some((run) => run.status === "running" || run.status === "queued");
+	const isArchived = Boolean(task?.archivedAt);
 	const active = activeRuns(taskLaneRuns);
-	const canCheckpoint = active.length > 0 && active.every((run) => run.status === "done");
+	const canCheckpoint = !isArchived && active.length > 0 && active.every((run) => run.status === "done");
 
 	async function save() {
-		if (!task || saving || !title.trim()) return;
+		if (!task || isArchived || saving || !title.trim()) return;
 		setSaving(true);
 		try {
 			const updated = await apiPatch<Task>(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`, { title: title.trim(), body });
@@ -91,7 +90,7 @@ export function TaskPage() {
 	}
 
 	async function startRun(lane: UserRunLane) {
-		if (!task || starting) return;
+		if (!task || isArchived || starting) return;
 		const draft = lane === "gate" ? gateMessage : message;
 		setStarting(true);
 		try {
@@ -109,7 +108,7 @@ export function TaskPage() {
 	}
 
 	async function checkpoint() {
-		if (!task || checkpointing) return;
+		if (!task || isArchived || checkpointing) return;
 		setCheckpointing(true);
 		try {
 			await apiPost(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`, {});
@@ -120,7 +119,7 @@ export function TaskPage() {
 	}
 
 	async function startGraphAgent(mode: "task_runs" | "gate_runs" | "ship_prep") {
-		if (!task || graphing || activeGraphRun) return;
+		if (!task || isArchived || graphing || activeGraphRun) return;
 		setGraphing(true);
 		setGraphError("");
 		try {
@@ -156,11 +155,13 @@ export function TaskPage() {
 					<h2>{task.title}</h2>
 				</div>
 				<div className="home-run-topbar-actions">
+					{isArchived ? <span className="task-status status-done">Archived</span> : null}
 					<span className={`task-status status-${task.status}`}>{labelStatus(task.status)}</span>
-					{worktree ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/worktrees/${encodeURIComponent(worktree.id)}/diffs`}>View Diffs</Link> : null}
-					<Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoint`}>Gate</Link>
-					<Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/ship`}>Ship</Link>
-					<button type="button" disabled={!canCheckpoint || checkpointing} onClick={() => void checkpoint()}>{checkpointing ? "Marking…" : "Mark gate"}</button>
+					{worktree && !isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/worktrees/${encodeURIComponent(worktree.id)}/diffs`}>View Diffs</Link> : null}
+					<Link className="home-action-link" to={isArchived ? `/projects/${encodeURIComponent(projectId)}/history` : `/projects/${encodeURIComponent(projectId)}`}>{isArchived ? "History" : "Graph"}</Link>
+					{!isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoint`}>Gate</Link> : null}
+					{!isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/ship`}>Ship</Link> : null}
+					{!isArchived ? <button type="button" disabled={!canCheckpoint || checkpointing} onClick={() => void checkpoint()}>{checkpointing ? "Marking…" : "Mark gate"}</button> : null}
 				</div>
 			</header>
 			<div className="task-route-body">
@@ -170,7 +171,7 @@ export function TaskPage() {
 							<h2>Task brief</h2>
 							<small>{editing ? "Editing with live preview" : "Markdown rendered"}</small>
 						</div>
-						{editing ? null : <button type="button" onClick={() => setEditing(true)}>Edit</button>}
+						{editing || isArchived ? null : <button type="button" onClick={() => setEditing(true)}>Edit</button>}
 					</div>
 					{editing ? (
 						<form className="home-form task-route-edit-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
@@ -199,6 +200,7 @@ export function TaskPage() {
 						</div>
 					)}
 				</section>
+				{isArchived ? <section className="card"><p className="empty-state">Archived task. Runs and ship evidence remain read-only in History.</p></section> : null}
 				<section className="card task-route-runs">
 					<div className="panel-head task-route-section-head">
 						<div>
@@ -207,7 +209,7 @@ export function TaskPage() {
 						</div>
 						<div className="task-route-head-actions">
 							{loading ? <BusyIndicator label="Syncing" /> : null}
-							<button type="button" disabled={graphing || activeGraphRun} onClick={() => void startGraphAgent("task_runs")}>{graphing ? "Starting…" : activeGraphRun ? "Graph Agent running" : "Auto Create Runs"}</button>
+							<button type="button" disabled={isArchived || graphing || activeGraphRun} onClick={() => void startGraphAgent("task_runs")}>{graphing ? "Starting…" : activeGraphRun ? "Graph Agent running" : "Auto Create Runs"}</button>
 						</div>
 					</div>
 					{graphError ? <p className="error graph-agent-error">{graphError}</p> : null}
@@ -218,10 +220,12 @@ export function TaskPage() {
 								<small>Runs before gate.</small>
 							</div>
 						</div>
-						<div className="task-route-start-run">
-							<textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="New task-lane run instructions…" />
-							<button type="button" disabled={starting} onClick={() => void startRun("task")}>{starting ? "Starting…" : "New task run"}</button>
-						</div>
+						{!isArchived ? (
+							<div className="task-route-start-run">
+								<textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="New task-lane run instructions…" />
+								<button type="button" disabled={starting} onClick={() => void startRun("task")}>{starting ? "Starting…" : "New task run"}</button>
+							</div>
+						) : null}
 						<div className="task-route-run-list">
 							{taskLaneRuns.map((run) => (
 								<Link key={run.id} to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(run.id)}`} className="task-route-run-row">
@@ -258,10 +262,12 @@ export function TaskPage() {
 							</div>
 							<Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoint`}>Open gate</Link>
 						</div>
-						<div className="task-route-start-run">
-							<textarea value={gateMessage} onChange={(event) => setGateMessage(event.target.value)} placeholder="New gate-lane run instructions…" />
-							<button type="button" disabled={starting} onClick={() => void startRun("gate")}>{starting ? "Starting…" : "New gate run"}</button>
-						</div>
+						{!isArchived ? (
+							<div className="task-route-start-run">
+								<textarea value={gateMessage} onChange={(event) => setGateMessage(event.target.value)} placeholder="New gate-lane run instructions…" />
+								<button type="button" disabled={starting} onClick={() => void startRun("gate")}>{starting ? "Starting…" : "New gate run"}</button>
+							</div>
+						) : null}
 						<div className="task-route-run-list">
 							{gateRuns.map((run) => (
 								<Link key={run.id} to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(run.id)}`} className="task-route-run-row gate-run-row">

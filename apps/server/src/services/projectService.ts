@@ -10,6 +10,7 @@ import {
 	worktreePaths,
 	worktreeRoot,
 } from "./gitService";
+import { archiveTasksForWorktree } from "./taskService";
 import { assertHostWorkspacePath } from "./workspaceConvention";
 
 const now = () => new Date().toISOString();
@@ -55,8 +56,14 @@ async function listedExistingWorktreePaths(project: Project) {
 async function syncProjectWorktrees(project: Project) {
 	const paths = await listedExistingWorktreePaths(project);
 	for (const worktree of await listStoredWorktrees()) {
-		if (worktree.projectId === project.id && !paths.has(worktree.path))
-			await db.delete("worktrees", worktree.id);
+		if (worktree.projectId === project.id && !paths.has(worktree.path) && !worktree.deletedAt) {
+			const deletedAt = now();
+			await archiveTasksForWorktree(worktree.id, deletedAt);
+			await db.update<Worktree>("worktrees", worktree.id, {
+				deletedAt,
+				updatedAt: deletedAt,
+			});
+		}
 	}
 	for (const path of paths) await upsertListedWorktree(project, path);
 }
@@ -65,15 +72,16 @@ async function upsertListedWorktree(project: Project, path: string): Promise<Wor
 	const branch = await currentBranch(path).catch(() => "");
 	const existing = (await listStoredWorktrees()).find((w) => w.path === path);
 	if (existing) {
-		if (existing.projectId === project.id && existing.branch === branch)
+		if (existing.projectId === project.id && existing.branch === branch && !existing.deletedAt)
 			return existing;
-		const updated = await db.update<Worktree>("worktrees", existing.id, {
+		const updated: Worktree = {
+			...existing,
 			projectId: project.id,
 			branch,
 			updatedAt: now(),
-		});
-		if (!updated) throw new Error("Worktree not found");
-		return updated;
+		};
+		delete updated.deletedAt;
+		return db.insert("worktrees", updated);
 	}
 	return db.insert("worktrees", {
 		id: randomUUID(),
@@ -104,15 +112,16 @@ export async function addWorktree(
 	const branch = await currentBranch(real);
 	const existing = (await listStoredWorktrees()).find((w) => w.path === real);
 	if (existing) {
-		if (existing.projectId === projectId && existing.branch === branch)
+		if (existing.projectId === projectId && existing.branch === branch && !existing.deletedAt)
 			return existing;
-		const updated = await db.update<Worktree>("worktrees", existing.id, {
+		const updated: Worktree = {
+			...existing,
 			projectId,
 			branch,
 			updatedAt: now(),
-		});
-		if (!updated) throw new Error("Worktree not found");
-		return updated;
+		};
+		delete updated.deletedAt;
+		return db.insert("worktrees", updated);
 	}
 	const row: Worktree = {
 		id: randomUUID(),
@@ -125,7 +134,7 @@ export async function addWorktree(
 	return db.insert("worktrees", row);
 }
 
-async function listStoredWorktrees() {
+export async function listStoredWorktrees() {
 	return db.list<Worktree>("worktrees");
 }
 
@@ -145,6 +154,7 @@ async function doListWorktrees() {
 	const rows = await listStoredWorktrees();
 	const visible: Worktree[] = [];
 	for (const worktree of rows) {
+		if (worktree.deletedAt) continue;
 		if (!(await isInsideWorkTree(worktree.path).catch(() => false))) continue;
 		if (await isBareRepository(worktree.path).catch(() => false)) continue;
 		visible.push(worktree);

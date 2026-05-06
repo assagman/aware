@@ -11,7 +11,8 @@ import {
 } from "react-router-dom";
 import { apiGet } from "./api";
 import { getSelectedProjectId, setSelectedProjectId } from "./selection";
-import { ProjectPicker } from "../components/ProjectPicker";
+import { AddProjectButton, ProjectPicker } from "../components/ProjectPicker";
+import { HistoryPage } from "../pages/HistoryPage";
 import { HomePage } from "../pages/HomePage";
 import { ProjectPage } from "../pages/ProjectPage";
 import { TaskPage } from "../pages/TaskPage";
@@ -99,6 +100,8 @@ function AppShell() {
 		refreshProjects,
 	}), [projects, projectsError, projectsLoaded, projectsLoading, refreshProjects]);
 
+	const inProjectScope = Boolean(routeProjectId);
+
 	return (
 		<main className="app-shell home-app-shell">
 			<header className="app-header home-header">
@@ -110,7 +113,12 @@ function AppShell() {
 					</div>
 				</Link>
 				<div className="home-header-actions">
-					<ProjectPicker value={projectId} projects={projects} loading={projectsLoading} onChange={chooseProject} onCreated={handleProjectCreated} />
+					{inProjectScope ? (
+						<ProjectPicker value={projectId} projects={projects} loading={projectsLoading} onChange={chooseProject} onCreated={handleProjectCreated} showAdd={false} />
+					) : (
+						<AddProjectButton onCreated={handleProjectCreated} />
+					)}
+					<Link className="home-action-link" to={inProjectScope && projectId ? `/projects/${encodeURIComponent(projectId)}/history` : "/history"}>History</Link>
 					<Link className="settings-button" aria-label="Settings" title="Settings" to="/settings">⚙</Link>
 				</div>
 			</header>
@@ -144,7 +152,9 @@ export function AppRouter() {
 			<Routes>
 				<Route element={<AppShell />}>
 					<Route index element={<HomeRoute />} />
+					<Route path="history" element={<HistoryPage />} />
 					<Route path="projects/:projectId" element={<ProjectPage />} />
+					<Route path="projects/:projectId/history" element={<HistoryPage />} />
 					<Route path="projects/:projectId/tasks/:taskId" element={<TaskPage />} />
 					<Route path="projects/:projectId/tasks/:taskId/checkpoint" element={<CheckpointPage />} />
 					<Route path="projects/:projectId/tasks/:taskId/ship" element={<ShippingPage />} />

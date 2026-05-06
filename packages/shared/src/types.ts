@@ -13,6 +13,7 @@ export type Worktree = {
 	path: string;
 	branch: string;
 	baseBranch?: string;
+	deletedAt?: string;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -117,6 +118,7 @@ export type GraphCommandName =
 	| "create_task"
 	| "update_task"
 	| "mark_task_done"
+	| "archive_task"
 	| "start_run"
 	| "send_run_message"
 	| "retry_run"
