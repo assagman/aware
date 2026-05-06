@@ -19,6 +19,9 @@ import { TaskPage } from "../pages/TaskPage";
 import { RunPage } from "../pages/RunPage";
 import { CheckpointPage } from "../pages/CheckpointPage";
 import { ShippingPage } from "../pages/ShippingPage";
+import { AnnotationsPage } from "../pages/AnnotationsPage";
+import { AnnotationTasksPage } from "../pages/AnnotationTasksPage";
+import { AnnotationRunPage } from "../pages/AnnotationRunPage";
 import { FilesPage } from "../pages/FilesPage";
 import { DiffsPage } from "../pages/DiffsPage";
 import { SettingsPage } from "../pages/SettingsPage";
@@ -159,6 +162,9 @@ export function AppRouter() {
 					<Route path="projects/:projectId/tasks/:taskId/checkpoint" element={<CheckpointPage />} />
 					<Route path="projects/:projectId/tasks/:taskId/ship" element={<ShippingPage />} />
 					<Route path="projects/:projectId/tasks/:taskId/runs/:runId" element={<RunPage />} />
+					<Route path="projects/:projectId/annotations" element={<AnnotationsPage />} />
+					<Route path="projects/:projectId/annotation-tasks" element={<AnnotationTasksPage />} />
+					<Route path="projects/:projectId/annotation-runs/:runId" element={<AnnotationRunPage />} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/files" element={<FilesPage />} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/files/*" element={<FilesPage />} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/diffs" element={<DiffsPage />} />

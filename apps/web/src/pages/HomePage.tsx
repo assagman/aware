@@ -1,5 +1,6 @@
 import type {
 	AgentRun,
+	Annotation,
 	GraphAction,
 	GraphProjection,
 	GraphProjectionNode,
@@ -12,6 +13,7 @@ import type {
 	Worktree,
 } from "@aware/shared";
 import type { GitStatus, GitStatusEntry } from "@pierre/trees";
+import type { OnDiffLineClickProps, SelectedLineRange } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import {
@@ -33,6 +35,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -70,9 +73,10 @@ type DialogState =
 	| { type: "review"; taskId: string }
 	| null;
 type GraphNodeData = Record<string, unknown> & {
-	kind: "project" | "task" | "run" | "add-task" | "add-run" | "checkpoint" | "ship" | "review";
+	kind: "project" | "annotation" | "annotation-tasks" | "task" | "run" | "add-task" | "add-run" | "checkpoint" | "ship" | "review";
 	label: ReactNode;
 	projectId?: string | undefined;
+	annotationId?: string | undefined;
 	taskId?: string | undefined;
 	runId?: string | undefined;
 	worktreeId?: string | undefined;
@@ -559,6 +563,148 @@ async function highlightedFileHtml(path: string, content: string) {
 	return html.replaceAll('</span>\n<span class="line">', '</span><span class="line">');
 }
 
+function decorateHighlightedFileHtml(html: string, selectedStart?: number, selectedEnd?: number) {
+	if (!html) return html;
+	let line = 0;
+	return html.replace(/<span class="line"/g, () => {
+		line += 1;
+		const selected = selectedStart && selectedEnd && line >= selectedStart && line <= selectedEnd;
+		return `<span class="line${selected ? " selected" : ""}" data-line="${line}"`;
+	});
+}
+
+function normalizedLineRange(start: number, end: number) {
+	return { start: Math.min(start, end), end: Math.max(start, end) };
+}
+
+function annotationRangeLabel(path: string, startLine?: number, endLine?: number) {
+	if (!startLine) return path;
+	return endLine && endLine !== startLine ? `${path}:${startLine}-${endLine}` : `${path}:${startLine}`;
+}
+
+function annotationContext(path: string, startLine: number, endLine: number, text: string) {
+	return `${annotationRangeLabel(path, startLine, endLine)}\n${text}`;
+}
+
+type PendingAnnotation = {
+	kind: Annotation["kind"];
+	filePath: string;
+	side?: Annotation["side"];
+	startLine: number;
+	endLine: number;
+	selectedText: string;
+	context: string;
+	x: number;
+	y: number;
+};
+
+function closestLineElement(node: globalThis.Node | null, root: HTMLElement) {
+	let current: globalThis.Node | null = node;
+	while (current && current !== root) {
+		if (current instanceof HTMLElement && (current.matches(".home-code-highlight .line") || current.matches(".home-code-line"))) return current;
+		current = current.parentNode;
+	}
+	return null;
+}
+
+function lineNumberForElement(element: HTMLElement, root: HTMLElement) {
+	const explicit = Number(element.dataset.line);
+	if (Number.isFinite(explicit) && explicit > 0) return explicit;
+	const highlighted = [...root.querySelectorAll<HTMLElement>(".home-code-highlight .line")];
+	const highlightedIndex = highlighted.indexOf(element);
+	if (highlightedIndex >= 0) return highlightedIndex + 1;
+	const fallback = [...root.querySelectorAll<HTMLElement>(".home-code-line")];
+	const fallbackIndex = fallback.indexOf(element);
+	return fallbackIndex >= 0 ? fallbackIndex + 1 : undefined;
+}
+
+function pendingFileTextSelection(root: HTMLElement, filePath: string, lines: string[]): PendingAnnotation | undefined {
+	const selection = window.getSelection();
+	if (!selection || selection.isCollapsed || !selection.rangeCount) return undefined;
+	const range = selection.getRangeAt(0);
+	if (!root.contains(range.commonAncestorContainer)) return undefined;
+	const startElement = closestLineElement(range.startContainer, root);
+	const endElement = closestLineElement(range.endContainer, root);
+	if (!startElement || !endElement) return undefined;
+	const start = lineNumberForElement(startElement, root);
+	const end = lineNumberForElement(endElement, root);
+	if (!start || !end) return undefined;
+	const normalized = normalizedLineRange(start, end);
+	const selectedText = selection.toString();
+	if (!selectedText.trim()) return undefined;
+	const rect = range.getBoundingClientRect();
+	const exactLines = lines.slice(normalized.start - 1, normalized.end).join("\n");
+	return {
+		kind: normalized.start === normalized.end ? "line" : "range",
+		filePath,
+		startLine: normalized.start,
+		endLine: normalized.end,
+		selectedText,
+		context: annotationContext(filePath, normalized.start, normalized.end, exactLines || selectedText),
+		x: rect.left + rect.width / 2,
+		y: rect.top,
+	};
+}
+
+function pendingFileLineSelection(filePath: string, lines: string[], start: number, end: number, rect: DOMRect): PendingAnnotation {
+	const normalized = normalizedLineRange(start, end);
+	const selectedText = lines.slice(normalized.start - 1, normalized.end).join("\n");
+	return {
+		kind: normalized.start === normalized.end ? "line" : "range",
+		filePath,
+		startLine: normalized.start,
+		endLine: normalized.end,
+		selectedText,
+		context: annotationContext(filePath, normalized.start, normalized.end, selectedText),
+		x: rect.left + rect.width / 2,
+		y: rect.top,
+	};
+}
+
+function patchForFile(patch: string, filePath: string) {
+	const chunks = patch.split(/^diff --git /m);
+	for (const chunk of chunks) {
+		if (!chunk.trim()) continue;
+		const full = `diff --git ${chunk}`;
+		const header = full.split("\n", 1)[0] ?? "";
+		if (header.includes(` b/${filePath}`) || header.includes(` a/${filePath}`)) return full;
+	}
+	return "";
+}
+
+function diffSelectedText(patch: string, filePath: string, side: Annotation["side"], startLine: number, endLine: number) {
+	const filePatch = patchForFile(patch, filePath);
+	if (!filePatch) return "";
+	const selected: string[] = [];
+	let oldLine = 0;
+	let newLine = 0;
+	for (const raw of filePatch.split(/\r?\n/)) {
+		const hunk = raw.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+		if (hunk) {
+			oldLine = Number(hunk[1]);
+			newLine = Number(hunk[2]);
+			continue;
+		}
+		if (!raw || raw.startsWith("diff --git") || raw.startsWith("+++") || raw.startsWith("---")) continue;
+		const prefix = raw[0];
+		const text = raw.slice(1);
+		const useOld = side === "old" || side === "deletions";
+		if (prefix === " ") {
+			const line = useOld ? oldLine : newLine;
+			if (line >= startLine && line <= endLine) selected.push(text);
+			oldLine += 1;
+			newLine += 1;
+		} else if (prefix === "-") {
+			if (useOld && oldLine >= startLine && oldLine <= endLine) selected.push(text);
+			oldLine += 1;
+		} else if (prefix === "+") {
+			if (!useOld && newLine >= startLine && newLine <= endLine) selected.push(text);
+			newLine += 1;
+		}
+	}
+	return selected.join("\n");
+}
+
 export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onModeChange, initialFile = "", onFileChange }: { view: WorkspaceViewState; onBack: () => void; onGraph?: () => void; onWorktreeChange?: (worktreeId: string) => void; onModeChange?: (mode: WorkspaceViewState["mode"]) => void; initialFile?: string; onFileChange?: (path: string) => void }) {
 	const stateKey = `home-workspace:${view.mode}:${view.worktreeId}`;
 	const initial = { file: initialFile || getPageState(stateKey, { file: "" }).file };
@@ -577,6 +723,13 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 	const [diffPatches, setDiffPatches] = useState<DiffPatches>(EMPTY_DIFF_PATCHES);
 	const [highlightedHtml, setHighlightedHtml] = useState("");
 	const [syntaxLoading, setSyntaxLoading] = useState(false);
+	const [pendingAnnotation, setPendingAnnotation] = useState<PendingAnnotation | null>(null);
+	const [annotationEditing, setAnnotationEditing] = useState(false);
+	const [annotationNote, setAnnotationNote] = useState("");
+	const [annotationSaving, setAnnotationSaving] = useState(false);
+	const [lineSelection, setLineSelection] = useState<{ start: number; end: number } | null>(null);
+	const [diffSelection, setDiffSelection] = useState<(SelectedLineRange & { filePath: string; patch: string }) | null>(null);
+	const codeRootRef = useRef<HTMLDivElement | null>(null);
 	const onFileChangeRef = useRef(onFileChange);
 	useEffect(() => {
 		onFileChangeRef.current = onFileChange;
@@ -590,6 +743,10 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 	const gitStatus = useMemo(() => diffGitStatusEntries(diffSections), [diffSections]);
 	const changedPaths = useMemo(() => gitStatus.map((entry) => entry.path), [gitStatus]);
 	const hasDiff = diffSections.some((section) => section.patch.trim());
+	const renderedHighlightedHtml = useMemo(
+		() => decorateHighlightedFileHtml(highlightedHtml, lineSelection?.start, lineSelection?.end),
+		[highlightedHtml, lineSelection?.end, lineSelection?.start],
+	);
 
 	const readFile = useCallback(async (path: string) => {
 		if (!path) return;
@@ -604,6 +761,11 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 			setContent("");
 			setContentPath("");
 			setHighlightedHtml("");
+			setPendingAnnotation(null);
+			setAnnotationEditing(false);
+			setAnnotationNote("");
+			setLineSelection(null);
+			setDiffSelection(null);
 		}
 		setFileLoading(true);
 		try {
@@ -727,6 +889,101 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 		return () => source.close();
 	}, [loadDiffs, loadTree, view.worktreeId]);
 
+	function clearPendingAnnotation() {
+		setPendingAnnotation(null);
+		setAnnotationEditing(false);
+		setAnnotationNote("");
+		setDiffSelection(null);
+	}
+
+	function handleCodeMouseUp() {
+		window.setTimeout(() => {
+			if (view.mode !== "files" || !file || !codeRootRef.current) return;
+			const pending = pendingFileTextSelection(codeRootRef.current, file, lines);
+			if (!pending) return;
+			setPendingAnnotation(pending);
+			setAnnotationEditing(false);
+			setAnnotationNote("");
+			setLineSelection(null);
+		}, 0);
+	}
+
+	function handleCodeClick(event: ReactMouseEvent<HTMLDivElement>) {
+		if (view.mode !== "files" || !file || !codeRootRef.current) return;
+		const target = event.target instanceof HTMLElement ? event.target : undefined;
+		const lineElement = target?.closest<HTMLElement>(".home-code-highlight .line, .home-code-line");
+		if (!lineElement || !codeRootRef.current.contains(lineElement)) return;
+		const rect = lineElement.getBoundingClientRect();
+		if (event.clientX > rect.left + 72) return;
+		const line = lineNumberForElement(lineElement, codeRootRef.current);
+		if (!line) return;
+		const start = event.shiftKey && lineSelection ? lineSelection.start : line;
+		const normalized = normalizedLineRange(start, line);
+		setLineSelection(normalized);
+		setPendingAnnotation(pendingFileLineSelection(file, lines, normalized.start, normalized.end, rect));
+		setAnnotationEditing(false);
+		setAnnotationNote("");
+		window.getSelection()?.removeAllRanges();
+	}
+
+	function selectDiffLines(filePath: string, patch: string, range: SelectedLineRange | null) {
+		if (!range) {
+			setDiffSelection(null);
+			clearPendingAnnotation();
+			return;
+		}
+		const start = Math.min(range.start, range.end);
+		const end = Math.max(range.start, range.end);
+		const rangeSide = String(range.side);
+		const side = rangeSide === "deletions" || rangeSide === "old" ? "deletions" : "additions";
+		const text = diffSelectedText(patch, filePath, side, start, end);
+		setDiffSelection({ ...range, filePath, patch });
+		setPendingAnnotation({
+			kind: "diff",
+			filePath,
+			side,
+			startLine: start,
+			endLine: end,
+			selectedText: text,
+			context: annotationContext(filePath, start, end, text),
+			x: window.innerWidth / 2,
+			y: 128,
+		});
+		setAnnotationEditing(false);
+		setAnnotationNote("");
+	}
+
+	function selectDiffLine(filePath: string, patch: string, line: OnDiffLineClickProps) {
+		selectDiffLines(filePath, patch, {
+			start: line.lineNumber,
+			end: line.lineNumber,
+			side: line.annotationSide,
+			endSide: line.annotationSide,
+		});
+	}
+
+	async function savePendingAnnotation() {
+		if (!view.projectId || !pendingAnnotation || !annotationNote.trim() || annotationSaving) return;
+		setAnnotationSaving(true);
+		try {
+			await apiPost<Annotation>(`/projects/${encodeURIComponent(view.projectId)}/annotations`, {
+				worktreeId: view.worktreeId,
+				kind: pendingAnnotation.kind,
+				filePath: pendingAnnotation.filePath,
+				...(pendingAnnotation.side ? { side: pendingAnnotation.side } : {}),
+				startLine: pendingAnnotation.startLine,
+				endLine: pendingAnnotation.endLine,
+				text: annotationNote.trim(),
+				selectedText: pendingAnnotation.selectedText,
+				context: pendingAnnotation.context,
+			});
+			clearPendingAnnotation();
+			setLineSelection(null);
+		} finally {
+			setAnnotationSaving(false);
+		}
+	}
+
 	function refresh() {
 		void loadTree();
 		void loadDiffs();
@@ -748,6 +1005,7 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 						<WorktreePicker projectId={view.projectId} value={view.worktreeId} onChange={onWorktreeChange} showAdd={false} />
 					) : null}
 					{onModeChange ? <button type="button" onClick={() => onModeChange(view.mode === "diff" ? "files" : "diff")}>{view.mode === "diff" ? "Files" : "Diffs"}</button> : null}
+					{view.projectId ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(view.projectId)}/annotations?${new URLSearchParams({ worktreeId: view.worktreeId })}`}>Annotations</Link> : null}
 					{treeLoading || fileLoading || diffLoading || syntaxLoading ? <BusyIndicator label="Loading" /> : null}
 					{view.mode === "diff" && file ? <button type="button" onClick={() => { fileRef.current = ""; setFile(""); onFileChangeRef.current?.(""); setPageState(stateKey, { file: "" }); }}>Show all changes</button> : null}
 					<button type="button" onClick={refresh}>Refresh</button>
@@ -804,16 +1062,35 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 						</div>
 					</div>
 					{error ? <p className="error home-error">{error}</p> : null}
+					{pendingAnnotation ? (
+						<div className={`annotation-utility-popover${annotationEditing ? " editing" : " compact"}`} style={{ left: pendingAnnotation.x, top: Math.max(72, pendingAnnotation.y - 10) }}>
+							<div className="annotation-utility-row">
+								<strong>{annotationRangeLabel(pendingAnnotation.filePath, pendingAnnotation.startLine, pendingAnnotation.endLine)}</strong>
+								{annotationEditing ? <button type="button" onClick={clearPendingAnnotation}>×</button> : <button type="button" onClick={() => setAnnotationEditing(true)}>Annotate</button>}
+							</div>
+							{annotationEditing ? (
+								<>
+									<textarea value={annotationNote} onChange={(event) => setAnnotationNote(event.target.value)} placeholder="Annotation note…" autoFocus onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void savePendingAnnotation(); } }} />
+									<div className="annotation-utility-row">
+										<small>{pendingAnnotation.kind}{pendingAnnotation.side ? ` · ${pendingAnnotation.side}` : ""}</small>
+										<button type="button" disabled={!annotationNote.trim() || annotationSaving} onClick={() => void savePendingAnnotation()}>{annotationSaving ? "Saving…" : "Save"}</button>
+									</div>
+								</>
+							) : null}
+						</div>
+					) : null}
 					{view.mode === "files" ? (
 						file ? (
-							<div className="home-code-shell">
+							<div className="home-code-shell" ref={codeRootRef} onMouseUp={handleCodeMouseUp} onClick={handleCodeClick}>
 								{highlightedHtml ? (
-									<div className="home-code-highlight" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+									<div className="home-code-highlight" dangerouslySetInnerHTML={{ __html: renderedHighlightedHtml }} />
 								) : (
 									<div className="code-lines home-code-lines">
-										{lines.map((line, index) => (
-											<div key={`${file}-${index}`} className="code-line home-code-line"><span className="line-no">{index + 1}</span><code>{line || " "}</code></div>
-										))}
+										{lines.map((line, index) => {
+											const n = index + 1;
+											const selected = lineSelection && n >= lineSelection.start && n <= lineSelection.end;
+											return <div key={`${file}-${index}`} data-line={n} className={`code-line home-code-line${selected ? " selected" : ""}`}><span className="line-no">{n}</span><code>{line || " "}</code></div>;
+										})}
 									</div>
 								)}
 							</div>
@@ -827,7 +1104,20 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 									return (
 										<section key={section.id} className={`diff-section home-diff-section diff-section-${section.id}`}>
 											<h3>{section.title}</h3>
-											{visibleFiles.length ? visibleFiles.map((diffFile) => <FileDiff key={`${section.id}-${diffFile.name}-${diffFile.prevName ?? ""}`} fileDiff={diffFile} disableWorkerPool />) : <p className="empty-state">{section.patch ? (file ? "No changes for selected file in this section." : "No parsed file changes.") : "No changes."}</p>}
+											{visibleFiles.length ? visibleFiles.map((diffFile) => (
+												<FileDiff
+													key={`${section.id}-${diffFile.name}-${diffFile.prevName ?? ""}`}
+													fileDiff={diffFile}
+													disableWorkerPool
+													selectedLines={diffSelection?.filePath === diffFile.name ? diffSelection : null}
+													options={{
+														enableLineSelection: true,
+														onLineClick: (line) => selectDiffLine(diffFile.name, section.patch, line),
+														onLineNumberClick: (line) => selectDiffLine(diffFile.name, section.patch, line),
+														onLineSelectionEnd: (range) => selectDiffLines(diffFile.name, section.patch, range),
+													}}
+												/>
+											)) : <p className="empty-state">{section.patch ? (file ? "No changes for selected file in this section." : "No parsed file changes.") : "No changes."}</p>}
 										</section>
 									);
 								}) : <p className="home-workspace-empty">No diff loaded.</p>}
@@ -1061,7 +1351,7 @@ function AddRunNodeCard({ label }: { label: string }) {
 }
 
 function NodeQuickActions({ actions, onNavigate }: { actions: GraphAction[]; onNavigate: (href: string) => void }) {
-	const quick = actions.filter((item) => item.href && ["open_files", "open_diffs", "open_checkpoint", "open_ship"].includes(item.command));
+	const quick = actions.filter((item) => item.href && ["open_files", "open_diffs", "open_checkpoint", "open_ship", "open_annotations", "open_annotation_tasks"].includes(item.command));
 	if (!quick.length) return null;
 	return (
 		<span className="node-quick-actions">
@@ -1578,8 +1868,10 @@ function buildGraph({
 
 function projectionNodeClassName(node: GraphProjectionNode) {
 	if (node.kind === "project") return "home-flow-node project-node";
+	if (node.kind === "annotation") return "home-flow-node annotation-node";
+	if (node.kind === "annotation-tasks") return "home-flow-node annotation-tasks-node";
 	if (node.kind === "task") return "home-flow-node task-node";
-	if (node.kind === "run") return node.lane === "gate" ? "home-flow-node run-node gate-run-node" : node.lane === "ship" ? "home-flow-node run-node ship-run-node" : "home-flow-node run-node";
+	if (node.kind === "run") return node.lane === "gate" ? "home-flow-node run-node gate-run-node" : node.lane === "ship" ? "home-flow-node run-node ship-run-node" : node.lane === "annotation" ? "home-flow-node run-node annotation-run-node" : "home-flow-node run-node";
 	if (node.kind === "checkpoint" || node.kind === "review") return "home-flow-node review-node checkpoint-node";
 	if (node.kind === "ship") return "home-flow-node review-node ship-node";
 	if (node.kind === "add-run")
@@ -1670,6 +1962,7 @@ function renderGraphProjection({
 			data: {
 				kind: node.kind,
 				projectId: node.projectId,
+				annotationId: node.annotationId,
 				taskId: node.taskId,
 				runId: node.runId,
 				worktreeId: node.worktreeId,
@@ -1689,7 +1982,7 @@ function renderGraphProjection({
 		source: edge.source,
 		target: edge.target,
 		...(edge.animated !== undefined ? { animated: edge.animated } : {}),
-		className: ["home-edge", edge.status ? `edge-${edge.status}` : "", edge.kind === "add" ? "edge-add" : "", edge.kind === "review" || edge.kind === "checkpoint" ? "edge-review" : "", edge.kind === "gate" ? "edge-gate" : "", edge.kind === "ship" ? "edge-ship" : ""]
+		className: ["home-edge", edge.status ? `edge-${edge.status}` : "", edge.kind === "add" ? "edge-add" : "", edge.kind === "review" || edge.kind === "checkpoint" ? "edge-review" : "", edge.kind === "gate" ? "edge-gate" : "", edge.kind === "ship" ? "edge-ship" : "", edge.kind === "annotation" || edge.kind === "annotation-run" || edge.kind === "annotation-tasks" ? "edge-annotation" : ""]
 			.filter(Boolean)
 			.join(" "),
 	}));
@@ -2064,7 +2357,7 @@ export function GraphRunChat({
 		const [nextTask, nextEvents] = await Promise.all([
 			projectId && taskId
 				? apiGet<Task>(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`)
-				: apiGet<Task[]>("/tasks").then((tasks) => tasks.find((row) => row.id === nextRun.taskId)),
+				: apiGet<Task>(`/runs/${encodeURIComponent(runId)}/task`).catch(() => undefined),
 			apiGet<RunEvent[]>(`/runs/${runId}/events`),
 		]);
 		setRun(nextRun);
@@ -2279,6 +2572,14 @@ export function HomePage({
 			navigate(data.href || `/projects/${encodeURIComponent(data.projectId)}`);
 			return;
 		}
+		if (data.kind === "annotation" && data.projectId) {
+			navigate(data.href || `/projects/${encodeURIComponent(data.projectId)}/annotations`);
+			return;
+		}
+		if (data.kind === "annotation-tasks" && data.projectId) {
+			navigate(data.href || `/projects/${encodeURIComponent(data.projectId)}/annotation-tasks`);
+			return;
+		}
 		if (data.kind === "add-task" && data.projectId) {
 			setDialog({ type: "create-task", projectId: data.projectId });
 			return;
@@ -2298,9 +2599,11 @@ export function HomePage({
 			navigate(data.href || `/projects/${encodeURIComponent(data.projectId)}/tasks/${encodeURIComponent(data.taskId)}/ship`);
 			return;
 		}
-		if (data.kind === "run" && data.projectId && data.taskId && data.runId) {
+		if (data.kind === "run" && data.projectId && data.runId) {
 			setSelectedRunId(data.runId);
-			navigate(data.href || `/projects/${encodeURIComponent(data.projectId)}/tasks/${encodeURIComponent(data.taskId)}/runs/${encodeURIComponent(data.runId)}`);
+			if (data.href) navigate(data.href);
+			else if (data.taskId) navigate(`/projects/${encodeURIComponent(data.projectId)}/tasks/${encodeURIComponent(data.taskId)}/runs/${encodeURIComponent(data.runId)}`);
+			else navigate(`/projects/${encodeURIComponent(data.projectId)}/annotation-runs/${encodeURIComponent(data.runId)}`);
 			return;
 		}
 		if (data.kind === "add-run" && data.taskId && data.relation)
@@ -2337,10 +2640,10 @@ export function HomePage({
 		if (busyRunId) return;
 		const source = runs.find((run) => run.id === runId);
 		const task = source ? tasks.find((row) => row.id === source.taskId) : undefined;
-		if (!source || !task) return;
+		if (!source) return;
 		setBusyRunId(runId);
 		try {
-			await apiPost(`/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(runId)}/messages`, { message: AUTO_CONTINUE_MESSAGE });
+			await apiPost(task ? `/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(runId)}/messages` : `/runs/${encodeURIComponent(runId)}/messages`, { message: AUTO_CONTINUE_MESSAGE });
 			await refresh(true);
 		} finally {
 			setBusyRunId("");
@@ -2365,10 +2668,10 @@ export function HomePage({
 		if (busyRunId || history) return;
 		const source = runs.find((run) => run.id === runId);
 		const task = source ? tasks.find((row) => row.id === source.taskId) : undefined;
-		if (!source || !task) return;
+		if (!source) return;
 		setBusyRunId(runId);
 		try {
-			await apiDelete<AgentRun>(`/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(runId)}`);
+			await apiDelete<AgentRun>(task ? `/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/runs/${encodeURIComponent(runId)}` : `/runs/${encodeURIComponent(runId)}`);
 			await refresh(true);
 		} finally {
 			setBusyRunId("");
@@ -2397,7 +2700,7 @@ export function HomePage({
 		onNavigate: navigate,
 	}) : { nodes: [], edges: [] }, [archiveTaskFromNode, archivingTaskId, busyRunId, canRenderGraph, continueRun, deleteRun, history, navigate, projection, retryRun]);
 	const graphLayoutSignature = useMemo(() => graph.nodes.map((node) => `${node.id}:${Math.round(node.position.x)},${Math.round(node.position.y)}`).join("|"), [graph.nodes]);
-	const handleGraphMoveEnd = useCallback((_: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+	const handleGraphMoveEnd = useCallback((_: globalThis.MouseEvent | TouchEvent | null, viewport: Viewport) => {
 		saveGraphViewport(scopeKey, viewport);
 	}, [scopeKey]);
 	async function markTaskDone(taskId: string) {
@@ -2425,6 +2728,8 @@ export function HomePage({
 						<small>{history ? "Archived tasks" : projectWorktree.branch || projectWorktree.path}</small>
 					</div>
 					{history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}`}>Active graph</Link> : <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/history`}>History</Link>}
+					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/annotations?${new URLSearchParams({ worktreeId: projectWorktree.id })}`}>Annotations</Link> : null}
+					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/annotation-tasks`}>AnnotationTasks</Link> : null}
 					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/files`}>Files</Link> : null}
 					{!history ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(selectedProject.id)}/worktrees/${encodeURIComponent(projectWorktree.id)}/diffs`}>Diffs</Link> : null}
 				</nav>
