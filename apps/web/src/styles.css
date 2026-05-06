@@ -218,7 +218,6 @@ pre {
 	min-width: 140px;
 }
 
-
 .files-chat-actions p {
 	margin: 0;
 	font-size: 12px;
@@ -2176,8 +2175,16 @@ pre {
 	--home-muted: #99d5cf;
 	--home-text: #ecfffb;
 	background:
-		radial-gradient(circle at 18% 8%, rgb(var(--home-green-rgb) / 10%), transparent 34%),
-		radial-gradient(circle at 86% 10%, rgb(var(--home-blue-rgb) / 10%), transparent 32%),
+		radial-gradient(
+			circle at 18% 8%,
+			rgb(var(--home-green-rgb) / 10%),
+			transparent 34%
+		),
+		radial-gradient(
+			circle at 86% 10%,
+			rgb(var(--home-blue-rgb) / 10%),
+			transparent 32%
+		),
 		var(--home-bg);
 }
 
@@ -2207,7 +2214,11 @@ pre {
 	height: 38px;
 	border: 1px solid var(--home-border-strong);
 	border-radius: 14px;
-	background: linear-gradient(135deg, rgb(var(--home-accent-rgb) / 18%), rgb(var(--home-accent-rgb) / 6%));
+	background: linear-gradient(
+		135deg,
+		rgb(var(--home-accent-rgb) / 18%),
+		rgb(var(--home-accent-rgb) / 6%)
+	);
 	color: var(--home-accent);
 	font-size: 22px;
 	box-shadow: inset 0 0 18px rgb(var(--home-accent-rgb) / 10%);
@@ -2342,13 +2353,23 @@ pre {
 	border: 1px solid var(--home-border);
 	border-radius: 13px;
 	background: linear-gradient(145deg, rgb(8 28 28 / 98%), rgb(3 13 14 / 98%));
-	transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+	transition:
+		border-color 0.18s ease,
+		background 0.18s ease,
+		box-shadow 0.18s ease,
+		transform 0.18s ease;
 }
 
 .home-action-link:hover {
 	border-color: var(--home-accent);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 17%), rgb(4 18 18 / 98%));
-	box-shadow: 0 0 0 3px rgb(var(--home-accent-rgb) / 13%), 0 14px 34px rgb(0 0 0 / 18%);
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 17%),
+		rgb(4 18 18 / 98%)
+	);
+	box-shadow:
+		0 0 0 3px rgb(var(--home-accent-rgb) / 13%),
+		0 14px 34px rgb(0 0 0 / 18%);
 	transform: translateY(-1px);
 }
 
@@ -2362,7 +2383,9 @@ pre {
 	background:
 		linear-gradient(180deg, rgb(var(--home-accent-rgb) / 8%), rgb(2 8 6 / 96%)),
 		var(--home-bg);
-	box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%), 0 24px 70px rgb(0 0 0 / 32%);
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 4%),
+		0 24px 70px rgb(0 0 0 / 32%);
 }
 
 .home-graph-actions {
@@ -2427,7 +2450,10 @@ pre {
 	border-radius: 18px;
 	background: linear-gradient(145deg, rgb(7 26 19 / 98%), rgb(4 14 10 / 98%));
 	box-shadow: 0 18px 40px rgb(0 0 0 / 34%);
-	transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+	transition:
+		transform 0.18s ease,
+		border-color 0.18s ease,
+		box-shadow 0.18s ease;
 }
 
 .home-flow-node:hover .home-node-card {
@@ -2463,7 +2489,11 @@ pre {
 .home-node-card.project {
 	height: 136px;
 	min-height: 136px;
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 16%), rgb(5 19 13 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 16%),
+		rgb(5 19 13 / 98%)
+	);
 }
 
 .home-node-card.plus {
@@ -2471,7 +2501,11 @@ pre {
 	align-items: flex-start;
 	justify-content: center;
 	border-style: dashed;
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 12%), rgb(6 23 16 / 90%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 12%),
+		rgb(6 23 16 / 90%)
+	);
 }
 
 .home-node-card.candidate {
@@ -2504,10 +2538,17 @@ pre {
 	place-items: center;
 	border: 1px dashed rgb(var(--home-accent-rgb) / 52%);
 	border-radius: 18px;
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 16%), rgb(5 22 16 / 92%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 16%),
+		rgb(5 22 16 / 92%)
+	);
 	box-shadow: 0 16px 34px rgb(0 0 0 / 28%);
 	cursor: pointer;
-	transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+	transition:
+		transform 0.18s ease,
+		border-color 0.18s ease,
+		box-shadow 0.18s ease;
 }
 
 .add-run-node:hover .home-add-run-card {
@@ -2536,7 +2577,11 @@ pre {
 
 .add-run-lane-gate .home-add-run-card {
 	border-color: rgb(var(--home-blue-rgb) / 56%);
-	background: linear-gradient(145deg, rgb(var(--home-blue-rgb) / 15%), rgb(4 16 23 / 92%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-blue-rgb) / 15%),
+		rgb(4 16 23 / 92%)
+	);
 }
 
 .add-run-lane-gate .home-add-run-plus {
@@ -2547,50 +2592,90 @@ pre {
 .home-node-card.status-card-done,
 .home-node-card.status-card-ready {
 	border-color: rgb(var(--home-green-rgb) / 62%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 14%), rgb(4 18 14 / 98%));
-	box-shadow: 0 0 0 1px rgb(var(--home-green-rgb) / 18%), 0 18px 44px rgb(var(--home-green-rgb) / 9%);
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 14%),
+		rgb(4 18 14 / 98%)
+	);
+	box-shadow:
+		0 0 0 1px rgb(var(--home-green-rgb) / 18%),
+		0 18px 44px rgb(var(--home-green-rgb) / 9%);
 }
 
 .home-node-card.status-card-need_review,
 .home-node-card.status-card-need_rerun {
 	border-color: rgb(var(--home-blue-rgb) / 62%);
-	background: linear-gradient(145deg, rgb(var(--home-blue-rgb) / 14%), rgb(4 15 22 / 98%));
-	box-shadow: 0 0 0 1px rgb(var(--home-blue-rgb) / 18%), 0 18px 44px rgb(var(--home-blue-rgb) / 9%);
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-blue-rgb) / 14%),
+		rgb(4 15 22 / 98%)
+	);
+	box-shadow:
+		0 0 0 1px rgb(var(--home-blue-rgb) / 18%),
+		0 18px 44px rgb(var(--home-blue-rgb) / 9%);
 }
 
 .home-node-card.status-card-running,
 .home-node-card.status-card-queued,
 .home-node-card.live {
 	border-color: rgb(var(--home-yellow-rgb) / 68%);
-	background: linear-gradient(145deg, rgb(var(--home-yellow-rgb) / 13%), rgb(21 17 5 / 98%));
-	box-shadow: 0 0 0 1px rgb(var(--home-yellow-rgb) / 20%), 0 18px 44px rgb(var(--home-yellow-rgb) / 10%);
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-yellow-rgb) / 13%),
+		rgb(21 17 5 / 98%)
+	);
+	box-shadow:
+		0 0 0 1px rgb(var(--home-yellow-rgb) / 20%),
+		0 18px 44px rgb(var(--home-yellow-rgb) / 10%);
 }
 
 .home-node-card.status-card-failed,
 .home-node-card.status-card-cancelled {
 	border-color: rgb(var(--home-red-rgb) / 68%);
-	background: linear-gradient(145deg, rgb(var(--home-red-rgb) / 13%), rgb(22 6 9 / 98%));
-	box-shadow: 0 0 0 1px rgb(var(--home-red-rgb) / 20%), 0 18px 44px rgb(var(--home-red-rgb) / 10%);
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-red-rgb) / 13%),
+		rgb(22 6 9 / 98%)
+	);
+	box-shadow:
+		0 0 0 1px rgb(var(--home-red-rgb) / 20%),
+		0 18px 44px rgb(var(--home-red-rgb) / 10%);
 }
 
 .home-node-card.gate {
 	border-color: rgb(var(--home-blue-rgb) / 58%);
-	background: linear-gradient(145deg, rgb(var(--home-blue-rgb) / 12%), rgb(4 15 22 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-blue-rgb) / 12%),
+		rgb(4 15 22 / 98%)
+	);
 }
 
 .home-node-card.ship {
 	border-color: rgb(var(--home-green-rgb) / 62%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 14%), rgb(5 20 15 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 14%),
+		rgb(5 20 15 / 98%)
+	);
 }
 
 .home-node-card.status-card-shipping {
 	border-color: rgb(var(--home-yellow-rgb) / 70%);
-	background: linear-gradient(145deg, rgb(var(--home-yellow-rgb) / 14%), rgb(21 17 5 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-yellow-rgb) / 14%),
+		rgb(21 17 5 / 98%)
+	);
 }
 
 .home-node-card.status-card-shipped {
 	border-color: rgb(var(--home-green-rgb) / 74%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 18%), rgb(4 18 14 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 18%),
+		rgb(4 18 14 / 98%)
+	);
 }
 
 .home-node-card.deleted {
@@ -2678,7 +2763,10 @@ pre {
 	pointer-events: none;
 	opacity: 0;
 	visibility: hidden;
-	transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+	transition:
+		opacity 0.12s ease,
+		transform 0.12s ease,
+		visibility 0.12s ease;
 }
 
 .node-card-actions button[data-tooltip]::before {
@@ -2849,7 +2937,11 @@ pre {
 	gap: 22px;
 	padding: 18px;
 	border-right: 1px solid var(--home-border);
-	background: linear-gradient(180deg, rgb(var(--home-accent-rgb) / 10%), rgb(2 8 6 / 92%));
+	background: linear-gradient(
+		180deg,
+		rgb(var(--home-accent-rgb) / 10%),
+		rgb(2 8 6 / 92%)
+	);
 }
 
 .settings-nav-panel h2,
@@ -3050,17 +3142,29 @@ pre {
 
 .gate-run-row {
 	border-color: rgb(var(--home-blue-rgb) / 32%);
-	background: linear-gradient(145deg, rgb(var(--home-blue-rgb) / 9%), var(--home-panel));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-blue-rgb) / 9%),
+		var(--home-panel)
+	);
 }
 
 .ship-run-row {
 	border-color: rgb(var(--home-green-rgb) / 36%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 10%), var(--home-panel));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 10%),
+		var(--home-panel)
+	);
 }
 
 .graph-run-row {
 	border-color: rgb(var(--home-accent-rgb) / 38%);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 10%), var(--home-panel));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 10%),
+		var(--home-panel)
+	);
 }
 
 .checkpoint-route-body,
@@ -3084,7 +3188,11 @@ pre {
 	gap: 8px;
 	padding: 14px;
 	border-color: var(--home-border);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 8%), rgb(2 9 10 / 92%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 8%),
+		rgb(2 9 10 / 92%)
+	);
 }
 
 .checkpoint-card h3,
@@ -3119,8 +3227,16 @@ pre {
 	border-color: rgb(var(--home-green-rgb) / 68%);
 	border-radius: 22px;
 	background:
-		radial-gradient(circle at 50% 0%, rgb(var(--home-green-rgb) / 26%), transparent 42%),
-		linear-gradient(145deg, rgb(var(--home-green-rgb) / 18%), rgb(2 13 10 / 96%));
+		radial-gradient(
+			circle at 50% 0%,
+			rgb(var(--home-green-rgb) / 26%),
+			transparent 42%
+		),
+		linear-gradient(
+			145deg,
+			rgb(var(--home-green-rgb) / 18%),
+			rgb(2 13 10 / 96%)
+		);
 	box-shadow: 0 24px 70px rgb(var(--home-green-rgb) / 14%);
 	color: #d8fff4;
 	font-size: 28px;
@@ -3472,7 +3588,11 @@ pre {
 	min-height: 0;
 	overflow: hidden;
 	border: 1px solid var(--home-border);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 8%), rgb(2 9 10 / 92%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 8%),
+		rgb(2 9 10 / 92%)
+	);
 }
 
 .home-workspace-tree .panel-head,
@@ -3627,10 +3747,18 @@ pre {
 	font-weight: 900;
 }
 
-.home-diff-legend .git-added { color: var(--home-green); }
-.home-diff-legend .git-modified { color: var(--home-blue); }
-.home-diff-legend .git-renamed { color: var(--home-yellow); }
-.home-diff-legend .git-deleted { color: var(--home-red); }
+.home-diff-legend .git-added {
+	color: var(--home-green);
+}
+.home-diff-legend .git-modified {
+	color: var(--home-blue);
+}
+.home-diff-legend .git-renamed {
+	color: var(--home-yellow);
+}
+.home-diff-legend .git-deleted {
+	color: var(--home-red);
+}
 
 .home-diff-view,
 .home-diff-scroll {
@@ -3680,7 +3808,8 @@ pre {
 	min-width: 112px;
 }
 
-.home-app-shell :where(button:not(.react-flow__controls-button), input, select, textarea) {
+.home-app-shell
+	:where(button:not(.react-flow__controls-button), input, select, textarea) {
 	accent-color: var(--home-accent);
 	margin: 0;
 	border: 1px solid var(--home-border);
@@ -3688,7 +3817,11 @@ pre {
 	background: linear-gradient(145deg, rgb(8 28 28 / 98%), rgb(3 13 14 / 98%));
 	color: var(--home-text);
 	font: inherit;
-	transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+	transition:
+		border-color 0.18s ease,
+		background 0.18s ease,
+		box-shadow 0.18s ease,
+		transform 0.18s ease;
 }
 
 .home-app-shell :where(button:not(.react-flow__controls-button)) {
@@ -3698,18 +3831,37 @@ pre {
 	cursor: pointer;
 }
 
-.home-app-shell :where(button:not(.react-flow__controls-button):hover:not(:disabled), input:focus, select:focus, textarea:focus) {
+.home-app-shell
+	:where(
+		button:not(.react-flow__controls-button):hover:not(:disabled),
+		input:focus,
+		select:focus,
+		textarea:focus
+	) {
 	border-color: var(--home-accent);
-	box-shadow: 0 0 0 3px rgb(var(--home-accent-rgb) / 13%), 0 14px 34px rgb(0 0 0 / 18%);
+	box-shadow:
+		0 0 0 3px rgb(var(--home-accent-rgb) / 13%),
+		0 14px 34px rgb(0 0 0 / 18%);
 	outline: none;
 }
 
-.home-app-shell :where(button:not(.react-flow__controls-button):hover:not(:disabled)) {
+.home-app-shell
+	:where(button:not(.react-flow__controls-button):hover:not(:disabled)) {
 	transform: translateY(-1px);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 17%), rgb(4 18 18 / 98%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 17%),
+		rgb(4 18 18 / 98%)
+	);
 }
 
-.home-app-shell :where(button:not(.react-flow__controls-button):disabled, input:disabled, select:disabled, textarea:disabled) {
+.home-app-shell
+	:where(
+		button:not(.react-flow__controls-button):disabled,
+		input:disabled,
+		select:disabled,
+		textarea:disabled
+	) {
 	cursor: not-allowed;
 	opacity: 0.45;
 	transform: none;
@@ -3720,7 +3872,11 @@ pre {
 	padding: 0;
 	border: 0;
 	border-radius: 999px;
-	background: linear-gradient(90deg, rgb(var(--home-accent-rgb) / 76%), rgb(var(--home-green-rgb) / 62%));
+	background: linear-gradient(
+		90deg,
+		rgb(var(--home-accent-rgb) / 76%),
+		rgb(var(--home-green-rgb) / 62%)
+	);
 }
 
 .home-app-shell input[type="range"]::-webkit-slider-thumb {
@@ -3743,8 +3899,16 @@ pre {
 
 .home-app-shell .home-run-chat-scroll {
 	background:
-		radial-gradient(circle at 12% 0%, rgb(var(--home-blue-rgb) / 7%), transparent 30%),
-		radial-gradient(circle at 90% 18%, rgb(var(--home-green-rgb) / 6%), transparent 28%);
+		radial-gradient(
+			circle at 12% 0%,
+			rgb(var(--home-blue-rgb) / 7%),
+			transparent 30%
+		),
+		radial-gradient(
+			circle at 90% 18%,
+			rgb(var(--home-green-rgb) / 6%),
+			transparent 28%
+		);
 }
 
 .home-app-shell .run-chat-timeline {
@@ -3811,18 +3975,32 @@ pre {
 	border-radius: 8px;
 	background: rgb(0 7 9 / 78%);
 	color: #dffefa;
-	font: 750 12px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+	font:
+		750 12px / 1.25 ui-monospace,
+		SFMono-Regular,
+		Menlo,
+		monospace;
 	letter-spacing: 0;
 	text-overflow: ellipsis;
 	text-transform: none;
 	white-space: nowrap;
 }
 
-.home-app-shell .shell-command { color: #75ffd1; }
-.home-app-shell .shell-operator { color: #35e7d2; }
-.home-app-shell .shell-flag { color: #edde7b; }
-.home-app-shell .shell-string { color: #ffd1a8; }
-.home-app-shell .shell-path { color: #9bbcff; }
+.home-app-shell .shell-command {
+	color: #75ffd1;
+}
+.home-app-shell .shell-operator {
+	color: #35e7d2;
+}
+.home-app-shell .shell-flag {
+	color: #edde7b;
+}
+.home-app-shell .shell-string {
+	color: #ffd1a8;
+}
+.home-app-shell .shell-path {
+	color: #9bbcff;
+}
 
 .home-app-shell .message-user {
 	border-color: #65a7bb;
@@ -3835,7 +4013,11 @@ pre {
 
 .home-app-shell .message-assistant {
 	border-color: rgb(var(--home-accent-rgb) / 30%);
-	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 9%), rgb(4 17 18 / 96%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 9%),
+		rgb(4 17 18 / 96%)
+	);
 }
 
 .home-app-shell .message-thinking {
@@ -3852,24 +4034,38 @@ pre {
 .home-app-shell .message-prompt,
 .home-app-shell .message-annotations {
 	border-color: rgb(var(--home-blue-rgb) / 28%);
-	background: linear-gradient(145deg, rgb(var(--home-blue-rgb) / 8%), rgb(4 15 22 / 95%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-blue-rgb) / 8%),
+		rgb(4 15 22 / 95%)
+	);
 }
 
 .home-app-shell .tool-running {
 	border-color: rgb(var(--home-yellow-rgb) / 44%);
-	box-shadow: inset 4px 0 0 rgb(var(--home-yellow-rgb) / 70%), 0 16px 42px rgb(0 0 0 / 24%);
+	box-shadow:
+		inset 4px 0 0 rgb(var(--home-yellow-rgb) / 70%),
+		0 16px 42px rgb(0 0 0 / 24%);
 }
 
 .home-app-shell .tool-success:not(.tool-failed),
 .home-app-shell .tool-custom:not(.tool-failed),
 .home-app-shell [class*="tool-color-"]:not(.tool-failed) {
 	border-color: rgb(var(--home-green-rgb) / 34%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 8%), rgb(4 18 14 / 95%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 8%),
+		rgb(4 18 14 / 95%)
+	);
 }
 
 .home-app-shell .tool-bash:not(.tool-failed) {
 	border-color: rgb(var(--home-green-rgb) / 42%);
-	background: linear-gradient(145deg, rgb(var(--home-green-rgb) / 10%), rgb(4 18 14 / 95%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 10%),
+		rgb(4 18 14 / 95%)
+	);
 }
 
 .home-app-shell .tool-read:not(.tool-failed) {
@@ -3912,7 +4108,11 @@ pre {
 .home-app-shell .message-error,
 .home-app-shell .tool-failed {
 	border-color: rgb(var(--home-red-rgb) / 50%);
-	background: linear-gradient(145deg, rgb(var(--home-red-rgb) / 12%), rgb(22 6 9 / 95%));
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-red-rgb) / 12%),
+		rgb(22 6 9 / 95%)
+	);
 }
 
 .home-app-shell .tool-event {
@@ -4058,13 +4258,23 @@ pre {
 }
 
 @keyframes fade-in {
-	from { opacity: 0; }
-	to { opacity: 1; }
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
 }
 
 @keyframes modal-rise {
-	from { transform: translateY(12px) scale(0.98); opacity: 0; }
-	to { transform: translateY(0) scale(1); opacity: 1; }
+	from {
+		transform: translateY(12px) scale(0.98);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0) scale(1);
+		opacity: 1;
+	}
 }
 
 @media (max-width: 760px) {
