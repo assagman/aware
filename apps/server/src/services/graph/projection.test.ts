@@ -111,7 +111,7 @@ describe("graph projection layout", () => {
 		const taskNode = node(projection, `task:${task.id}`);
 		const gateNode = node(projection, `checkpoint:${task.id}`);
 		const shipNode = node(projection, `ship:${task.id}`);
-		const axisY = taskNode.position.y + 64;
+		const axisY = runCenterY(taskNode);
 		const runNodes = ["run-a", "run-b", "run-c"].map((id) => node(projection, `run:${id}`));
 		const addParallelNode = node(projection, `add-run:${task.id}:parallel`);
 
@@ -145,10 +145,19 @@ describe("graph projection layout", () => {
 		];
 
 		const projection = await buildGraphProjection(project.id);
+		const annotation = node(projection, "annotation:annotation-1");
+		const annotationTasks = node(projection, `annotation-tasks:${project.id}`);
+		const addTask = node(projection, `add-task:${project.id}`);
 		const first = node(projection, "annotation-run:annotation-1:annotation-run-a");
 		const second = node(projection, "annotation-run:annotation-1:annotation-run-b");
+		const addTaskEdge = projection.edges.find((edge) => edge.target === `add-task:${project.id}`);
 
+		expect(first.position.x).toBe(second.position.x);
 		expect(second.position.y - first.position.y).toBeGreaterThanOrEqual(168);
+		expect(runCenterY(annotation)).toBe((runCenterY(first) + runCenterY(second)) / 2);
+		expect(annotationTasks.position.y).toBe(annotation.position.y);
+		expect(addRunCenterY(addTask)).toBe(runCenterY(annotation));
+		expect(addTaskEdge?.source).toBe(`annotation-tasks:${project.id}`);
 	});
 
 	it("places sequential candidates in their future depth before the gate", async () => {

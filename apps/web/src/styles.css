@@ -2418,7 +2418,8 @@ pre {
 .home-node-card {
 	position: relative;
 	display: flex;
-	min-height: 116px;
+	height: 168px;
+	min-height: 168px;
 	padding: 16px;
 	flex-direction: column;
 	gap: 7px;
@@ -2460,6 +2461,7 @@ pre {
 }
 
 .home-node-card.project {
+	height: 136px;
 	min-height: 136px;
 	background: linear-gradient(145deg, rgb(var(--home-accent-rgb) / 16%), rgb(5 19 13 / 98%));
 }
@@ -2473,6 +2475,7 @@ pre {
 }
 
 .home-node-card.candidate {
+	height: 58px;
 	min-height: 58px;
 	align-items: center;
 	justify-content: center;
@@ -2522,6 +2525,11 @@ pre {
 }
 
 .home-flow-node .react-flow__handle {
+	width: 0;
+	min-width: 0;
+	height: 0;
+	min-height: 0;
+	border: 0;
 	opacity: 0;
 	pointer-events: none;
 }
@@ -4113,6 +4121,12 @@ pre {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.home-node-card.annotation {
+	margin: 0;
+	padding: 16px;
+	border-left-width: 1px;
 }
 
 .annotation-node .home-node-card,

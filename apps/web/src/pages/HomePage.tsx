@@ -18,6 +18,7 @@ import {
 	Background,
 	BaseEdge,
 	Controls,
+	Handle,
 	Position,
 	ReactFlow,
 	useReactFlow,
@@ -25,6 +26,7 @@ import {
 	type EdgeProps,
 	type Node,
 	type NodeMouseHandler,
+	type NodeProps,
 	type Viewport,
 } from "@xyflow/react";
 import {
@@ -89,6 +91,18 @@ type GraphNodeData = Record<string, unknown> & {
 };
 type GraphNode = Node<GraphNodeData>;
 type GraphViewportState = { viewport?: Viewport; signature?: string; size?: { width: number; height: number } };
+
+function HomeFlowNode({ data, sourcePosition, targetPosition, isConnectable }: NodeProps<GraphNode>) {
+	return (
+		<>
+			{targetPosition ? <Handle type="target" position={targetPosition} isConnectable={isConnectable} /> : null}
+			{data.label}
+			{sourcePosition ? <Handle type="source" position={sourcePosition} isConnectable={isConnectable} /> : null}
+		</>
+	);
+}
+
+const HOME_NODE_TYPES = { homeNode: HomeFlowNode };
 
 type ReviewState = "waiting" | "ready" | "done" | "need_rerun";
 
@@ -1587,7 +1601,7 @@ function buildRunLayout(runs: AgentRun[]) {
 	for (const run of sorted) {
 		const parent = run.parentRunId ? byId.get(run.parentRunId) : undefined;
 		const parentPosition = parent ? positions.get(parent.id) : undefined;
-		let depth = parentPosition ? parentPosition.depth + 1 : 0;
+		const depth = parentPosition ? parentPosition.depth + 1 : 0;
 		let lane = run.relation === "sequential" && parentPosition ? parentPosition.lane : nextLane++;
 		while (occupied.has(`${depth}:${lane}`)) lane = nextLane++;
 		occupied.add(`${depth}:${lane}`);
@@ -1627,27 +1641,40 @@ type EdgeObstacle = { id: string; left: number; right: number; top: number; bott
 const EDGE_NODE_MARGIN = 16;
 const EDGE_ROUTE_CLEARANCE = 10;
 const EDGE_ENDPOINT_OVERLAP = 6;
+const EDGE_BUS_GAP = 48;
 
 function fallbackGraphNodeSize(node: GraphNode) {
 	if (node.data.kind === "add-run") return { width: 62, height: 58 };
 	if (node.data.kind === "add-task") return { width: 240, height: 58 };
 	if (node.data.kind === "project") return { width: 240, height: 136 };
-	if (node.data.kind === "annotation") return { width: 240, height: 202 };
-	if (node.data.kind === "annotation-tasks") return { width: 240, height: 188 };
+	if (node.data.kind === "annotation") return { width: 240, height: 168 };
+	if (node.data.kind === "annotation-tasks") return { width: 240, height: 168 };
 	return { width: 240, height: 168 };
 }
 
-function graphNodeObstacle(node: GraphNode): EdgeObstacle | undefined {
+function graphNodeBox(node: GraphNode): EdgeObstacle | undefined {
 	const fallback = fallbackGraphNodeSize(node);
 	const width = node.measured?.width ?? node.width ?? fallback.width;
 	const height = node.measured?.height ?? node.height ?? fallback.height;
 	if (![node.position.x, node.position.y, width, height].every((value) => Number.isFinite(value))) return undefined;
 	return {
 		id: node.id,
-		left: node.position.x - EDGE_NODE_MARGIN,
-		right: node.position.x + width + EDGE_NODE_MARGIN,
-		top: node.position.y - EDGE_NODE_MARGIN,
-		bottom: node.position.y + height + EDGE_NODE_MARGIN,
+		left: node.position.x,
+		right: node.position.x + width,
+		top: node.position.y,
+		bottom: node.position.y + height,
+	};
+}
+
+function graphNodeObstacle(node: GraphNode): EdgeObstacle | undefined {
+	const box = graphNodeBox(node);
+	if (!box) return undefined;
+	return {
+		id: box.id,
+		left: box.left - EDGE_NODE_MARGIN,
+		right: box.right + EDGE_NODE_MARGIN,
+		top: box.top - EDGE_NODE_MARGIN,
+		bottom: box.bottom + EDGE_NODE_MARGIN,
 	};
 }
 
@@ -1799,10 +1826,41 @@ function overlapRouteEndpoints(route: EdgePoint[], source: string, target: strin
 	const previous = route.at(-2)!;
 	const end = route.at(-1)!;
 	return [
-		source.startsWith("add-run:") ? start : overlapStartEndpoint(start, { x: next.x - start.x, y: next.y - start.y }),
+		overlapStartEndpoint(start, { x: next.x - start.x, y: next.y - start.y }),
 		...route.slice(1, -1),
-		target.startsWith("add-run:") ? end : overlapEndEndpoint(end, { x: end.x - previous.x, y: end.y - previous.y }),
+		overlapEndEndpoint(end, { x: end.x - previous.x, y: end.y - previous.y }),
 	];
+}
+
+function structuredEdgeBusX({
+	start,
+	end,
+	sourceBox,
+	targetBox,
+	sourceFanOut,
+	targetFanIn,
+}: {
+	start: EdgePoint;
+	end: EdgePoint;
+	sourceBox: EdgeObstacle | undefined;
+	targetBox: EdgeObstacle | undefined;
+	sourceFanOut: boolean;
+	targetFanIn: boolean;
+}) {
+	const direction = start.x <= end.x ? 1 : -1;
+	if (sourceFanOut && sourceBox) return direction > 0 ? sourceBox.right + EDGE_BUS_GAP : sourceBox.left - EDGE_BUS_GAP;
+	if (targetFanIn && targetBox) return direction > 0 ? targetBox.left - EDGE_BUS_GAP : targetBox.right + EDGE_BUS_GAP;
+	return (start.x + end.x) / 2;
+}
+
+function structuredEdgeRoute(start: EdgePoint, end: EdgePoint, nodes: GraphNode[], edges: Edge[], source: string, target: string) {
+	const sourceBox = nodes.find((node) => node.id === source) ? graphNodeBox(nodes.find((node) => node.id === source)!) : undefined;
+	const targetBox = nodes.find((node) => node.id === target) ? graphNodeBox(nodes.find((node) => node.id === target)!) : undefined;
+	const sourceFanOut = edges.filter((edge) => edge.source === source).length > 1;
+	const targetFanIn = edges.filter((edge) => edge.target === target).length > 1;
+	if (Math.abs(start.y - end.y) < 0.001 && !sourceFanOut && !targetFanIn) return [start, end];
+	const busX = structuredEdgeBusX({ start, end, sourceBox, targetBox, sourceFanOut, targetFanIn });
+	return compactRoute([start, { x: busX, y: start.y }, { x: busX, y: end.y }, end]);
 }
 
 function routePath(route: EdgePoint[]) {
@@ -1823,18 +1881,10 @@ function HomeOrthogonalEdge({
 	style,
 	interactionWidth,
 }: EdgeProps) {
-	const { getNodes } = useReactFlow();
-	const nodeGap = 12;
-	const withGap = (x: number, y: number, otherX: number, otherY: number, nodeId: string) => {
-		if (!nodeId.startsWith("add-run:")) return { x, y };
-		const dx = otherX - x;
-		const dy = otherY - y;
-		if (Math.abs(dx) >= Math.abs(dy)) return { x: x + Math.sign(dx || 1) * nodeGap, y };
-		return { x, y: y + Math.sign(dy || 1) * nodeGap };
-	};
-	const start = withGap(sourceX, sourceY, targetX, targetY, source);
-	const end = withGap(targetX, targetY, sourceX, sourceY, target);
-	const route = routeAroundNodes(start, end, graphEdgeObstacles(getNodes() as GraphNode[], source, target));
+	const { getEdges, getNodes } = useReactFlow();
+	const start = { x: sourceX, y: sourceY };
+	const end = { x: targetX, y: targetY };
+	const route = structuredEdgeRoute(start, end, getNodes() as GraphNode[], getEdges(), source, target);
 	const path = routePath(overlapRouteEndpoints(route, source, target));
 	return (
 		<BaseEdge
@@ -2256,6 +2306,7 @@ function renderGraphProjection({
 		);
 		return {
 			id: node.id,
+			type: "homeNode",
 			position: node.position,
 			data: {
 				kind: node.kind,
@@ -2606,7 +2657,6 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 			const end = toolEnds.get(toolKey(event));
 			rendered.push(<ToolBlock key={event.id} start={event} end={end} open={!end && event.seq === latestVisibleSeq} />);
 		} else if (event.type === "result") {
-			continue;
 		} else if (event.type === "error") {
 			rendered.push(
 				<section key={event.id} className="chat-bubble error message-error">
@@ -2615,7 +2665,6 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 				</section>,
 			);
 		} else {
-			continue;
 		}
 	}
 	flushAssistant();
@@ -3063,6 +3112,7 @@ export function HomePage({
 						minZoom={0.08}
 						maxZoom={1.6}
 						edgeTypes={HOME_EDGE_TYPES}
+						nodeTypes={HOME_NODE_TYPES}
 						proOptions={{ hideAttribution: true }}
 					>
 						<GraphViewportSync scopeKey={scopeKey} signature={graphLayoutSignature} />
