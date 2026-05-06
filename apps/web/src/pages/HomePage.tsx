@@ -1526,6 +1526,163 @@ const GRAPH_EDGE = {
 const HOME_EDGE_TYPES = { homeOrthogonal: HomeOrthogonalEdge };
 const AUTO_CONTINUE_MESSAGE = "Continue from the previous run state. If the prior run stopped unexpectedly, inspect the current worktree state and proceed with the original task without restarting from scratch.";
 
+type EdgePoint = { x: number; y: number };
+type EdgeObstacle = { id: string; left: number; right: number; top: number; bottom: number };
+
+const EDGE_NODE_MARGIN = 16;
+const EDGE_ROUTE_CLEARANCE = 10;
+
+function fallbackGraphNodeSize(node: GraphNode) {
+	if (node.data.kind === "add-run") return { width: 62, height: 58 };
+	if (node.data.kind === "add-task") return { width: 240, height: 92 };
+	if (node.data.kind === "project") return { width: 240, height: 136 };
+	return { width: 240, height: 116 };
+}
+
+function graphNodeObstacle(node: GraphNode): EdgeObstacle | undefined {
+	const fallback = fallbackGraphNodeSize(node);
+	const width = node.measured?.width ?? node.width ?? fallback.width;
+	const height = node.measured?.height ?? node.height ?? fallback.height;
+	if (![node.position.x, node.position.y, width, height].every((value) => Number.isFinite(value))) return undefined;
+	return {
+		id: node.id,
+		left: node.position.x - EDGE_NODE_MARGIN,
+		right: node.position.x + width + EDGE_NODE_MARGIN,
+		top: node.position.y - EDGE_NODE_MARGIN,
+		bottom: node.position.y + height + EDGE_NODE_MARGIN,
+	};
+}
+
+function graphEdgeObstacles(nodes: GraphNode[], source: string, target: string) {
+	return nodes
+		.filter((node) => node.id !== source && node.id !== target)
+		.map(graphNodeObstacle)
+		.filter((node): node is EdgeObstacle => Boolean(node));
+}
+
+function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+	const aMin = Math.min(aStart, aEnd);
+	const aMax = Math.max(aStart, aEnd);
+	const bMin = Math.min(bStart, bEnd);
+	const bMax = Math.max(bStart, bEnd);
+	return Math.max(aMin, bMin) < Math.min(aMax, bMax);
+}
+
+function segmentHitsObstacle(start: EdgePoint, end: EdgePoint, obstacle: EdgeObstacle) {
+	if (Math.abs(start.x - end.x) < 0.001) {
+		return start.x > obstacle.left && start.x < obstacle.right && rangesOverlap(start.y, end.y, obstacle.top, obstacle.bottom);
+	}
+	if (Math.abs(start.y - end.y) < 0.001) {
+		return start.y > obstacle.top && start.y < obstacle.bottom && rangesOverlap(start.x, end.x, obstacle.left, obstacle.right);
+	}
+	return false;
+}
+
+function routeIsClear(route: EdgePoint[], obstacles: EdgeObstacle[]) {
+	for (let index = 1; index < route.length; index += 1) {
+		const start = route[index - 1]!;
+		const end = route[index]!;
+		if (obstacles.some((obstacle) => segmentHitsObstacle(start, end, obstacle))) return false;
+	}
+	return true;
+}
+
+function pushCandidate(values: number[], value: number) {
+	if (!Number.isFinite(value)) return;
+	const rounded = Math.round(value * 10) / 10;
+	if (!values.some((item) => Math.abs(item - rounded) < 0.1)) values.push(rounded);
+}
+
+function rankedCandidates(values: number[], preferred: number, limit = 28) {
+	return [...values].sort((left, right) => Math.abs(left - preferred) - Math.abs(right - preferred)).slice(0, limit);
+}
+
+function compactRoute(points: EdgePoint[]) {
+	const unique: EdgePoint[] = [];
+	for (const point of points) {
+		const previous = unique.at(-1);
+		if (!previous || Math.abs(previous.x - point.x) > 0.001 || Math.abs(previous.y - point.y) > 0.001) unique.push(point);
+	}
+	const compacted: EdgePoint[] = [];
+	for (const point of unique) {
+		const previous = compacted.at(-1);
+		const beforePrevious = compacted.at(-2);
+		if (
+			previous &&
+			beforePrevious &&
+			((Math.abs(beforePrevious.x - previous.x) < 0.001 && Math.abs(previous.x - point.x) < 0.001) ||
+				(Math.abs(beforePrevious.y - previous.y) < 0.001 && Math.abs(previous.y - point.y) < 0.001))
+		) {
+			compacted[compacted.length - 1] = point;
+		} else {
+			compacted.push(point);
+		}
+	}
+	return compacted;
+}
+
+function routeLength(route: EdgePoint[]) {
+	return route.slice(1).reduce((total, point, index) => total + Math.abs(point.x - route[index]!.x) + Math.abs(point.y - route[index]!.y), 0);
+}
+
+function routePenalty(route: EdgePoint[]) {
+	let bends = 0;
+	for (let index = 2; index < route.length; index += 1) {
+		const previous = route[index - 1]!;
+		const beforePrevious = route[index - 2]!;
+		const point = route[index]!;
+		const firstHorizontal = Math.abs(previous.y - beforePrevious.y) < 0.001;
+		const secondHorizontal = Math.abs(point.y - previous.y) < 0.001;
+		if (firstHorizontal !== secondHorizontal) bends += 1;
+	}
+	return routeLength(route) + bends * 18;
+}
+
+function defaultBusX(start: EdgePoint, end: EdgePoint) {
+	const busGap = Math.min(96, Math.max(36, Math.abs(end.x - start.x) / 2));
+	return start.x <= end.x ? Math.max(start.x + 24, end.x - busGap) : Math.min(start.x - 24, end.x + busGap);
+}
+
+function routeAroundNodes(start: EdgePoint, end: EdgePoint, obstacles: EdgeObstacle[]) {
+	const direct = compactRoute([start, end]);
+	if (Math.abs(start.y - end.y) < 1 && routeIsClear(direct, obstacles)) return direct;
+	const direction = start.x <= end.x ? 1 : -1;
+	const busX = defaultBusX(start, end);
+	const candidateXs: number[] = [];
+	const candidateYs: number[] = [];
+	const minX = Math.min(start.x, end.x);
+	const maxX = Math.max(start.x, end.x);
+	const minY = Math.min(start.y, end.y);
+	const maxY = Math.max(start.y, end.y);
+	[busX, (start.x + end.x) / 2, start.x + direction * 48, start.x + direction * 96, end.x - direction * 48, end.x - direction * 96, minX - 96, maxX + 96].forEach((value) => pushCandidate(candidateXs, value));
+	[minY - 96, maxY + 96, (start.y + end.y) / 2].forEach((value) => pushCandidate(candidateYs, value));
+	for (const obstacle of obstacles) {
+		if (rangesOverlap(obstacle.top, obstacle.bottom, minY - 96, maxY + 96) || rangesOverlap(obstacle.left, obstacle.right, minX - 96, maxX + 96)) {
+			pushCandidate(candidateXs, obstacle.left - EDGE_ROUTE_CLEARANCE);
+			pushCandidate(candidateXs, obstacle.right + EDGE_ROUTE_CLEARANCE);
+			pushCandidate(candidateYs, obstacle.top - EDGE_ROUTE_CLEARANCE);
+			pushCandidate(candidateYs, obstacle.bottom + EDGE_ROUTE_CLEARANCE);
+		}
+	}
+	const routes: EdgePoint[][] = [];
+	for (const x of rankedCandidates(candidateXs, busX)) routes.push(compactRoute([start, { x, y: start.y }, { x, y: end.y }, end]));
+	const startXs = rankedCandidates(candidateXs, start.x + direction * 64, 5);
+	const endXs = rankedCandidates(candidateXs, end.x - direction * 64, 5);
+	for (const y of rankedCandidates(candidateYs, (start.y + end.y) / 2)) {
+		for (const startX of startXs) {
+			for (const endX of endXs) routes.push(compactRoute([start, { x: startX, y: start.y }, { x: startX, y }, { x: endX, y }, { x: endX, y: end.y }, end]));
+		}
+	}
+	const valid = routes.filter((route) => routeIsClear(route, obstacles));
+	if (valid.length) return valid.sort((left, right) => routePenalty(left) - routePenalty(right))[0]!;
+	return compactRoute(Math.abs(start.y - end.y) < 1 ? [start, end] : [start, { x: busX, y: start.y }, { x: busX, y: end.y }, end]);
+}
+
+function routePath(route: EdgePoint[]) {
+	const [start, ...rest] = route;
+	return `M ${start!.x},${start!.y} ${rest.map((point) => `L ${point.x},${point.y}`).join(" ")}`;
+}
+
 function HomeOrthogonalEdge({
 	id,
 	source,
@@ -1539,6 +1696,7 @@ function HomeOrthogonalEdge({
 	style,
 	interactionWidth,
 }: EdgeProps) {
+	const { getNodes } = useReactFlow();
 	const nodeGap = 12;
 	const withGap = (x: number, y: number, otherX: number, otherY: number, nodeId: string) => {
 		if (!nodeId.startsWith("add-run:")) return { x, y };
@@ -1549,12 +1707,7 @@ function HomeOrthogonalEdge({
 	};
 	const start = withGap(sourceX, sourceY, targetX, targetY, source);
 	const end = withGap(targetX, targetY, sourceX, sourceY, target);
-	const horizontal = Math.abs(start.y - end.y) < 1;
-	const busGap = Math.min(96, Math.max(36, Math.abs(end.x - start.x) / 2));
-	const busX = start.x <= end.x ? Math.max(start.x + 24, end.x - busGap) : Math.min(start.x - 24, end.x + busGap);
-	const path = horizontal
-		? `M ${start.x},${start.y} L ${end.x},${end.y}`
-		: `M ${start.x},${start.y} L ${busX},${start.y} L ${busX},${end.y} L ${end.x},${end.y}`;
+	const path = routePath(routeAroundNodes(start, end, graphEdgeObstacles(getNodes() as GraphNode[], source, target)));
 	return (
 		<BaseEdge
 			id={id}
