@@ -30,6 +30,7 @@ export type AgentProfile = {
 	updatedAt: string;
 };
 export type TaskStatus = "draft" | "queued" | "running" | "need_review" | "done" | "failed";
+export type TaskSource = "user" | "direct-chat" | "annotation-run" | "annotation-tasks";
 export type Task = {
 	id: ID;
 	projectId: ID;
@@ -37,6 +38,10 @@ export type Task = {
 	title: string;
 	body: string;
 	status: TaskStatus;
+	source?: TaskSource;
+	annotationIds?: ID[];
+	annotationTaskSuggestionId?: ID;
+	sourceAnnotationIds?: ID[];
 	archivedAt?: string;
 	deletedAt?: string;
 	reviewInvalidatedAt?: string;
@@ -55,9 +60,23 @@ export type Annotation = {
 	startLine?: number;
 	endLine?: number;
 	text: string;
+	context?: string;
+	selectedText?: string;
 	sent: boolean;
 	status?: "pending" | "processing" | "sent";
 	runId?: ID;
+	createdAt: string;
+	updatedAt: string;
+};
+export type AnnotationTaskSuggestion = {
+	id: ID;
+	projectId: ID;
+	title: string;
+	body: string;
+	status: "draft" | "approved" | "creating" | "created";
+	sourceRunId?: ID;
+	annotationIds?: ID[];
+	taskId?: ID;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -69,13 +88,15 @@ export type RunStatus =
 	| "failed"
 	| "cancelled";
 export type RunRelation = "parallel" | "sequential";
-export type RunLane = "task" | "gate" | "ship" | "graph";
+export type RunLane = "task" | "gate" | "ship" | "graph" | "annotation" | "annotation-tasks";
 export type AgentRun = {
 	id: ID;
 	taskId: ID;
+	projectId?: ID;
 	worktreeId: ID;
 	status: RunStatus;
 	sessionId: string;
+	annotationIds?: ID[];
 	relation?: RunRelation;
 	lane?: RunLane;
 	parentRunId?: ID;
@@ -131,7 +152,9 @@ export type GraphCommandName =
 	| "open_task"
 	| "open_run"
 	| "open_files"
-	| "open_diffs";
+	| "open_diffs"
+	| "open_annotations"
+	| "open_annotation_tasks";
 
 export type GraphAction = {
 	id: ID;
@@ -144,6 +167,8 @@ export type GraphAction = {
 
 export type GraphProjectionNodeKind =
 	| "project"
+	| "annotation"
+	| "annotation-tasks"
 	| "task"
 	| "run"
 	| "add-task"
@@ -156,6 +181,7 @@ export type GraphProjectionNode = {
 	id: ID;
 	kind: GraphProjectionNodeKind;
 	projectId?: ID | undefined;
+	annotationId?: ID | undefined;
 	taskId?: ID | undefined;
 	runId?: ID | undefined;
 	worktreeId?: ID | undefined;
@@ -176,7 +202,7 @@ export type GraphProjectionEdge = {
 	id: ID;
 	source: ID;
 	target: ID;
-	kind: "project-task" | "run" | "add" | "checkpoint" | "gate" | "ship" | "review";
+	kind: "project-task" | "annotation" | "annotation-run" | "annotation-tasks" | "run" | "add" | "checkpoint" | "gate" | "ship" | "review";
 	status?: string;
 	animated?: boolean;
 };
@@ -184,6 +210,8 @@ export type GraphProjectionEdge = {
 export type GraphProjection = {
 	scope: { projectId?: ID };
 	projects: Project[];
+	annotations: Annotation[];
+	annotationTaskSuggestions: AnnotationTaskSuggestion[];
 	tasks: Task[];
 	runs: AgentRun[];
 	worktrees: Worktree[];

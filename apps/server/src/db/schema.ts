@@ -4,6 +4,7 @@ export const tables = [
 	"agentProfiles",
 	"tasks",
 	"annotations",
+	"annotationTaskSuggestions",
 	"runs",
 	"runEvents",
 	"runArtifacts",

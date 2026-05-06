@@ -65,6 +65,14 @@ runs.get("/:id", async (c) => {
 	return run ? c.json(run) : c.json({ error: "missing run" }, 404);
 });
 
+runs.get("/:id/task", async (c) => {
+	await reconcileStaleRunningRuns();
+	const run = (await db.list<AgentRun>("runs")).find((r) => r.id === c.req.param("id"));
+	if (!run) return c.json({ error: "missing run" }, 404);
+	const task = (await db.list<Task>("tasks")).find((row) => row.id === run.taskId);
+	return task ? c.json(task) : c.json({ error: "missing task" }, 404);
+});
+
 runs.post("/:id/cancel", async (c) => {
 	const id = c.req.param("id");
 	const run = await db.update<AgentRun>("runs", id, {

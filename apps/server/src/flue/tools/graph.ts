@@ -2,6 +2,7 @@ import { Type, type ToolDef } from "@flue/sdk/client";
 import {
 	graphCreateTaskInputSchema,
 	graphRetryRunInputSchema,
+	graphSaveAnnotationTaskSuggestionsInputSchema,
 	graphRunIdentityInputSchema,
 	graphSendRunMessageInputSchema,
 	graphStartRunInputSchema,
@@ -18,6 +19,7 @@ const graphToolNames = [
 	"graph_retry_run",
 	"graph_delete_run",
 	"graph_create_checkpoint",
+	"graph_save_annotation_task_suggestions",
 ] as const;
 
 export type GraphToolName = (typeof graphToolNames)[number];
@@ -54,6 +56,8 @@ export function createGraphTools(): ToolDef[] {
 				title: Type.String({ description: "Task title." }),
 				body: optionalText("Task markdown/details."),
 				worktreeId: optionalText("Existing worktree id to attach."),
+				annotationTaskSuggestionId: optionalText("Approved annotation task suggestion id, when creating from AnnotationTasks."),
+				sourceAnnotationIds: Type.Optional(Type.Array(Type.String({ description: "Source annotation id." }))),
 			}),
 			execute: async (args) => {
 				const { createTaskCommand } = await import("../../services/graph/commands");
@@ -138,6 +142,22 @@ export function createGraphTools(): ToolDef[] {
 			execute: async (args) => {
 				const { createCheckpointCommand } = await import("../../services/graph/commands");
 				return stringifyResult(await createCheckpointCommand(graphTaskIdentityInputSchema.parse(args)));
+			},
+		},
+		{
+			name: "graph_save_annotation_task_suggestions",
+			description: "Save draft task suggestions for the AnnotationTasks approval page. Use this instead of creating tasks when user approval is required.",
+			parameters: Type.Object({
+				projectId,
+				suggestions: Type.Array(Type.Object({
+					title: Type.String({ description: "Suggested task title." }),
+					body: optionalText("Suggested task markdown/details."),
+					annotationIds: Type.Optional(Type.Array(Type.String({ description: "Relevant annotation id." }))),
+				})),
+			}),
+			execute: async (args) => {
+				const { saveAnnotationTaskSuggestions } = await import("../../services/annotationService");
+				return stringifyResult(await saveAnnotationTaskSuggestions(graphSaveAnnotationTaskSuggestionsInputSchema.parse(args)));
 			},
 		},
 	];

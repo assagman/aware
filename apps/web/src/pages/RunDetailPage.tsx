@@ -1,12 +1,11 @@
 import type { AgentRun, RunEvent, Task, Worktree } from "@aware/shared";
-import { parsePatchFiles } from "@pierre/diffs";
-import { FileDiff } from "@pierre/diffs/react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, apiGet, apiPost } from "../app/api";
+import { parsePatchFiles } from "../app/parsePatchFiles";
 import {
 	getPageState,
 	persistScroll,
@@ -22,6 +21,7 @@ import {
 	setSelectedWorktreeId,
 } from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
+import { SimpleFileDiff as FileDiff } from "../components/SimpleFileDiff";
 import { TaskLink } from "../components/TaskLink";
 
 type Payload = Record<string, unknown>;

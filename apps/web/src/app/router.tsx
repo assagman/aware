@@ -1,5 +1,5 @@
 import type { Project } from "@aware/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
 	BrowserRouter,
 	Link,
@@ -12,17 +12,22 @@ import {
 import { apiGet } from "./api";
 import { getSelectedProjectId, setSelectedProjectId } from "./selection";
 import { AddProjectButton, ProjectPicker } from "../components/ProjectPicker";
-import { HistoryPage } from "../pages/HistoryPage";
-import { HomePage } from "../pages/HomePage";
-import { ProjectPage } from "../pages/ProjectPage";
-import { TaskPage } from "../pages/TaskPage";
-import { RunPage } from "../pages/RunPage";
-import { CheckpointPage } from "../pages/CheckpointPage";
-import { ShippingPage } from "../pages/ShippingPage";
-import { FilesPage } from "../pages/FilesPage";
-import { DiffsPage } from "../pages/DiffsPage";
-import { SettingsPage } from "../pages/SettingsPage";
+import { BusyIndicator } from "../components/BusyIndicator";
 import { useShellContext, type ShellContext } from "./shellContext";
+
+const AnnotationRunPage = lazy(() => import("../pages/AnnotationRunPage").then((module) => ({ default: module.AnnotationRunPage })));
+const AnnotationTasksPage = lazy(() => import("../pages/AnnotationTasksPage").then((module) => ({ default: module.AnnotationTasksPage })));
+const AnnotationsPage = lazy(() => import("../pages/AnnotationsPage").then((module) => ({ default: module.AnnotationsPage })));
+const CheckpointPage = lazy(() => import("../pages/CheckpointPage").then((module) => ({ default: module.CheckpointPage })));
+const DiffsPage = lazy(() => import("../pages/DiffsPage").then((module) => ({ default: module.DiffsPage })));
+const FilesPage = lazy(() => import("../pages/FilesPage").then((module) => ({ default: module.FilesPage })));
+const HistoryPage = lazy(() => import("../pages/HistoryPage").then((module) => ({ default: module.HistoryPage })));
+const HomePage = lazy(() => import("../pages/HomePage").then((module) => ({ default: module.HomePage })));
+const ProjectPage = lazy(() => import("../pages/ProjectPage").then((module) => ({ default: module.ProjectPage })));
+const RunPage = lazy(() => import("../pages/RunPage").then((module) => ({ default: module.RunPage })));
+const SettingsPage = lazy(() => import("../pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const ShippingPage = lazy(() => import("../pages/ShippingPage").then((module) => ({ default: module.ShippingPage })));
+const TaskPage = lazy(() => import("../pages/TaskPage").then((module) => ({ default: module.TaskPage })));
 
 function projectIdFromPath(pathname: string) {
 	const match = pathname.match(/^\/projects\/([^/]+)/);
@@ -129,9 +134,21 @@ function AppShell() {
 	);
 }
 
+function SuspendedRoute({ children }: { children: ReactNode }) {
+	return (
+		<Suspense fallback={<div className="route-loading"><BusyIndicator label="Loading route" /></div>}>
+			{children}
+		</Suspense>
+	);
+}
+
+function lazyRoute(children: ReactNode) {
+	return <SuspendedRoute>{children}</SuspendedRoute>;
+}
+
 function HomeRoute() {
 	const context = useShellContext();
-	return <HomePage projectId="" {...context} />;
+	return lazyRoute(<HomePage projectId="" {...context} />);
 }
 
 function NotFoundPage() {
@@ -152,18 +169,21 @@ export function AppRouter() {
 			<Routes>
 				<Route element={<AppShell />}>
 					<Route index element={<HomeRoute />} />
-					<Route path="history" element={<HistoryPage />} />
-					<Route path="projects/:projectId" element={<ProjectPage />} />
-					<Route path="projects/:projectId/history" element={<HistoryPage />} />
-					<Route path="projects/:projectId/tasks/:taskId" element={<TaskPage />} />
-					<Route path="projects/:projectId/tasks/:taskId/checkpoint" element={<CheckpointPage />} />
-					<Route path="projects/:projectId/tasks/:taskId/ship" element={<ShippingPage />} />
-					<Route path="projects/:projectId/tasks/:taskId/runs/:runId" element={<RunPage />} />
-					<Route path="projects/:projectId/worktrees/:worktreeId/files" element={<FilesPage />} />
-					<Route path="projects/:projectId/worktrees/:worktreeId/files/*" element={<FilesPage />} />
-					<Route path="projects/:projectId/worktrees/:worktreeId/diffs" element={<DiffsPage />} />
-					<Route path="settings" element={<SettingsPage />} />
-					<Route path="settings/:section" element={<SettingsPage />} />
+					<Route path="history" element={lazyRoute(<HistoryPage />)} />
+					<Route path="projects/:projectId" element={lazyRoute(<ProjectPage />)} />
+					<Route path="projects/:projectId/history" element={lazyRoute(<HistoryPage />)} />
+					<Route path="projects/:projectId/tasks/:taskId" element={lazyRoute(<TaskPage />)} />
+					<Route path="projects/:projectId/tasks/:taskId/checkpoint" element={lazyRoute(<CheckpointPage />)} />
+					<Route path="projects/:projectId/tasks/:taskId/ship" element={lazyRoute(<ShippingPage />)} />
+					<Route path="projects/:projectId/tasks/:taskId/runs/:runId" element={lazyRoute(<RunPage />)} />
+					<Route path="projects/:projectId/annotations" element={lazyRoute(<AnnotationsPage />)} />
+					<Route path="projects/:projectId/annotation-tasks" element={lazyRoute(<AnnotationTasksPage />)} />
+					<Route path="projects/:projectId/annotation-runs/:runId" element={lazyRoute(<AnnotationRunPage />)} />
+					<Route path="projects/:projectId/worktrees/:worktreeId/files" element={lazyRoute(<FilesPage />)} />
+					<Route path="projects/:projectId/worktrees/:worktreeId/files/*" element={lazyRoute(<FilesPage />)} />
+					<Route path="projects/:projectId/worktrees/:worktreeId/diffs" element={lazyRoute(<DiffsPage />)} />
+					<Route path="settings" element={lazyRoute(<SettingsPage />)} />
+					<Route path="settings/:section" element={lazyRoute(<SettingsPage />)} />
 					<Route path="*" element={<NotFoundPage />} />
 				</Route>
 			</Routes>

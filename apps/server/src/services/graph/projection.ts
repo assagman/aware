@@ -1,5 +1,7 @@
 import type {
 	AgentRun,
+	Annotation,
+	AnnotationTaskSuggestion,
 	GraphAction,
 	GraphProjection,
 	GraphProjectionEdge,
@@ -12,6 +14,7 @@ import type {
 	Worktree,
 } from "@aware/shared";
 import { db } from "../../db/client";
+import { annotationLocation, listAnnotations } from "../annotationService";
 import { listProjects, listStoredWorktrees, listWorktrees } from "../projectService";
 import { listTasks } from "../taskService";
 
@@ -26,19 +29,25 @@ const taskStatusOrder: Record<TaskStatus, number> = {
 
 const GRAPH_X = {
 	project: 36,
-	task: 390,
-	run: 760,
-	gate: 1120,
-	gateRun: 1460,
-	ship: 1860,
+	annotation: 390,
+	annotationRun: 760,
+	annotationTasks: 1120,
+	task: 1460,
+	run: 1820,
+	gate: 2180,
+	gateRun: 2520,
+	ship: 2920,
 };
 const GRAPH_ROW_START_Y = 72;
 const GRAPH_ROW_GAP = 112;
 const GRAPH_ROW_VERTICAL_PADDING = 152;
+const GRAPH_ANNOTATION_ROW_TOP = 84;
+const GRAPH_ANNOTATION_RUN_STACK_GAP = 196;
 const GRAPH_RUN_LANE_GAP = 220;
 const GRAPH_RUN_DEPTH_GAP = 340;
 const GRAPH_RUN_NODE_WIDTH = 240;
-const GRAPH_RUN_NODE_HEIGHT = 116;
+const GRAPH_PROJECT_NODE_HEIGHT = 136;
+const GRAPH_RUN_NODE_HEIGHT = 168;
 const GRAPH_ADD_RUN_NODE_WIDTH = 62;
 const GRAPH_ADD_RUN_NODE_HEIGHT = 58;
 const GRAPH_ADD_RUN_CENTER_OFFSET = {
@@ -73,7 +82,7 @@ function activeRuns(runs: AgentRun[]) {
 }
 
 function runLane(run: AgentRun): RunLane {
-	return run.lane === "gate" || run.lane === "ship" || run.lane === "graph" ? run.lane : "task";
+	return ["gate", "ship", "graph", "annotation", "annotation-tasks"].includes(run.lane ?? "") ? run.lane! : "task";
 }
 
 function reviewState(task: Task, runs: AgentRun[]) {
@@ -237,15 +246,31 @@ function diffsHref(projectId: string, worktreeId: string, file?: string) {
 	return file ? `${base}?${new URLSearchParams({ file })}` : base;
 }
 
+function annotationsHref(projectId: string, worktreeId?: string) {
+	const base = `/projects/${encodeURIComponent(projectId)}/annotations`;
+	return worktreeId ? `${base}?${new URLSearchParams({ worktreeId })}` : base;
+}
+
+function annotationTasksHref(projectId: string) {
+	return `/projects/${encodeURIComponent(projectId)}/annotation-tasks`;
+}
+
+function annotationRunHref(projectId: string, runId: string) {
+	return `/projects/${encodeURIComponent(projectId)}/annotation-runs/${encodeURIComponent(runId)}`;
+}
+
 export async function buildGraphProjection(
 	projectId?: string,
 	options: { history?: boolean } = {},
 ): Promise<GraphProjection> {
-	const [allProjects, allTasks, allRuns, allWorktrees] = await Promise.all([
+	const [allProjects, allTasks, allSystemTasks, allRuns, allWorktrees, allAnnotations, allAnnotationTaskSuggestions] = await Promise.all([
 		listProjects(),
 		listTasks(projectId ? { projectId } : {}, options.history ? { includeArchived: true, archivedOnly: true } : {}),
+		db.list<Task>("tasks"),
 		db.list<AgentRun>("runs"),
 		options.history ? listStoredWorktrees() : listWorktrees(),
+		listAnnotations(projectId ? { projectId } : {}),
+		db.list<AnnotationTaskSuggestion>("annotationTaskSuggestions"),
 	]);
 	const projects = projectId
 		? allProjects.filter((project) => project.id === projectId)
@@ -253,8 +278,12 @@ export async function buildGraphProjection(
 	const projectIds = new Set(projects.map((project) => project.id));
 	const tasks = allTasks.filter((task) => projectIds.has(task.projectId));
 	const taskIds = new Set(tasks.map((task) => task.id));
-	const runs = allRuns.filter((run) => taskIds.has(run.taskId));
+	const systemTasks = allSystemTasks.filter((task) => projectIds.has(task.projectId) && (task.source === "annotation-run" || task.source === "annotation-tasks"));
+	const systemTaskIds = new Set(systemTasks.map((task) => task.id));
+	const runs = allRuns.filter((run) => taskIds.has(run.taskId) || systemTaskIds.has(run.taskId) || (run.projectId && projectIds.has(run.projectId)));
 	const worktrees = allWorktrees.filter((worktree) => projectIds.has(worktree.projectId));
+	const annotations = allAnnotations.filter((annotation) => projectIds.has(annotation.projectId));
+	const annotationTaskSuggestions = allAnnotationTaskSuggestions.filter((suggestion) => projectIds.has(suggestion.projectId));
 	const worktreeById = new Map(worktrees.map((worktree) => [worktree.id, worktree]));
 	const tasksByProject = new Map<string, Task[]>();
 	for (const task of tasks) {
@@ -268,12 +297,56 @@ export async function buildGraphProjection(
 		group.push(run);
 		runsByTask.set(run.taskId, group);
 	}
+	const annotationsByProject = new Map<string, Annotation[]>();
+	for (const annotation of annotations) {
+		const group = annotationsByProject.get(annotation.projectId) ?? [];
+		group.push(annotation);
+		annotationsByProject.set(annotation.projectId, group);
+	}
+	const suggestionsByProject = new Map<string, AnnotationTaskSuggestion[]>();
+	for (const suggestion of annotationTaskSuggestions) {
+		const group = suggestionsByProject.get(suggestion.projectId) ?? [];
+		group.push(suggestion);
+		suggestionsByProject.set(suggestion.projectId, group);
+	}
+	const annotationRunsByAnnotation = new Map<string, AgentRun[]>();
+	const annotationTaskRunsByProject = new Map<string, AgentRun[]>();
+	for (const run of runs) {
+		if (run.lane === "annotation-tasks" && run.projectId) {
+			const group = annotationTaskRunsByProject.get(run.projectId) ?? [];
+			group.push(run);
+			annotationTaskRunsByProject.set(run.projectId, group);
+		}
+		for (const annotationId of run.annotationIds ?? []) {
+			const group = annotationRunsByAnnotation.get(annotationId) ?? [];
+			group.push(run);
+			annotationRunsByAnnotation.set(annotationId, group);
+		}
+	}
 	const nodes: GraphProjectionNode[] = [];
 	const edges: GraphProjectionEdge[] = [];
 	const actions: GraphAction[] = [];
 	let cursorY = GRAPH_ROW_START_Y;
 
 	for (const project of [...projects].sort((a, b) => a.name.localeCompare(b.name))) {
+		const projectAnnotations = [...(annotationsByProject.get(project.id) ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+		const projectSuggestions = suggestionsByProject.get(project.id) ?? [];
+		const projectAnnotationTaskRuns = annotationTaskRunsByProject.get(project.id) ?? [];
+		const hasAnnotationLane = projectAnnotations.length > 0 || projectSuggestions.length > 0 || projectAnnotationTaskRuns.length > 0;
+		const annotationTop = cursorY;
+		let nextAnnotationGroupTop = annotationTop + GRAPH_ANNOTATION_ROW_TOP;
+		const annotationRows = projectAnnotations.map((annotation) => {
+			const annotationRunCount = annotationRunsByAnnotation.get(annotation.id)?.length ?? 0;
+			const visibleRows = Math.max(1, annotationRunCount);
+			const runStackHeight = GRAPH_RUN_NODE_HEIGHT + Math.max(0, visibleRows - 1) * GRAPH_ANNOTATION_RUN_STACK_GAP;
+			const rowHeight = Math.max(240, runStackHeight + 64);
+			const centerY = nextAnnotationGroupTop + rowHeight / 2;
+			nextAnnotationGroupTop += rowHeight;
+			return { annotation, centerY };
+		});
+		const annotationHeight = hasAnnotationLane ? Math.max(360, nextAnnotationGroupTop - annotationTop + GRAPH_ANNOTATION_ROW_TOP) : 0;
+		const annotationCenterY = hasAnnotationLane ? annotationTop + annotationHeight / 2 : undefined;
+		if (hasAnnotationLane) cursorY += annotationHeight + GRAPH_ROW_GAP;
 		const orderedTasks = [...(tasksByProject.get(project.id) ?? [])].sort(
 			(a, b) =>
 				taskStatusOrder[a.status] - taskStatusOrder[b.status] ||
@@ -303,10 +376,11 @@ export async function buildGraphProjection(
 			return { task, taskRuns, taskLaneRuns, gateRuns, shipRuns, graphRuns, taskLayout, gateLayout, shipLayout, taskCandidateLayout, gateCandidateLayout, y, top, height };
 		});
 		const fallbackY = cursorY + 96;
-		if (!rows.length) cursorY += 360 + GRAPH_ROW_GAP;
-		const graphCenterY = rows.length
-			? (rows[0]!.y + rows.at(-1)!.y) / 2
-			: fallbackY;
+		if (!rows.length && !hasAnnotationLane) cursorY += 360 + GRAPH_ROW_GAP;
+		const rowCenterY = rows.length ? (rows[0]!.y + rows.at(-1)!.y) / 2 : undefined;
+		const graphCenterY = annotationCenterY !== undefined && rowCenterY !== undefined
+			? (annotationCenterY + rowCenterY) / 2
+			: annotationCenterY ?? rowCenterY ?? fallbackY;
 		const projectNodeId = `project:${project.id}`;
 		const defaultWorktree = projectWorktree(project, worktrees);
 		const projectActions = [
@@ -325,6 +399,20 @@ export async function buildGraphProjection(
 					command: "create_task",
 					inputSchema: "create_task",
 					payload: { projectId: project.id },
+				}),
+				action({
+					label: "Open annotations",
+					command: "open_annotations",
+					inputSchema: "open_annotations",
+					payload: { projectId: project.id },
+					href: annotationsHref(project.id),
+				}),
+				action({
+					label: "Open annotation tasks",
+					command: "open_annotation_tasks",
+					inputSchema: "open_annotation_tasks",
+					payload: { projectId: project.id },
+					href: annotationTasksHref(project.id),
 				}),
 			);
 		if (!options.history && defaultWorktree)
@@ -353,11 +441,129 @@ export async function buildGraphProjection(
 			title: project.name,
 			meta: [project.rootPath],
 			accent: "project",
-			position: { x: GRAPH_X.project, y: graphCenterY - 70 },
+			position: { x: GRAPH_X.project, y: graphCenterY - GRAPH_PROJECT_NODE_HEIGHT / 2 },
 			href: projectHref(project.id),
 			actions: projectActions,
 		});
 		actions.push(...projectActions);
+
+		const annotationTasksNodeId = `annotation-tasks:${project.id}`;
+		if (hasAnnotationLane && annotationCenterY !== undefined) {
+			const openAnnotationTasksAction = action({
+				label: "Open annotation tasks",
+				command: "open_annotation_tasks",
+				inputSchema: "open_annotation_tasks",
+				payload: { projectId: project.id },
+				href: annotationTasksHref(project.id),
+			});
+			nodes.push({
+				id: annotationTasksNodeId,
+				kind: "annotation-tasks",
+				projectId: project.id,
+				eyebrow: "AnnotationTasks",
+				title: "Task generator",
+				status: projectAnnotationTaskRuns.some((run) => run.status === "running" || run.status === "queued") ? "running" : projectSuggestions.length ? "need_review" : "draft",
+				meta: [
+					`${projectSuggestions.length} suggestion${projectSuggestions.length === 1 ? "" : "s"}`,
+					`${projectAnnotationTaskRuns.length} generator run${projectAnnotationTaskRuns.length === 1 ? "" : "s"}`,
+				],
+				accent: "annotation-tasks",
+				position: { x: GRAPH_X.annotationTasks, y: annotationCenterY - GRAPH_RUN_NODE_HEIGHT / 2 },
+				href: annotationTasksHref(project.id),
+				actions: [openAnnotationTasksAction],
+			});
+			actions.push(openAnnotationTasksAction);
+			for (const { annotation, centerY } of annotationRows) {
+				const annotationNodeId = `annotation:${annotation.id}`;
+				const annotationRuns = [...(annotationRunsByAnnotation.get(annotation.id) ?? [])].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+				const runStackCenterOffset = (annotationRuns.length - 1) / 2;
+				const openAnnotationAction = action({
+					label: "Open annotation",
+					command: "open_annotations",
+					inputSchema: "open_annotations",
+					payload: { projectId: project.id, worktreeId: annotation.worktreeId },
+					href: annotationsHref(project.id, annotation.worktreeId),
+				});
+				nodes.push({
+					id: annotationNodeId,
+					kind: "annotation",
+					projectId: project.id,
+					annotationId: annotation.id,
+					worktreeId: annotation.worktreeId,
+					eyebrow: "Annotation",
+					title: annotationLocation(annotation),
+					status: annotation.status ?? "pending",
+					meta: [
+						annotation.text || annotation.selectedText || "No note",
+						`${annotationRuns.length} run${annotationRuns.length === 1 ? "" : "s"}`,
+					],
+					accent: "annotation",
+					position: { x: GRAPH_X.annotation, y: centerY - GRAPH_RUN_NODE_HEIGHT / 2 },
+					href: annotationsHref(project.id, annotation.worktreeId),
+					actions: [openAnnotationAction],
+				});
+				actions.push(openAnnotationAction);
+				edges.push({
+					id: `${projectNodeId}->${annotationNodeId}`,
+					source: projectNodeId,
+					target: annotationNodeId,
+					kind: "annotation",
+				});
+				if (!annotationRuns.length) {
+					edges.push({
+						id: `${annotationNodeId}->${annotationTasksNodeId}`,
+						source: annotationNodeId,
+						target: annotationTasksNodeId,
+						kind: "annotation-tasks",
+					});
+				}
+				annotationRuns.forEach((run, index) => {
+					const runNodeId = `annotation-run:${annotation.id}:${run.id}`;
+					const runCenterY = centerY + (index - runStackCenterOffset) * GRAPH_ANNOTATION_RUN_STACK_GAP;
+					const runActions = [action({
+						label: "Open run",
+						command: "open_run",
+						inputSchema: "open_run",
+						payload: { projectId: project.id, taskId: run.taskId, runId: run.id },
+						href: annotationRunHref(project.id, run.id),
+					})];
+					nodes.push({
+						id: runNodeId,
+						kind: "run",
+						projectId: project.id,
+						taskId: run.taskId,
+						runId: run.id,
+						worktreeId: run.worktreeId,
+						lane: "annotation",
+						eyebrow: `Annotation run - ${compactId(run.id)}`,
+						title: run.request || run.mainAgentName || "Annotation run",
+						status: run.status,
+						meta: [new Date(run.startedAt).toLocaleString()],
+						accent: ["annotation-run", run.status === "running" ? "live" : "", run.deletedAt ? "deleted" : ""].filter(Boolean).join(" "),
+						position: { x: GRAPH_X.annotationRun, y: runCenterY - GRAPH_RUN_NODE_HEIGHT / 2 },
+						href: annotationRunHref(project.id, run.id),
+						actions: runActions,
+					});
+					actions.push(...runActions);
+					edges.push({
+						id: `${annotationNodeId}->${runNodeId}`,
+						source: annotationNodeId,
+						target: runNodeId,
+						kind: "annotation-run",
+						status: run.status,
+						animated: run.status === "running",
+					});
+					edges.push({
+						id: `${runNodeId}->${annotationTasksNodeId}`,
+						source: runNodeId,
+						target: annotationTasksNodeId,
+						kind: "annotation-tasks",
+						status: run.status,
+						animated: run.status === "running",
+					});
+				});
+			}
+		}
 
 		for (const row of rows) {
 			const { task, taskRuns, taskLaneRuns, gateRuns, shipRuns, graphRuns, taskLayout, gateLayout, shipLayout, taskCandidateLayout, gateCandidateLayout, y, top } = row;
@@ -417,16 +623,17 @@ export async function buildGraphProjection(
 					`ship lane: ${shipRuns.length}`,
 					...(graphRuns.length ? [`automation: ${graphRuns.length}`] : []),
 				],
-				position: { x: GRAPH_X.task, y: y - 64 },
+				position: { x: GRAPH_X.task, y: y - GRAPH_RUN_NODE_HEIGHT / 2 },
 				href: taskHref(project.id, task.id),
 				actions: taskActions,
 			});
 			actions.push(...taskActions);
+			const generatedFromAnnotations = hasAnnotationLane && (task.annotationTaskSuggestionId || task.sourceAnnotationIds?.length);
 			edges.push({
-				id: `${projectNodeId}->${taskNodeId}`,
-				source: projectNodeId,
+				id: `${generatedFromAnnotations ? annotationTasksNodeId : projectNodeId}->${taskNodeId}`,
+				source: generatedFromAnnotations ? annotationTasksNodeId : projectNodeId,
 				target: taskNodeId,
-				kind: "project-task",
+				kind: generatedFromAnnotations ? "annotation-tasks" : "project-task",
 			});
 
 			const rowRunById = new Map(taskRuns.map((run) => [run.id, run]));
@@ -640,7 +847,7 @@ export async function buildGraphProjection(
 					title: "Task gate",
 					status: state,
 					meta: [`${activeTaskLaneRuns.filter((run) => run.status === "done").length}/${activeTaskLaneRuns.length} task runs done`],
-					position: { x: gateX, y: y - 64 },
+					position: { x: gateX, y: y - GRAPH_RUN_NODE_HEIGHT / 2 },
 					href: checkpointHref(project.id, task.id),
 					actions: [openGateAction, markGateAction].filter((item): item is GraphAction => Boolean(item)),
 				});
@@ -755,7 +962,7 @@ export async function buildGraphProjection(
 						activeGateRuns.length ? `${activeGateRuns.filter((run) => run.status === "done").length}/${activeGateRuns.length} gate runs done` : "no gate runs yet",
 						activeShipRuns.length ? `${activeShipRuns.length} ship run${activeShipRuns.length === 1 ? "" : "s"}` : "not shipped",
 					],
-					position: { x: shipX, y: y - 64 },
+					position: { x: shipX, y: y - GRAPH_RUN_NODE_HEIGHT / 2 },
 					href: shipHref(project.id, task.id),
 					actions: [openShipAction, startShipAction].filter((item): item is GraphAction => Boolean(item)),
 				});
@@ -811,7 +1018,10 @@ export async function buildGraphProjection(
 		if (!options.history) {
 			const addTaskY = rows.length
 				? rows.at(-1)!.top + rows.at(-1)!.height - 96
-				: graphCenterY + 140;
+				: hasAnnotationLane
+					? graphCenterY - GRAPH_ADD_RUN_NODE_HEIGHT / 2
+					: graphCenterY + 140;
+			const addTaskSource = hasAnnotationLane && !rows.length ? annotationTasksNodeId : projectNodeId;
 			const addTaskAction = action({
 				label: "New task",
 				command: "create_task",
@@ -830,8 +1040,8 @@ export async function buildGraphProjection(
 			});
 			actions.push(addTaskAction);
 			edges.push({
-				id: `${projectNodeId}->add-task:${project.id}`,
-				source: projectNodeId,
+				id: `${addTaskSource}->add-task:${project.id}`,
+				source: addTaskSource,
 				target: `add-task:${project.id}`,
 				kind: "add",
 			});
@@ -841,6 +1051,8 @@ export async function buildGraphProjection(
 	return {
 		scope: projectId ? { projectId } : {},
 		projects,
+		annotations,
+		annotationTaskSuggestions,
 		tasks,
 		runs,
 		worktrees,

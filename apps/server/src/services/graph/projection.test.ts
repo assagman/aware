@@ -1,4 +1,4 @@
-import type { AgentRun, Project, Task, Worktree } from "@aware/shared";
+import type { AgentRun, Annotation, AnnotationTaskSuggestion, Project, Task, Worktree } from "@aware/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rows: {
@@ -6,11 +6,15 @@ const rows: {
 	tasks: Task[];
 	runs: AgentRun[];
 	worktrees: Worktree[];
+	annotations: Annotation[];
+	annotationTaskSuggestions: AnnotationTaskSuggestion[];
 } = {
 	projects: [],
 	tasks: [],
 	runs: [],
 	worktrees: [],
+	annotations: [],
+	annotationTaskSuggestions: [],
 };
 
 vi.mock("../../db/client", () => ({
@@ -21,6 +25,7 @@ vi.mock("../../db/client", () => ({
 
 vi.mock("../projectService", () => ({
 	listProjects: vi.fn(async () => rows.projects),
+	listStoredWorktrees: vi.fn(async () => rows.worktrees),
 	listWorktrees: vi.fn(async () => rows.worktrees),
 }));
 
@@ -80,7 +85,7 @@ function node(projection: Awaited<ReturnType<typeof buildGraphProjection>>, id: 
 	return found!;
 }
 
-const runCenterY = (item: { position: { y: number } }) => item.position.y + 58;
+const runCenterY = (item: { position: { y: number } }) => item.position.y + 84;
 const addRunCenterY = (item: { position: { y: number } }) => item.position.y + 29;
 const runCenterX = (item: { position: { x: number } }) => item.position.x + 120;
 const addRunCenterX = (item: { position: { x: number } }) => item.position.x + 31;
@@ -91,6 +96,8 @@ describe("graph projection layout", () => {
 		rows.tasks = [task];
 		rows.runs = [];
 		rows.worktrees = [worktree];
+		rows.annotations = [];
+		rows.annotationTaskSuggestions = [];
 	});
 
 	it("centers parallel task leaves around the task axis", async () => {
@@ -104,7 +111,7 @@ describe("graph projection layout", () => {
 		const taskNode = node(projection, `task:${task.id}`);
 		const gateNode = node(projection, `checkpoint:${task.id}`);
 		const shipNode = node(projection, `ship:${task.id}`);
-		const axisY = taskNode.position.y + 64;
+		const axisY = runCenterY(taskNode);
 		const runNodes = ["run-a", "run-b", "run-c"].map((id) => node(projection, `run:${id}`));
 		const addParallelNode = node(projection, `add-run:${task.id}:parallel`);
 
@@ -114,6 +121,43 @@ describe("graph projection layout", () => {
 		expect(runNodes.map(runCenterY)).toEqual([axisY - 220, axisY, axisY + 220]);
 		expect(addRunCenterY(addParallelNode)).toBe(axisY + 330);
 		expect(addRunCenterX(addParallelNode)).toBe(runCenterX(runNodes[0]!));
+	});
+
+	it("stacks annotation runs without node overlap", async () => {
+		rows.tasks = [];
+		rows.annotations = [{
+			id: "annotation-1",
+			projectId: project.id,
+			worktreeId: worktree.id,
+			kind: "range",
+			filePath: "Makefile",
+			startLine: 28,
+			endLine: 29,
+			text: "check this",
+			sent: false,
+			status: "processing",
+			createdAt: startedAt(1),
+			updatedAt: startedAt(1),
+		}];
+		rows.runs = [
+			run({ id: "annotation-run-a", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-1"], startedAt: startedAt(1) }),
+			run({ id: "annotation-run-b", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-1"], startedAt: startedAt(2) }),
+		];
+
+		const projection = await buildGraphProjection(project.id);
+		const annotation = node(projection, "annotation:annotation-1");
+		const annotationTasks = node(projection, `annotation-tasks:${project.id}`);
+		const addTask = node(projection, `add-task:${project.id}`);
+		const first = node(projection, "annotation-run:annotation-1:annotation-run-a");
+		const second = node(projection, "annotation-run:annotation-1:annotation-run-b");
+		const addTaskEdge = projection.edges.find((edge) => edge.target === `add-task:${project.id}`);
+
+		expect(first.position.x).toBe(second.position.x);
+		expect(second.position.y - first.position.y).toBeGreaterThanOrEqual(168);
+		expect(runCenterY(annotation)).toBe((runCenterY(first) + runCenterY(second)) / 2);
+		expect(annotationTasks.position.y).toBe(annotation.position.y);
+		expect(addRunCenterY(addTask)).toBe(runCenterY(annotation));
+		expect(addTaskEdge?.source).toBe(`annotation-tasks:${project.id}`);
 	});
 
 	it("places sequential candidates in their future depth before the gate", async () => {
@@ -129,8 +173,8 @@ describe("graph projection layout", () => {
 		const addEdge = projection.edges.find((edge) => edge.id === `run:run-child->add-run:${task.id}:task:next:run-child`);
 
 		expect(addRunCenterY(addNextNode)).toBe(runCenterY(childNode));
-		expect(addRunCenterX(addNextNode)).toBe(760 + 2 * 340 + 120);
-		expect(gateNode.position.x).toBe(760 + 3 * 340);
+		expect(addRunCenterX(addNextNode)).toBe(1820 + 2 * 340 + 120);
+		expect(gateNode.position.x).toBe(1820 + 3 * 340);
 		expect(addEdge).toMatchObject({ source: "run:run-child", target: `add-run:${task.id}:task:next:run-child`, kind: "run" });
 	});
 });

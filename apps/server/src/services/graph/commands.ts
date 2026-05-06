@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import type { AgentRun, RunLane, RunRelation, Task, Worktree } from "@aware/shared";
+import type { AgentRun, AnnotationTaskSuggestion, RunLane, RunRelation, Task, Worktree } from "@aware/shared";
 import { db } from "../../db/client";
 import { flueRuntime } from "../agentRuntime/flueRuntime";
 import { isDefaultBranch } from "../defaultBranchGuard";
@@ -26,7 +26,7 @@ const SHIPPING_RUN_MESSAGE = [
 ].join("\n");
 
 function runLane(run: AgentRun): RunLane {
-	return run.lane === "gate" || run.lane === "ship" || run.lane === "graph" ? run.lane : "task";
+	return ["gate", "ship", "graph", "annotation", "annotation-tasks"].includes(run.lane ?? "") ? run.lane! : "task";
 }
 
 function activeRuns(runs: AgentRun[]) {
@@ -76,16 +76,27 @@ export async function createTaskCommand(input: {
 	title: string;
 	body?: string | undefined;
 	worktreeId?: string | undefined;
+	annotationTaskSuggestionId?: string | undefined;
+	sourceAnnotationIds?: string[] | undefined;
 }) {
 	await getProjectOrThrow(input.projectId);
 	if (input.worktreeId)
 		await getWorktreeInProjectOrThrow(input.projectId, input.worktreeId);
-	return createTask({
+	const task = await createTask({
 		projectId: input.projectId,
 		title: input.title,
 		body: input.body ?? "",
 		...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+		...(input.annotationTaskSuggestionId ? { annotationTaskSuggestionId: input.annotationTaskSuggestionId } : {}),
+		...(input.sourceAnnotationIds?.length ? { sourceAnnotationIds: input.sourceAnnotationIds } : {}),
 	});
+	if (input.annotationTaskSuggestionId)
+		await db.update<AnnotationTaskSuggestion>("annotationTaskSuggestions", input.annotationTaskSuggestionId, {
+			status: "created",
+			taskId: task.id,
+			updatedAt: new Date().toISOString(),
+		});
+	return task;
 }
 
 export async function updateTaskCommand(input: {
