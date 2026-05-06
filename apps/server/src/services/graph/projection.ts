@@ -41,6 +41,8 @@ const GRAPH_X = {
 const GRAPH_ROW_START_Y = 72;
 const GRAPH_ROW_GAP = 112;
 const GRAPH_ROW_VERTICAL_PADDING = 152;
+const GRAPH_ANNOTATION_ROW_TOP = 84;
+const GRAPH_ANNOTATION_RUN_STACK_GAP = 148;
 const GRAPH_RUN_LANE_GAP = 220;
 const GRAPH_RUN_DEPTH_GAP = 340;
 const GRAPH_RUN_NODE_WIDTH = 240;
@@ -331,12 +333,17 @@ export async function buildGraphProjection(
 		const projectAnnotationTaskRuns = annotationTaskRunsByProject.get(project.id) ?? [];
 		const hasAnnotationLane = projectAnnotations.length > 0 || projectSuggestions.length > 0 || projectAnnotationTaskRuns.length > 0;
 		const annotationTop = cursorY;
-		const annotationHeight = hasAnnotationLane ? Math.max(360, projectAnnotations.length * 156 + 160) : 0;
+		let nextAnnotationY = annotationTop + GRAPH_ANNOTATION_ROW_TOP;
+		const annotationRows = projectAnnotations.map((annotation) => {
+			const annotationRunCount = annotationRunsByAnnotation.get(annotation.id)?.length ?? 0;
+			const runStackHeight = GRAPH_RUN_NODE_HEIGHT + Math.max(0, annotationRunCount - 1) * GRAPH_ANNOTATION_RUN_STACK_GAP;
+			const rowHeight = Math.max(156, runStackHeight + 64);
+			const row = { annotation, y: nextAnnotationY };
+			nextAnnotationY += rowHeight;
+			return row;
+		});
+		const annotationHeight = hasAnnotationLane ? Math.max(360, nextAnnotationY - annotationTop + GRAPH_ANNOTATION_ROW_TOP) : 0;
 		const annotationCenterY = hasAnnotationLane ? annotationTop + annotationHeight / 2 : undefined;
-		const annotationRows = projectAnnotations.map((annotation, index) => ({
-			annotation,
-			y: annotationTop + 84 + index * 156,
-		}));
 		if (hasAnnotationLane) cursorY += annotationHeight + GRAPH_ROW_GAP;
 		const orderedTasks = [...(tasksByProject.get(project.id) ?? [])].sort(
 			(a, b) =>
@@ -529,7 +536,7 @@ export async function buildGraphProjection(
 						status: run.status,
 						meta: [new Date(run.startedAt).toLocaleString()],
 						accent: ["annotation-run", run.status === "running" ? "live" : "", run.deletedAt ? "deleted" : ""].filter(Boolean).join(" "),
-						position: { x: GRAPH_X.annotationRun + index * 72, y: y - 64 + index * 12 },
+						position: { x: GRAPH_X.annotationRun + index * 72, y: y - 64 + index * GRAPH_ANNOTATION_RUN_STACK_GAP },
 						href: annotationRunHref(project.id, run.id),
 						actions: runActions,
 					});

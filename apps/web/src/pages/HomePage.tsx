@@ -35,6 +35,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
 	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 } from "react";
@@ -86,7 +87,7 @@ type GraphNodeData = Record<string, unknown> & {
 	href?: string | undefined;
 };
 type GraphNode = Node<GraphNodeData>;
-type GraphViewportState = { viewport?: Viewport };
+type GraphViewportState = { viewport?: Viewport; signature?: string; size?: { width: number; height: number } };
 
 type ReviewState = "waiting" | "ready" | "done" | "need_rerun";
 
@@ -598,6 +599,14 @@ type PendingAnnotation = {
 	y: number;
 };
 
+function annotationPopoverStyle(annotation: PendingAnnotation, editing: boolean): CSSProperties {
+	const width = Math.min(420, Math.max(260, window.innerWidth - 28));
+	const estimatedHeight = editing ? 196 : 58;
+	const left = Math.min(window.innerWidth - 14 - width / 2, Math.max(14 + width / 2, annotation.x));
+	const top = Math.min(window.innerHeight - estimatedHeight - 14, Math.max(84, annotation.y + 30));
+	return { left, top };
+}
+
 function closestLineElement(node: globalThis.Node | null, root: HTMLElement) {
 	let current: globalThis.Node | null = node;
 	while (current && current !== root) {
@@ -1063,7 +1072,7 @@ export function HomeWorkspaceView({ view, onBack, onGraph, onWorktreeChange, onM
 					</div>
 					{error ? <p className="error home-error">{error}</p> : null}
 					{pendingAnnotation ? (
-						<div className={`annotation-utility-popover${annotationEditing ? " editing" : " compact"}`} style={{ left: pendingAnnotation.x, top: Math.max(72, pendingAnnotation.y - 10) }}>
+						<div className={`annotation-utility-popover${annotationEditing ? " editing" : " compact"}`} style={annotationPopoverStyle(pendingAnnotation, annotationEditing)}>
 							<div className="annotation-utility-row">
 								<strong>{annotationRangeLabel(pendingAnnotation.filePath, pendingAnnotation.startLine, pendingAnnotation.endLine)}</strong>
 								{annotationEditing ? <button type="button" onClick={clearPendingAnnotation}>×</button> : <button type="button" onClick={() => setAnnotationEditing(true)}>Annotate</button>}
@@ -1326,7 +1335,7 @@ function NodeCard({
 	accent?: string | undefined;
 	actions?: ReactNode | undefined;
 }) {
-	const classes = ["home-node-card", accent, status ? `status-card-${status}` : ""]
+	const classes = ["home-node-card", accent, status ? `status-card-${status}` : "", actions ? "has-actions" : ""]
 		.filter(Boolean)
 		.join(" ");
 	return (
@@ -1572,15 +1581,22 @@ function isGraphViewport(value: unknown): value is Viewport {
 	return [viewport.x, viewport.y, viewport.zoom].every((item) => typeof item === "number" && Number.isFinite(item));
 }
 
-function readGraphViewport(scopeKey: string) {
+function readGraphViewport(scopeKey: string, signature: string) {
 	const state = getPageState<GraphViewportState>(graphViewportStateKey(scopeKey), {});
-	return isGraphViewport(state.viewport) ? state.viewport : undefined;
+	const sizeMatches = state.size
+		? Math.abs(state.size.width - window.innerWidth) < 80 && Math.abs(state.size.height - window.innerHeight) < 80
+		: false;
+	return state.signature === signature && sizeMatches && isGraphViewport(state.viewport) ? state.viewport : undefined;
 }
 
-function saveGraphViewport(scopeKey: string, viewport: Viewport) {
-	if (!isGraphViewport(viewport)) return;
+function saveGraphViewport(scopeKey: string, viewport: Viewport, signature: string) {
+	if (!signature || !isGraphViewport(viewport)) return;
 	try {
-		setPageState<GraphViewportState>(graphViewportStateKey(scopeKey), { viewport });
+		setPageState<GraphViewportState>(graphViewportStateKey(scopeKey), {
+			viewport,
+			signature,
+			size: { width: window.innerWidth, height: window.innerHeight },
+		});
 	} catch {
 		// localStorage may be unavailable/private; graph still works without persistence.
 	}
@@ -1590,7 +1606,7 @@ function GraphViewportSync({ scopeKey, signature }: { scopeKey: string; signatur
 	const { fitView, setViewport } = useReactFlow();
 	useEffect(() => {
 		if (!signature) return;
-		const savedViewport = readGraphViewport(scopeKey);
+		const savedViewport = readGraphViewport(scopeKey, signature);
 		const frame = window.requestAnimationFrame(() => {
 			if (savedViewport) void setViewport(savedViewport, { duration: 0 });
 			else void fitView({ padding: 0.14, duration: 220 });
@@ -2701,8 +2717,8 @@ export function HomePage({
 	}) : { nodes: [], edges: [] }, [archiveTaskFromNode, archivingTaskId, busyRunId, canRenderGraph, continueRun, deleteRun, history, navigate, projection, retryRun]);
 	const graphLayoutSignature = useMemo(() => graph.nodes.map((node) => `${node.id}:${Math.round(node.position.x)},${Math.round(node.position.y)}`).join("|"), [graph.nodes]);
 	const handleGraphMoveEnd = useCallback((_: globalThis.MouseEvent | TouchEvent | null, viewport: Viewport) => {
-		saveGraphViewport(scopeKey, viewport);
-	}, [scopeKey]);
+		saveGraphViewport(scopeKey, viewport, graphLayoutSignature);
+	}, [graphLayoutSignature, scopeKey]);
 	async function markTaskDone(taskId: string) {
 		const task = tasks.find((row) => row.id === taskId);
 		if (!task) return;
@@ -2762,6 +2778,8 @@ export function HomePage({
 						elementsSelectable
 						panOnScroll
 						panOnDrag
+						minZoom={0.08}
+						maxZoom={1.6}
 						edgeTypes={HOME_EDGE_TYPES}
 						proOptions={{ hideAttribution: true }}
 					>

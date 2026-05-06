@@ -1,4 +1,4 @@
-import type { AgentRun, Project, Task, Worktree } from "@aware/shared";
+import type { AgentRun, Annotation, AnnotationTaskSuggestion, Project, Task, Worktree } from "@aware/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rows: {
@@ -6,8 +6,8 @@ const rows: {
 	tasks: Task[];
 	runs: AgentRun[];
 	worktrees: Worktree[];
-	annotations: [];
-	annotationTaskSuggestions: [];
+	annotations: Annotation[];
+	annotationTaskSuggestions: AnnotationTaskSuggestion[];
 } = {
 	projects: [],
 	tasks: [],
@@ -96,6 +96,8 @@ describe("graph projection layout", () => {
 		rows.tasks = [task];
 		rows.runs = [];
 		rows.worktrees = [worktree];
+		rows.annotations = [];
+		rows.annotationTaskSuggestions = [];
 	});
 
 	it("centers parallel task leaves around the task axis", async () => {
@@ -119,6 +121,34 @@ describe("graph projection layout", () => {
 		expect(runNodes.map(runCenterY)).toEqual([axisY - 220, axisY, axisY + 220]);
 		expect(addRunCenterY(addParallelNode)).toBe(axisY + 330);
 		expect(addRunCenterX(addParallelNode)).toBe(runCenterX(runNodes[0]!));
+	});
+
+	it("stacks annotation runs without node overlap", async () => {
+		rows.tasks = [];
+		rows.annotations = [{
+			id: "annotation-1",
+			projectId: project.id,
+			worktreeId: worktree.id,
+			kind: "range",
+			filePath: "Makefile",
+			startLine: 28,
+			endLine: 29,
+			text: "check this",
+			sent: false,
+			status: "processing",
+			createdAt: startedAt(1),
+			updatedAt: startedAt(1),
+		}];
+		rows.runs = [
+			run({ id: "annotation-run-a", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-1"], startedAt: startedAt(1) }),
+			run({ id: "annotation-run-b", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-1"], startedAt: startedAt(2) }),
+		];
+
+		const projection = await buildGraphProjection(project.id);
+		const first = node(projection, "annotation-run:annotation-1:annotation-run-a");
+		const second = node(projection, "annotation-run:annotation-1:annotation-run-b");
+
+		expect(second.position.y - first.position.y).toBeGreaterThanOrEqual(116);
 	});
 
 	it("places sequential candidates in their future depth before the gate", async () => {

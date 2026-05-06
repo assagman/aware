@@ -2074,7 +2074,6 @@ pre {
 	grid-template-columns: 1fr auto;
 	padding: 12px 18px;
 	background: rgb(2 8 6 / 91%);
-	backdrop-filter: blur(16px);
 }
 
 .home-brand {
@@ -2487,8 +2486,13 @@ pre {
 	right: 8px;
 }
 
+.home-node-card.has-actions > small {
+	padding-right: 92px;
+}
+
 .node-quick-actions {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 4px;
 }
 
@@ -2603,7 +2607,7 @@ pre {
 .home-modal-backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 50;
+	z-index: 500;
 	display: grid;
 	place-items: center;
 	padding: 24px;
@@ -3867,9 +3871,9 @@ pre {
 
 .annotation-utility-popover {
 	position: fixed;
-	z-index: 80;
+	z-index: 520;
 	width: min(420px, calc(100vw - 28px));
-	transform: translate(-50%, -100%);
+	transform: translate(-50%, 0);
 	border: 1px solid rgb(var(--home-accent-rgb) / 28%);
 	border-radius: 14px;
 	background: color-mix(in srgb, var(--home-panel) 94%, black);
@@ -3878,7 +3882,9 @@ pre {
 }
 
 .annotation-utility-popover textarea {
-	min-height: 70px;
+	width: 100%;
+	min-height: 92px;
+	max-height: min(34vh, 220px);
 	margin: 6px 0;
 	resize: vertical;
 }
