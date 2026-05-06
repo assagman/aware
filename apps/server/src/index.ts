@@ -8,15 +8,20 @@ import { diffs } from "./routes/diffs";
 import { feedback } from "./routes/feedback";
 import { events } from "./routes/events";
 import { files } from "./routes/files";
+import { graph } from "./routes/graph";
 import { projects, worktrees } from "./routes/projects";
 import { runs } from "./routes/runs";
+import { scopedProjects } from "./routes/scoped-projects";
 import { settings } from "./routes/settings";
 import { tasks } from "./routes/tasks";
+import { tools } from "./routes/tools";
 
 const app = new Hono();
 
 app.get("/api/health", (c) => c.json({ ok: true }));
+app.route("/api/graph", graph);
 app.route("/api/projects", projects);
+app.route("/api/projects", scopedProjects);
 app.route("/api/worktrees", worktrees);
 app.route("/api/agents", agents);
 app.route("/api/tasks", tasks);
@@ -29,6 +34,7 @@ app.route("/api/approvals", approvals);
 app.route("/api/settings", settings);
 app.route("/api/chat", chat);
 app.route("/api/events", events);
+app.route("/api/tools", tools);
 
 function portFromEnv(value: string | undefined, fallback: number) {
 	const port = Number(value);

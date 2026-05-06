@@ -24,6 +24,8 @@ export const worktreePrompt = readPrompt("worktree.md");
 export const defaultMainAgentPrompt = readPrompt("default-main-agent.md");
 export const runInstructionsPrompt = readPrompt("run-instructions.md");
 export const taskPromptTemplate = readPrompt("task-prompt-template.md");
+export const shippingAgentPrompt = readPrompt("shipping-agent.md");
+export const graphAgentPrompt = readPrompt("graph-agent.md");
 export const annotationSentPromptTemplate = readPrompt(
 	"annotation-sent-prompt-template.md",
 );

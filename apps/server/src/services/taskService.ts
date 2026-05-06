@@ -1,18 +1,25 @@
 import { randomUUID } from "node:crypto";
-import type {
-	AgentRun,
-	RunStatus,
-	Task,
-	TaskStatus,
-} from "@aware/shared";
+import type { AgentRun, Task, TaskStatus } from "@aware/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();
 
-function taskStatusFromRun(task: Task, status: RunStatus): TaskStatus {
-	if (status === "cancelled") return "failed";
-	if (status === "done") return task.status === "done" ? "done" : "need_review";
-	return status;
+function activeRuns(runs: AgentRun[]) {
+	return runs.filter((run) => !run.deletedAt);
+}
+
+function taskStatusFromRuns(task: Task, runs: AgentRun[]): TaskStatus {
+	const active = activeRuns(runs);
+	if (!active.length) return task.status === "done" ? "done" : "draft";
+	if (task.status === "done" && active.every((run) => run.status === "done"))
+		return "done";
+	if (active.some((run) => run.status === "running" || run.status === "queued"))
+		return "running";
+	if (active.some((run) => run.status === "need_review")) return "need_review";
+	if (active.length && active.every((run) => run.status === "done")) return "need_review";
+	if (active.some((run) => run.status === "failed" || run.status === "cancelled"))
+		return "failed";
+	return task.status;
 }
 
 export async function listTasks(
@@ -27,13 +34,11 @@ export async function listTasks(
 	);
 	const runs = await db.list<AgentRun>("runs");
 	return tasks.map((task) => {
-		const latestRun = runs
-			.filter((run) => run.taskId === task.id)
-			.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+		const taskRuns = runs.filter((run) => run.taskId === task.id);
 		return {
 			...task,
 			title: task.title === "Direct chat" ? "task" : task.title,
-			status: latestRun ? taskStatusFromRun(task, latestRun.status) : task.status,
+			status: taskRuns.length ? taskStatusFromRuns(task, taskRuns) : task.status,
 		};
 	});
 }
@@ -53,5 +58,12 @@ export async function createTask(
 
 export async function updateTask(id: string, patch: Partial<Task>) {
 	return db.update<Task>("tasks", id, { ...patch, updatedAt: now() });
+}
+
+export async function allTaskRunsDone(taskId: string) {
+	const runs = activeRuns(
+		(await db.list<AgentRun>("runs")).filter((run) => run.taskId === taskId),
+	);
+	return runs.length > 0 && runs.every((run) => run.status === "done");
 }
 

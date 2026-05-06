@@ -73,6 +73,19 @@ export async function createAgentProfile(
 	return db.insert("agentProfiles", row);
 }
 
+const mainShippingBoundary = [
+	"Shipping boundary:",
+	"- Never perform shipping operations yourself. Commit, rebase, push, pull-request creation, pull-request merge, branch cleanup, worktree cleanup, and default-worktree sync MUST always be delegated to Aware's internal Shipping Agent when needed.",
+	"- Use the task tool with exact role `shipping-agent` for all shipping operations. Never delegate to Main/current agent.",
+	"- If asked to ship from UI, stop implementation work and tell the user to start the Ship workflow; do not run `git commit`, `git rebase`, `git push`, `gh`, or `tea` yourself.",
+].join("\n");
+
+function ensureMainShippingBoundary(prompt: string) {
+	return prompt.includes("role `shipping-agent`")
+		? prompt
+		: `${prompt.trim()}\n\n${mainShippingBoundary}`;
+}
+
 function isRetiredDefaultAgent(agent: AgentProfile) {
 	const signature = retiredDefaultAgentSignatures.find(
 		(item) => normalizeName(item.name) === normalizeName(agent.name),
@@ -114,9 +127,16 @@ async function ensureDefaultAgentProfiles() {
 			(tool) => !activeTools.includes(tool),
 		);
 		const nextTools = [...activeTools, ...missingTools];
-		if (nextTools.length !== existing.tools.length || missingTools.length) {
+		const patch: Partial<AgentProfile> = {};
+		if (nextTools.length !== existing.tools.length || missingTools.length)
+			patch.tools = nextTools;
+		if (normalizeName(existing.name) === "main") {
+			const systemPrompt = ensureMainShippingBoundary(existing.systemPrompt);
+			if (systemPrompt !== existing.systemPrompt) patch.systemPrompt = systemPrompt;
+		}
+		if (Object.keys(patch).length) {
 			const updated = await db.update<AgentProfile>("agentProfiles", existing.id, {
-				tools: nextTools,
+				...patch,
 				updatedAt: now(),
 			});
 			if (updated) rows[rows.indexOf(existing)] = updated;

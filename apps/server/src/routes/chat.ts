@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listAgentProfilesForRun } from "../services/agentProfileService";
+import { listMainAgentsForRun } from "../services/shippingAgentService";
 import { flueRuntime } from "../services/agentRuntime/flueRuntime";
 import {
 	listAnnotations,
@@ -51,7 +51,7 @@ chat.post("/", async (c) => {
 		projectId: worktree.projectId,
 		worktreeId: worktree.id,
 	}));
-	const agents = await listAgentProfilesForRun();
+	const agents = await listMainAgentsForRun();
 	const run = await flueRuntime.startChat({
 		projectId: worktree.projectId,
 		worktreeId: worktree.id,

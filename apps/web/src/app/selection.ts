@@ -1,7 +1,7 @@
 const KEY = "aware-selection";
 
-type ProjectScope = "files" | "tasks" | "runs";
-type WorktreeScope = "files" | "runs" | "tasks";
+type ProjectScope = "home" | "files" | "tasks" | "runs";
+type WorktreeScope = "home" | "files" | "runs" | "tasks";
 
 type Selection = {
 	selectedProjectIds: Partial<Record<ProjectScope, string>>;
@@ -22,7 +22,7 @@ const empty: Selection = {
 function lastScopedWorktreeId(
 	selectedWorktreeIds: Partial<Record<WorktreeScope, string>>,
 ) {
-	return ["files", "runs", "tasks"]
+	return ["home", "files", "runs", "tasks"]
 		.map((scope) => selectedWorktreeIds[scope as WorktreeScope] || "")
 		.find((id) => id && id !== "all") || "";
 }
@@ -82,7 +82,7 @@ export function setSelectedWorktreeId(id: string, scope: WorktreeScope) {
 	const current = read();
 	const selectedWorktreeIds =
 		id && id !== "all"
-			? { files: id, runs: id, tasks: id }
+			? { home: id, files: id, runs: id, tasks: id }
 			: { ...current.selectedWorktreeIds, [scope]: id };
 	write({
 		...current,

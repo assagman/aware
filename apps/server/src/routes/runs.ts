@@ -1,4 +1,4 @@
-import type { AgentRun } from "@aware/shared";
+import type { AgentRun, RunArtifact, Task } from "@aware/shared";
 import { Hono } from "hono";
 import { db } from "../db/client";
 import { flueRuntime, runInactivityTimeoutMs } from "../services/agentRuntime/flueRuntime";
@@ -6,6 +6,7 @@ import {
 	MAX_QUEUE_EVENTS,
 	runEventHub,
 } from "../services/agentRuntime/runEventHub";
+import { allTaskRunsDone } from "../services/taskService";
 
 export const runs = new Hono();
 
@@ -66,11 +67,45 @@ runs.get("/:id", async (c) => {
 
 runs.post("/:id/cancel", async (c) => {
 	const id = c.req.param("id");
-	await db.update("runs", id, {
+	const run = await db.update<AgentRun>("runs", id, {
 		status: "cancelled",
 		endedAt: new Date().toISOString(),
 	});
+	if (run)
+		await db.update<Task>("tasks", run.taskId, {
+			status: "failed",
+			updatedAt: new Date().toISOString(),
+		});
 	return c.json({ ok: true });
+});
+
+runs.delete("/:id", async (c) => {
+	const id = c.req.param("id");
+	const run = await db.update<AgentRun>("runs", id, {
+		deletedAt: new Date().toISOString(),
+	});
+	return run ? c.json(run) : c.json({ error: "missing run" }, 404);
+});
+
+runs.post("/:id/done", async (c) => {
+	const id = c.req.param("id");
+	const run = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!run) return c.json({ error: "missing run" }, 404);
+	if (run.status === "running" || run.status === "queued")
+		return c.json({ error: `run is ${run.status}` }, 409);
+	const updated = await db.update<AgentRun>("runs", id, {
+		status: "done",
+		endedAt: run.endedAt ?? new Date().toISOString(),
+	});
+	if (await allTaskRunsDone(run.taskId)) {
+		const task = (await db.list<Task>("tasks")).find((row) => row.id === run.taskId);
+		if (task?.status !== "done")
+			await db.update<Task>("tasks", run.taskId, {
+				status: "need_review",
+				updatedAt: new Date().toISOString(),
+			});
+	}
+	return c.json(updated);
 });
 
 runs.post("/:id/messages", async (c) => {
@@ -83,6 +118,16 @@ runs.post("/:id/messages", async (c) => {
 runs.get("/:id/events", async (c) => {
 	const id = c.req.param("id");
 	return c.json(await runEventHub.persistedEvents(id));
+});
+
+runs.get("/:id/artifacts", async (c) => {
+	const id = c.req.param("id");
+	const rows = await db.list<RunArtifact>("runArtifacts");
+	return c.json(
+		rows
+			.filter((artifact) => artifact.runId === id)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+	);
 });
 
 runs.get("/:id/stream", async (c) => {

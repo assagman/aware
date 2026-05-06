@@ -1,6 +1,6 @@
 import type { Project, Worktree } from "@aware/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiGet } from "../app/api";
 import { HomeWorkspaceView, type WorkspaceViewState } from "./HomePage";
 
@@ -8,16 +8,11 @@ function lastPathSegment(path: string) {
 	return path.split("/").filter(Boolean).at(-1) || path;
 }
 
-function encodeFilePath(path: string) {
-	return path.split("/").map(encodeURIComponent).join("/");
-}
-
-export function FilesPage() {
+export function DiffsPage() {
 	const navigate = useNavigate();
-	const params = useParams();
-	const projectId = params.projectId ?? "";
-	const worktreeId = params.worktreeId ?? "";
-	const filePath = params["*"] ?? "";
+	const { projectId = "", worktreeId = "" } = useParams();
+	const [searchParams, setSearchParams] = useSearchParams();
+	const file = searchParams.get("file") ?? "";
 	const [project, setProject] = useState<Project | null>(null);
 	const [worktree, setWorktree] = useState<Worktree | null>(null);
 	const [error, setError] = useState("");
@@ -41,25 +36,24 @@ export function FilesPage() {
 	}, [projectId, worktreeId]);
 
 	const view = useMemo<WorkspaceViewState>(() => ({
-		mode: "files",
+		mode: "diff",
 		projectId,
 		worktreeId,
-		title: project?.name ?? "Files",
+		title: project?.name ?? "Diffs",
 		subtitle: worktree?.branch || worktree?.path || lastPathSegment(worktreeId),
 	}), [project?.name, projectId, worktree?.branch, worktree?.path, worktreeId]);
 	const graphPath = `/projects/${encodeURIComponent(projectId)}`;
-	const filesPath = useCallback((path = "") => `${graphPath}/worktrees/${encodeURIComponent(worktreeId)}/files${path ? `/${encodeFilePath(path)}` : ""}`, [graphPath, worktreeId]);
 	const handleFileChange = useCallback((path: string) => {
-		const nextPath = filesPath(path);
-		if (window.location.pathname === nextPath) return;
-		navigate(nextPath, { replace: true });
-	}, [filesPath, navigate]);
+		if (!window.location.pathname.includes(`/worktrees/${encodeURIComponent(worktreeId)}/diffs`)) return;
+		if (file === path) return;
+		setSearchParams(path ? { file: path } : {}, { replace: true });
+	}, [file, setSearchParams, worktreeId]);
 
 	if (error)
 		return (
 			<section className="home-page route-state-page">
 				<div className="home-empty">
-					<h3>Invalid files route</h3>
+					<h3>Invalid diffs route</h3>
 					<p>{error}</p>
 				</div>
 			</section>
@@ -67,13 +61,12 @@ export function FilesPage() {
 
 	return (
 		<HomeWorkspaceView
-			key={`files:${projectId}:${worktreeId}`}
+			key={`diff:${projectId}:${worktreeId}`}
 			view={view}
-			initialFile={filePath}
+			initialFile={file}
 			onBack={() => navigate(-1)}
 			onGraph={() => navigate(graphPath)}
-			onWorktreeChange={(nextWorktreeId) => navigate(`${graphPath}/worktrees/${encodeURIComponent(nextWorktreeId)}/files`)}
-			onModeChange={() => navigate(`${graphPath}/worktrees/${encodeURIComponent(worktreeId)}/diffs${filePath ? `?${new URLSearchParams({ file: filePath })}` : ""}`)}
+			onModeChange={() => navigate(`${graphPath}/worktrees/${encodeURIComponent(worktreeId)}/files${file ? `/${file.split("/").map(encodeURIComponent).join("/")}` : ""}`)}
 			onFileChange={handleFileChange}
 		/>
 	);

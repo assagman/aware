@@ -1,3 +1,4 @@
+import type { GitStatusEntry } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getPageState, setPageState } from "../app/pageState";
@@ -12,12 +13,6 @@ function directoryPaths(paths: string[]) {
 		}
 	}
 	return [...dirs];
-}
-
-function oneDepthDirectoryPaths(paths: string[]) {
-	return directoryPaths(paths).filter(
-		(path) => path.slice(0, -1).includes("/") === false,
-	);
 }
 
 function treeVisibleIndex(paths: string[], selectedPath: string) {
@@ -99,6 +94,7 @@ function highlightTextNode(node: Text, query: string) {
 }
 
 const FILE_TREE_ITEM_HEIGHT = 30;
+const EMPTY_GIT_STATUS: GitStatusEntry[] = [];
 
 function getTreeScroller(hostId: string) {
 	const root = document.getElementById(hostId)?.shadowRoot;
@@ -162,20 +158,27 @@ export function FileTreeView({
 	paths,
 	onOpen,
 	selectedPath = "",
+	gitStatus = EMPTY_GIT_STATUS,
+	hostId = "file-tree-host",
+	stateKey = "file-tree",
 }: {
 	paths: string[];
 	onOpen: (path: string) => void;
 	selectedPath?: string;
+	gitStatus?: GitStatusEntry[];
+	hostId?: string;
+	stateKey?: string;
 }) {
-	const initialTree = getPageState("file-tree", {
+	const initialTree = getPageState(stateKey, {
 		searchQuery: "",
-		expansion: "all" as "one" | "none" | "all",
+		expansion: "all" as "none" | "all",
 	});
 	const [searchQuery, setSearchQuery] = useState(initialTree.searchQuery);
-	const [expansion, setExpansion] = useState<"one" | "none" | "all">(
+	const [expansion, setExpansion] = useState<"none" | "all">(
 		initialTree.expansion,
 	);
 	const onOpenRef = useRef(onOpen);
+	const syncingSelectionRef = useRef(false);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	onOpenRef.current = onOpen;
 	const visiblePaths = useMemo(
@@ -184,23 +187,54 @@ export function FileTreeView({
 	);
 	const expandedPaths = useMemo(() => {
 		if (expansion === "none") return [];
-		if (expansion === "all" || searchQuery.trim() || selectedPath)
-			return directoryPaths(visiblePaths);
-		return oneDepthDirectoryPaths(visiblePaths);
-	}, [expansion, searchQuery, selectedPath, visiblePaths]);
+		return directoryPaths(visiblePaths);
+	}, [expansion, visiblePaths]);
+	const gitStatusSignature = useMemo(
+		() => gitStatus.map((entry) => `${entry.path}:${entry.status}`).join("\0"),
+		[gitStatus],
+	);
 	const { model } = useFileTree({
 		paths: visiblePaths,
+		gitStatus,
 		search: false,
 		initialExpansion: 1,
 		initialExpandedPaths: expandedPaths,
 		itemHeight: FILE_TREE_ITEM_HEIGHT,
 		unsafeCSS: `
 			.aware-fzf-match {
-				color: #f59e0b;
-				font-weight: 700;
+				color: #27f5ad;
+				font-weight: 800;
+			}
+			[data-item-contains-git-change='true'] [data-item-section='content'] {
+				color: #8fffe3;
+				font-weight: 760;
+			}
+			[data-item-git-status='modified'] [data-item-section='content'] {
+				color: #38bdf8;
+			}
+			[data-item-git-status='added'],
+			[data-item-git-status='untracked'] {
+				background: rgba(39, 245, 173, 0.08);
+			}
+			[data-item-git-status='added'] [data-item-section='content'],
+			[data-item-git-status='untracked'] [data-item-section='content'] {
+				color: #27f5ad;
+				font-weight: 820;
+			}
+			[data-item-git-status='deleted'] {
+				background: rgba(251, 113, 133, 0.08);
+			}
+			[data-item-git-status='deleted'] [data-item-section='content'] {
+				color: #fb7185;
+				text-decoration: line-through;
+			}
+			[data-item-git-status='renamed'] [data-item-section='content'] {
+				color: #facc15;
+				font-weight: 820;
 			}
 		`,
 		onSelectionChange: (selectedPaths) => {
+			if (syncingSelectionRef.current) return;
 			const selected = selectedPaths.find((path) => !path.endsWith("/"));
 			if (selected) onOpenRef.current(selected);
 		},
@@ -218,35 +252,35 @@ export function FileTreeView({
 			}
 		};
 		model.resetPaths(visiblePaths, { initialExpandedPaths: expandedPaths });
-		if (!hadSearchFocus && selectedPath && visiblePaths.includes(selectedPath)) {
-			model.focusPath(selectedPath);
-			const item = model.getItem(selectedPath);
-			item?.select();
-			item?.focus();
-			scrollTreeSelectionIntoViewSoon(
-				"file-tree-host",
-				treeVisibleIndex(visiblePaths, selectedPath),
-			);
-		}
 		if (hadSearchFocus) {
 			restoreSearchFocus();
 			window.requestAnimationFrame(restoreSearchFocus);
 		}
-	}, [expandedPaths, model, selectedPath, visiblePaths]);
+	}, [expandedPaths, model, visiblePaths]);
 	useEffect(() => {
 		if (document.activeElement === searchInputRef.current) return;
 		if (!selectedPath || !visiblePaths.includes(selectedPath)) return;
+		syncingSelectionRef.current = true;
 		model.focusPath(selectedPath);
+		for (const selected of model.getSelectedPaths()) {
+			if (selected !== selectedPath) model.getItem(selected)?.deselect();
+		}
 		const item = model.getItem(selectedPath);
 		item?.select();
 		item?.focus();
+		window.requestAnimationFrame(() => {
+			syncingSelectionRef.current = false;
+		});
 		scrollTreeSelectionIntoViewSoon(
-			"file-tree-host",
+			hostId,
 			treeVisibleIndex(visiblePaths, selectedPath),
 		);
-	}, [model, selectedPath, visiblePaths]);
+	}, [hostId, model, selectedPath, visiblePaths]);
 	useEffect(() => {
-		const host = document.getElementById("file-tree-host");
+		model.setGitStatus(gitStatus);
+	}, [gitStatus, gitStatusSignature, model]);
+	useEffect(() => {
+		const host = document.getElementById(hostId);
 		const shadowRoot = host?.shadowRoot;
 		if (!shadowRoot) return;
 		let frame = 0;
@@ -271,10 +305,10 @@ export function FileTreeView({
 			observer.disconnect();
 			clearTreeSearchHighlights(shadowRoot);
 		};
-	}, [searchQuery, visiblePaths]);
+	}, [hostId, searchQuery, visiblePaths]);
 	return (
 		<FileTree
-			id="file-tree-host"
+			id={hostId}
 			model={model}
 			header={
 				<div className="file-tree-header">
@@ -283,7 +317,7 @@ export function FileTreeView({
 							type="button"
 							onClick={() => {
 								setExpansion("none");
-								setPageState("file-tree", { expansion: "none" });
+								setPageState(stateKey, { expansion: "none" });
 							}}
 						>
 							Collapse all
@@ -292,7 +326,7 @@ export function FileTreeView({
 							type="button"
 							onClick={() => {
 								setExpansion("all");
-								setPageState("file-tree", { expansion: "all" });
+								setPageState(stateKey, { expansion: "all" });
 							}}
 						>
 							Expand all
@@ -304,7 +338,7 @@ export function FileTreeView({
 						value={searchQuery}
 						onChange={(event) => {
 							setSearchQuery(event.target.value);
-							setPageState("file-tree", { searchQuery: event.target.value });
+							setPageState(stateKey, { searchQuery: event.target.value });
 						}}
 						placeholder="fzf search files"
 						aria-label="fzf search files"

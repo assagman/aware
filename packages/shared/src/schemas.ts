@@ -37,6 +37,7 @@ export const taskSchema = z.object({
 	status: z.enum(["draft", "queued", "running", "need_review", "done", "failed"]),
 	archivedAt: z.string().optional(),
 	deletedAt: z.string().optional(),
+	reviewInvalidatedAt: z.string().optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -57,3 +58,104 @@ export const annotationSchema = z.object({
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
+export const runArtifactSchema = z.object({
+	id: idSchema,
+	projectId: idSchema,
+	taskId: idSchema,
+	runId: idSchema,
+	worktreeId: idSchema,
+	kind: z.literal("session_report"),
+	turnSeq: z.number().int().positive(),
+	lane: z.enum(["task", "gate", "ship", "graph"]).optional(),
+	parentRunId: idSchema.optional(),
+	title: z.string(),
+	body: z.string(),
+	metadata: z.record(z.unknown()).optional(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+export const artifactorySaveSessionReportInputSchema = z.object({
+	title: z.string().min(1).optional(),
+	body: z.string().min(1),
+	metadata: z.record(z.unknown()).optional(),
+});
+
+export const graphCreateProjectInputSchema = z.object({
+	path: z.string().min(1),
+});
+export const graphCreateTaskInputSchema = z.object({
+	projectId: idSchema,
+	title: z.string().min(1),
+	body: z.string().default(""),
+	worktreeId: idSchema.optional(),
+});
+export const graphUpdateTaskInputSchema = z.object({
+	projectId: idSchema,
+	taskId: idSchema,
+	title: z.string().min(1).optional(),
+	body: z.string().optional(),
+	worktreeId: idSchema.nullish(),
+	archivedAt: z.string().nullish(),
+	deletedAt: z.string().nullish(),
+});
+export const graphTaskIdentityInputSchema = z.object({
+	projectId: idSchema,
+	taskId: idSchema,
+});
+export const graphStartRunInputSchema = z.object({
+	projectId: idSchema,
+	taskId: idSchema,
+	message: z.string().optional(),
+	worktreeId: idSchema.optional(),
+	relation: z.enum(["parallel", "sequential"]).default("parallel"),
+	lane: z.enum(["task", "gate"]).optional(),
+	parentRunId: idSchema.optional(),
+});
+export const graphRunIdentityInputSchema = z.object({
+	projectId: idSchema,
+	taskId: idSchema,
+	runId: idSchema,
+});
+export const graphSendRunMessageInputSchema = graphRunIdentityInputSchema.extend({
+	message: z.string().min(1),
+});
+export const graphRetryRunInputSchema = graphRunIdentityInputSchema.extend({
+	message: z.string().optional(),
+});
+export const graphOpenProjectInputSchema = z.object({ projectId: idSchema });
+export const graphOpenTaskInputSchema = graphTaskIdentityInputSchema;
+export const graphOpenRunInputSchema = graphRunIdentityInputSchema;
+export const graphOpenCheckpointInputSchema = graphTaskIdentityInputSchema;
+export const graphOpenShipInputSchema = graphTaskIdentityInputSchema;
+export const graphOpenFilesInputSchema = z.object({
+	projectId: idSchema,
+	worktreeId: idSchema,
+	path: z.string().optional(),
+});
+export const graphOpenDiffsInputSchema = z.object({
+	projectId: idSchema,
+	worktreeId: idSchema,
+	file: z.string().optional(),
+});
+
+export const graphCommandSchemas = {
+	create_project: graphCreateProjectInputSchema,
+	create_task: graphCreateTaskInputSchema,
+	update_task: graphUpdateTaskInputSchema,
+	mark_task_done: graphTaskIdentityInputSchema,
+	start_run: graphStartRunInputSchema,
+	send_run_message: graphSendRunMessageInputSchema,
+	retry_run: graphRetryRunInputSchema,
+	delete_run: graphRunIdentityInputSchema,
+	create_checkpoint: graphTaskIdentityInputSchema,
+	start_shipping: graphTaskIdentityInputSchema,
+	open_project: graphOpenProjectInputSchema,
+	open_checkpoint: graphOpenCheckpointInputSchema,
+	open_ship: graphOpenShipInputSchema,
+	open_task: graphOpenTaskInputSchema,
+	open_run: graphOpenRunInputSchema,
+	open_files: graphOpenFilesInputSchema,
+	open_diffs: graphOpenDiffsInputSchema,
+} as const;
+
+export type GraphCommandSchemaName = keyof typeof graphCommandSchemas;

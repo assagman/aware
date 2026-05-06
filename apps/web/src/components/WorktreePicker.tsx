@@ -28,12 +28,14 @@ export function WorktreePicker({
 	value,
 	onChange,
 	allowAll = false,
+	allowNewWorktree = false,
 	showAdd = true,
 }: {
 	projectId: string;
 	value: string;
 	onChange: (id: string) => void;
 	allowAll?: boolean;
+	allowNewWorktree?: boolean;
 	showAdd?: boolean;
 }) {
 	const [worktrees, setWorktrees] = useState<Worktree[]>([]);
@@ -83,9 +85,10 @@ export function WorktreePicker({
 		}
 		const hasValue = filtered.some((worktree) => worktree.id === value);
 		if (allowAll && (!value || (value !== "all" && !hasValue))) onChange("all");
-		if (!allowAll && !value && filtered[0]) onChange(filtered[0].id);
-		if (!allowAll && value && !hasValue) onChange(filtered[0]?.id ?? "");
-	}, [allowAll, filtered, loaded, onChange, projectId, value]);
+		if (!allowAll && allowNewWorktree && value && !hasValue) onChange("");
+		if (!allowAll && !allowNewWorktree && !value && filtered[0]) onChange(filtered[0].id);
+		if (!allowAll && !allowNewWorktree && value && !hasValue) onChange(filtered[0]?.id ?? "");
+	}, [allowAll, allowNewWorktree, filtered, loaded, onChange, projectId, value]);
 	async function addWorktree() {
 		if (!projectId || !path.trim() || saving) return;
 		setSaving(true);
@@ -106,7 +109,7 @@ export function WorktreePicker({
 		<div className="fuzzy-picker worktree-picker">
 			<button type="button" className="fuzzy-picker-trigger" onClick={() => setOpen((next) => !next)} disabled={!projectId}>
 				<span>Worktree</span>
-				<strong>{!projectId ? "No project selected" : value === "all" ? "All worktrees" : selected ? `${worktreeName(selected)} — ${selected.branch || "worktree"}` : "Select worktree"}</strong>
+				<strong>{!projectId ? "No project selected" : value === "all" ? "All worktrees" : selected ? `${worktreeName(selected)} — ${selected.branch || "worktree"}` : allowNewWorktree ? "New Worktree" : "Select worktree"}</strong>
 				{!loaded ? <BusyIndicator label="" /> : null}
 			</button>
 			{open ? (
@@ -114,6 +117,7 @@ export function WorktreePicker({
 					<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="fzf worktrees..." autoFocus />
 					<div className="fuzzy-picker-list">
 						{allowAll ? <button type="button" className={value === "all" ? "fuzzy-picker-row selected" : "fuzzy-picker-row"} onClick={() => { onChange("all"); setOpen(false); }}><strong>All worktrees</strong><small>Show every run</small></button> : null}
+						{allowNewWorktree ? <button type="button" className={!value ? "fuzzy-picker-row selected" : "fuzzy-picker-row"} onClick={() => { onChange(""); setOpen(false); }}><strong>New Worktree</strong><small>Create isolated task worktree on first run</small></button> : null}
 						{visible.map((worktree) => (
 							<button key={worktree.id} type="button" className={worktree.id === value ? "fuzzy-picker-row selected" : "fuzzy-picker-row"} onClick={() => { onChange(worktree.id); setOpen(false); }}>
 								<strong>{worktreeName(worktree)} — {worktree.branch || "worktree"}</strong>

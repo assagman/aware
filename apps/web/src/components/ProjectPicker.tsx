@@ -1,6 +1,6 @@
 import type { Project } from "@aware/shared";
-import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost } from "../app/api";
+import { useMemo, useState } from "react";
+import { apiPost } from "../app/api";
 import { collapseHomePath } from "../app/path";
 import { getPageState, setPageState } from "../app/pageState";
 import { BusyIndicator } from "./BusyIndicator";
@@ -22,19 +22,23 @@ function fuzzyScore(value: string, query: string) {
 
 export function ProjectPicker({
 	value,
+	projects,
+	loading = false,
 	onChange,
+	onCreated,
 	showAdd = true,
 }: {
 	value: string;
+	projects: Project[];
+	loading?: boolean;
 	onChange: (id: string) => void;
+	onCreated?: (project: Project) => void | Promise<void>;
 	showAdd?: boolean;
 }) {
 	const initialState = getPageState("project-picker", { path: "" });
-	const [projects, setProjects] = useState<Project[]>([]);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [path, setPath] = useState(initialState.path);
-	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const selected = projects.find((project) => project.id === value);
@@ -48,27 +52,6 @@ export function ProjectPicker({
 			.sort((a, b) => b.score - a.score || a.project.name.localeCompare(b.project.name))
 			.map((row) => row.project);
 	}, [projects, query]);
-	async function refresh() {
-		setLoading(true);
-		try {
-			const rows = await apiGet<Project[]>("/projects");
-			setProjects(rows);
-			const hasSelected = rows.some((project) => project.id === value);
-			if (!value && rows[0]) onChange(rows[0].id);
-			else if (value && !hasSelected) onChange(rows[0]?.id ?? "");
-		} finally {
-			setLoading(false);
-		}
-	}
-	useEffect(() => {
-		void refresh();
-		window.addEventListener("focus", refresh);
-		window.addEventListener("aware:worktrees", refresh);
-		return () => {
-			window.removeEventListener("focus", refresh);
-			window.removeEventListener("aware:worktrees", refresh);
-		};
-	}, []);
 	async function addProject() {
 		if (!path.trim() || saving) return;
 		setSaving(true);
@@ -77,8 +60,8 @@ export function ProjectPicker({
 			setPath("");
 			setPageState("project-picker", { path: "" });
 			setError("");
-			await refresh();
-			onChange(project.id);
+			if (onCreated) await onCreated(project);
+			else onChange(project.id);
 			setOpen(false);
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
@@ -90,7 +73,7 @@ export function ProjectPicker({
 		<div className="fuzzy-picker project-picker">
 			<button type="button" className="fuzzy-picker-trigger" onClick={() => setOpen((next) => !next)}>
 				<span>Project</span>
-				<strong>{selected?.name || "Select project"}</strong>
+				<strong>{selected?.name || (loading && value ? "Loading project" : "Select project")}</strong>
 				{loading ? <BusyIndicator label="" /> : null}
 			</button>
 			{open ? (

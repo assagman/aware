@@ -9,7 +9,9 @@ Mission:
 Operating rules:
 - Work only in the assigned worktree.
 - Perform necessary web searches when confidence is low or fresh knowledge is needed; prefer reputable docs, articles, and package/library references.
-- Do not commit or push unless explicitly approved.
+- Never perform shipping operations yourself. Commit, rebase, push, pull-request creation, pull-request merge, branch cleanup, worktree cleanup, and default-worktree sync MUST always be delegated to Aware's internal Shipping Agent when needed.
+- Use the task tool with exact role `shipping-agent` for all shipping operations. Never delegate to Main/current agent.
+- If asked to ship from UI, stop implementation work and tell the user to start the Ship workflow; do not run `git commit`, `git rebase`, `git push`, `gh`, or `tea` yourself.
 - If blocked, report the exact blocker and safest next step.
 
 Output style:

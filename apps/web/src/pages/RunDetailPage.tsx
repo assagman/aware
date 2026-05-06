@@ -87,8 +87,7 @@ function isAssistantEvent(event: RunEvent) {
 		type.includes("assistant") ||
 		type.includes("message_delta") ||
 		type.includes("content_delta") ||
-		type.includes("response_delta") ||
-		type === "result"
+		type.includes("response_delta")
 	);
 }
 
@@ -538,16 +537,148 @@ const toolPalette = [
 
 function toolColorClass(name: string) {
 	const normalized = name.toLowerCase();
-	if (normalized === "read") return "tool-read";
-	if (normalized === "bash") return "tool-bash";
+	if (normalized.includes("read")) return "tool-read";
+	if (normalized.includes("bash") || normalized.includes("shell")) return "tool-bash";
+	if (normalized.includes("edit")) return "tool-edit";
+	if (normalized.includes("write")) return "tool-write";
 	let hash = 0;
 	for (let i = 0; i < name.length; i++)
 		hash = (hash * 31 + name.charCodeAt(i)) | 0;
 	return toolPalette[Math.abs(hash) % toolPalette.length];
 }
 
-function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
-	const [detailsOpen, setDetailsOpen] = useState(false);
+function isShellTool(name: string) {
+	const normalized = name.toLowerCase();
+	return normalized.includes("bash") || normalized.includes("shell");
+}
+
+function BashCommandSummary({ command }: { command: string }) {
+	let commandStart = true;
+	return (
+		<code className="tool-summary-code bash-summary-code">
+			{command.split(/(\s+|&&|\|\||[|;&()<>])/g).filter(Boolean).map((part, index) => {
+				if (/^\s+$/.test(part)) return part;
+				if (/^(?:&&|\|\||[|;&()<>])$/.test(part)) {
+					commandStart = true;
+					return <span key={index} className="shell-token shell-operator">{part}</span>;
+				}
+				let className = "shell-token";
+				if (commandStart) {
+					className += " shell-command";
+					commandStart = false;
+				} else if (/^-{1,2}\w/.test(part)) className += " shell-flag";
+				else if (/^(['"]).*\1$/.test(part)) className += " shell-string";
+				else if (part.includes("/") || part.includes(".")) className += " shell-path";
+				return <span key={index} className={className}>{part}</span>;
+			})}
+		</code>
+	);
+}
+
+function ToolSummary({ name, summary }: { name: string; summary: string }) {
+	if (!summary) return null;
+	return isShellTool(name) ? <BashCommandSummary command={summary} /> : <em>{summary}</em>;
+}
+
+function toolContentText(value: unknown) {
+	if (typeof value === "string") return value;
+	const p = asPayload(value);
+	const content = p.content;
+	if (Array.isArray(content)) {
+		return content
+			.map((item) => {
+				const itemPayload = asPayload(item);
+				return typeof itemPayload.text === "string" ? itemPayload.text : "";
+			})
+			.filter(Boolean)
+			.join("\n");
+	}
+	return argText(p.text ?? p.stdout ?? p.stderr ?? p.message) ?? "";
+}
+
+function lineCount(text: string) {
+	if (!text) return 0;
+	return text.replace(/\n$/, "").split(/\r?\n/).length;
+}
+
+function readRangeSummary(args: unknown, result: unknown) {
+	const p = asPayload(args);
+	const offset = Number(p.offset ?? p.startLine ?? p.line ?? 1);
+	const textLines = lineCount(toolContentText(result));
+	if (!Number.isFinite(offset) || !textLines) return undefined;
+	return `${offset}-${offset + textLines - 1}`;
+}
+
+function ToolChips({ items }: { items: Array<[string, unknown]> }) {
+	const visible = items.filter(([, value]) => value !== undefined && value !== "");
+	if (!visible.length) return null;
+	return (
+		<div className="tool-chip-row">
+			{visible.map(([label, value]) => (
+				<span key={label} className="tool-chip"><strong>{label}</strong>{String(value)}</span>
+			))}
+		</div>
+	);
+}
+
+function StructuredValue({ value }: { value: unknown }) {
+	const text = toolContentText(value);
+	if (text) return <MarkdownText text={text} className="tool-detail-markdown" />;
+	const p = asPayload(value);
+	const entries = Object.entries(p).filter(([, item]) => item !== undefined);
+	if (!entries.length) return <p className="muted">No details.</p>;
+	return (
+		<div className="tool-kv-grid">
+			{entries.map(([key, item]) => (
+				<div key={key}>
+					<strong>{key}</strong>
+					<pre>{jsonPreview(item, 4000)}</pre>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function ToolArgumentsView({ name, args, patch }: { name: string; args: unknown; patch?: string | undefined }) {
+	const normalized = name.toLowerCase();
+	const p = asPayload(args);
+	if (isShellTool(name)) return <pre className="tool-command-detail">{argText(p.command ?? p.cmd ?? p.script ?? p.input) ?? jsonPreview(args, 4000)}</pre>;
+	if (normalized.includes("edit") || normalized.includes("write")) return <ToolChips items={[["path", p.path ?? p.filePath ?? p.file_path], ["changed lines", patch ? lineCount(patch) : undefined]]} />;
+	return <StructuredValue value={args} />;
+}
+
+function ToolResultView({ name, args, result, patch }: { name: string; args: unknown; result: unknown; patch?: string | undefined }) {
+	const normalized = name.toLowerCase();
+	const details = asPayload(asPayload(result).details);
+	const text = toolContentText(result);
+	if ((normalized.includes("edit") || normalized.includes("write")) && patch) {
+		return (
+			<>
+				<ToolDiff patch={patch} />
+				{text ? <MarkdownText text={text} className="tool-detail-markdown" /> : null}
+			</>
+		);
+	}
+	if (normalized.includes("read")) {
+		return (
+			<>
+				<ToolChips items={[["path", details.path ?? asPayload(args).path], ["total lines", details.lines ?? details.totalLines], ["read lines", lineCount(text)], ["range", readRangeSummary(args, result)]]} />
+				{text ? <MarkdownText text={text} className="tool-detail-markdown" /> : <p className="muted">No output.</p>}
+			</>
+		);
+	}
+	if (isShellTool(name)) {
+		return (
+			<>
+				<ToolChips items={[["exit", details.exitCode ?? asPayload(result).exitCode], ["status", details.status]]} />
+				<pre className="tool-output-block">{text || "(no output)"}</pre>
+			</>
+		);
+	}
+	return <StructuredValue value={result} />;
+}
+
+function ToolBlock({ start, end, forceOpen = false }: { start: RunEvent; end?: RunEvent; forceOpen?: boolean }) {
 	const name = toolName(start.payload, "tool");
 	const args = toolArgs(start.payload);
 	const argsSummary = toolArgsSummary(name, args);
@@ -556,6 +687,7 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	const normalizedName = name.toLowerCase();
 	const isEdit = normalizedName.includes("edit");
 	const isWrite = normalizedName.includes("write");
+	const result = end ? toolOutput(end.payload) : undefined;
 	const resultPatch = end ? patchFromPayload(end.payload) : undefined;
 	const toolPatch = failed && isEdit
 		? undefined
@@ -565,36 +697,24 @@ function ToolBlock({ start, end }: { start: RunEvent; end?: RunEvent }) {
 	return (
 		<details
 			className={`chat-bubble tool-event tool-${status} ${toolColorClass(name)}`}
-			open={detailsOpen}
-			onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+			open={forceOpen}
 		>
 			<summary>
 				<strong>{name}</strong>
-				{argsSummary ? <> &gt; {argsSummary}</> : null}
+				<ToolSummary name={name} summary={argsSummary} />
 			</summary>
-			{detailsOpen ? (
-				<>
-					{toolPatch ? <ToolDiff patch={toolPatch} /> : null}
-					<section className="tool-details-grid">
-						<div>
-							<strong>Arguments</strong>
-							<MarkdownText
-								text={valueToMarkdownPreview(args)}
-								className="tool-detail-markdown"
-							/>
-						</div>
-						{end ? (
-							<div>
-								<strong>Result</strong>
-								<MarkdownText
-									text={valueToMarkdownPreview(toolOutput(end.payload))}
-									className="tool-detail-markdown"
-								/>
-							</div>
-						) : null}
-					</section>
-				</>
-			) : null}
+			<section className="tool-details-grid">
+				<div className="tool-detail-card">
+					<h4>Arguments</h4>
+					<ToolArgumentsView name={name} args={args} patch={toolPatch} />
+				</div>
+				{end && result !== undefined ? (
+					<div className="tool-detail-card">
+						<h4>Result</h4>
+						<ToolResultView name={name} args={args} result={result} patch={toolPatch} />
+					</div>
+				) : null}
+			</section>
 		</details>
 	);
 }
@@ -605,6 +725,7 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 	for (const event of ordered) {
 		if (isToolEndEvent(event)) toolEnds.set(toolKey(event), event);
 	}
+	const latestVisibleSeq = [...ordered].reverse().find((event) => !isHiddenEvent(event) && !isToolEndEvent(event))?.seq;
 	const rendered: ReactNode[] = [];
 	let assistantBuffer = "";
 	let assistantKey = "";
@@ -681,23 +802,13 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 			const end = toolEnds.get(toolKey(event));
 			rendered.push(
 				end ? (
-					<ToolBlock key={event.id} start={event} end={end} />
+					<ToolBlock key={event.id} start={event} end={end} forceOpen={false} />
 				) : (
-					<ToolBlock key={event.id} start={event} />
+					<ToolBlock key={event.id} start={event} forceOpen={event.seq === latestVisibleSeq} />
 				),
 			);
 		} else if (event.type === "result") {
-			const text = extractTextDeep(event.payload);
-			if (text)
-				rendered.push(
-					<section
-						key={event.id}
-						className="chat-bubble assistant-message message-assistant"
-					>
-						<strong>Assistant</strong>
-						<MarkdownText text={text} />
-					</section>,
-				);
+			continue;
 		} else if (event.type === "error") {
 			rendered.push(
 				<section key={event.id} className="chat-bubble error message-error">
@@ -706,12 +817,7 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 				</section>,
 			);
 		} else {
-			rendered.push(
-				<details key={event.id} className="chat-bubble message-result">
-					<summary>{event.type}</summary>
-					<pre>{jsonPreview(event.payload, 4000)}</pre>
-				</details>,
-			);
+			continue;
 		}
 	}
 	flushAssistant();

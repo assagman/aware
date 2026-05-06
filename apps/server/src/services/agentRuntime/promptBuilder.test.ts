@@ -70,9 +70,31 @@ describe("prompt builder", () => {
 			],
 			annotations: [],
 		});
-		expect(text).toContain("Available agents:");
-		expect(text).toContain("- Primary (selected): provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write");
-		expect(text).toContain("- Secondary: provider openai-codex; model openai-codex/gpt-5.5; thinking off; no tools");
+		expect(text).toContain("Selected agent:");
+		expect(text).toContain("- Primary: provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write");
+		expect(text).toContain("Available agents (delegate with task tool; use exact role value):");
+		expect(text).toContain("- Secondary: role agent-secondary-a2; agent profile");
+		expect(text).not.toContain("Primary (selected)");
+	});
+
+	it("includes upstream artifactory context", () => {
+		const text = buildPrompt({
+			task: {
+				id: "t",
+				projectId: "p",
+				worktreeId: "w",
+				title: "Use artifacts",
+				body: "Continue",
+				status: "draft",
+				createdAt: "",
+				updatedAt: "",
+			},
+			agents: [],
+			annotations: [],
+			upstreamArtifacts: "prior report",
+		});
+		expect(text).toContain("Upstream Artifactory:");
+		expect(text).toContain("prior report");
 	});
 
 	it("keeps annotation-sent prompts concise", () => {
