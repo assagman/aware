@@ -12,7 +12,11 @@ import type {
 } from "@aware/shared";
 import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
-import { ARTIFACTORY_TOOL_NAMES, resolveAgentTools } from "../../flue/tools";
+import {
+	ARTIFACTORY_TOOL_NAMES,
+	resolveAgentTools,
+	SKILL_TOOL_NAMES,
+} from "../../flue/tools";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
 import {
 	buildUpstreamArtifactContext,
@@ -502,6 +506,7 @@ export class FlueRuntime {
 		);
 		const skillPolicy = await skillSandboxPolicy({
 			projectId: input.task.projectId,
+			workspacePath: input.worktreePath,
 			agent,
 		});
 		const sandbox = await createLocalWorktreeSandbox({
@@ -603,7 +608,11 @@ export class FlueRuntime {
 			role: profileRole,
 			tools: resolveAgentTools(agent.tools, {
 				artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
-				skills: { projectId: input.task.projectId, agent },
+				skills: {
+					projectId: input.task.projectId,
+					workspacePath: input.worktreePath,
+					agent,
+				},
 			}),
 		});
 		const session = (await flueAgent.session(
@@ -694,7 +703,10 @@ export class FlueRuntime {
 		agent: RuntimeAgent,
 		availableAgentRoles: string[],
 	) {
-		const alwaysAllowed = new Set<string>(ARTIFACTORY_TOOL_NAMES);
+		const alwaysAllowed = new Set<string>([
+			...ARTIFACTORY_TOOL_NAMES,
+			...SKILL_TOOL_NAMES,
+		]);
 		const filtered = agent.allowedToolNames
 			? tools?.filter(
 					(tool) =>

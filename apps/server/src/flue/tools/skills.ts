@@ -9,6 +9,7 @@ export const SKILL_TOOL_NAMES: readonly SkillToolName[] = skillToolNames;
 
 export type SkillToolContext = {
 	projectId?: string;
+	workspacePath?: string;
 	agent?: RuntimeAgent;
 };
 
@@ -34,6 +35,9 @@ export function createSkillTools(context: SkillToolContext): ToolDef[] {
 				stringifyResult(
 					await loadAgentSkill({
 						...(context.projectId ? { projectId: context.projectId } : {}),
+						...(context.workspacePath
+							? { workspacePath: context.workspacePath }
+							: {}),
 						...(context.agent ? { agent: context.agent } : {}),
 						skill: args.skill,
 					}),

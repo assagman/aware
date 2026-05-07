@@ -92,6 +92,7 @@ vi.mock("../providerAuthService", () => ({
 vi.mock("./flueSessionStore", () => ({ flueSessionStore: {} }));
 vi.mock("../../flue/tools", () => ({
 	ARTIFACTORY_TOOL_NAMES: [],
+	SKILL_TOOL_NAMES: ["load_skill"],
 	resolveAgentTools: vi.fn(() => []),
 }));
 vi.mock("./runEventHub", () => ({
@@ -209,6 +210,40 @@ describe("flue runtime prompt event shape", () => {
 		expect(instructions).toContain(".agents/skills/<skill-name>/SKILL.md");
 		expect(instructions).toContain("Profile prompt");
 		expect(instructions).toContain("Global prompt");
+	});
+
+	it("keeps load_skill available for allow-listed internal agents", () => {
+		type TestRuntimeTool = {
+			name: string;
+			execute: () => Promise<unknown>;
+		};
+		const runtime = new FlueRuntime() as unknown as {
+			applyRuntimeToolPolicy: (
+				tools: TestRuntimeTool[],
+				agent: RuntimeAgent,
+				availableAgentRoles: string[],
+			) => TestRuntimeTool[] | undefined;
+		};
+		const tools: TestRuntimeTool[] = [
+			{ name: "graph_create_task", execute: async () => undefined },
+			{ name: "load_skill", execute: async () => undefined },
+			{ name: "bash", execute: async () => undefined },
+		];
+
+		const filtered = runtime.applyRuntimeToolPolicy(
+			tools,
+			{
+				...agents[0]!,
+				internal: true,
+				allowedToolNames: ["graph_create_task"],
+			},
+			[],
+		);
+
+		expect(filtered?.map((tool) => tool.name)).toEqual([
+			"graph_create_task",
+			"load_skill",
+		]);
 	});
 
 	it("continues runs with only the typed user message", async () => {

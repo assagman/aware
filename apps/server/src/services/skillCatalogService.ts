@@ -106,7 +106,7 @@ async function scanSkillDirectory(input: {
 }
 
 export async function listAgentSkills(
-	input: { projectId?: string } = {},
+	input: { projectId?: string; workspacePath?: string } = {},
 ): Promise<AgentSkillCatalog> {
 	const globalSkillsPath = defaultGlobalSkillsDir();
 	const projects = await listProjects();
@@ -119,7 +119,13 @@ export async function listAgentSkills(
 			await Promise.all(
 				selectedProjects.map((project) =>
 					scanSkillDirectory({
-						root: join(project.rootPath, ".agents", "skills"),
+						root: join(
+							input.projectId && input.workspacePath
+								? input.workspacePath
+								: project.rootPath,
+							".agents",
+							"skills",
+						),
 						scope: "project",
 						projectId: project.id,
 						projectName: project.name,
@@ -148,6 +154,7 @@ function policyReferencesSkill(reference: string, skill: AgentSkill) {
 }
 
 export function skillBlockedForAgent(skill: AgentSkill, agent?: RuntimeAgent) {
+	if (!skill.valid) return true;
 	if (agent?.internal && skill.defaultDisabledForInternalAgents) return true;
 	const policy: AgentSkillPolicy | undefined = agent?.skillPolicy;
 	const allowed = policy?.allowed?.filter(Boolean) ?? [];
@@ -164,10 +171,16 @@ export function skillBlockedForAgent(skill: AgentSkill, agent?: RuntimeAgent) {
 
 export async function skillSandboxPolicy(input: {
 	projectId?: string;
+	workspacePath?: string;
 	agent?: RuntimeAgent;
 }) {
 	const catalog = await listAgentSkills(
-		input.projectId ? { projectId: input.projectId } : {},
+		input.projectId
+			? {
+					projectId: input.projectId,
+					...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+				}
+			: {},
 	);
 	const blockedGlobalSkillDirs: string[] = [];
 	const blockedWorkspaceSkillDirs: string[] = [];
@@ -181,12 +194,18 @@ export async function skillSandboxPolicy(input: {
 
 export async function loadAgentSkill(input: {
 	projectId?: string;
+	workspacePath?: string;
 	agent?: RuntimeAgent;
 	skill: unknown;
 }) {
 	const parsed = loadSkillInputSchema.parse({ skill: input.skill });
 	const catalog = await listAgentSkills(
-		input.projectId ? { projectId: input.projectId } : {},
+		input.projectId
+			? {
+					projectId: input.projectId,
+					...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+				}
+			: {},
 	);
 	const matches = catalog.skills.filter(
 		(skill) =>
@@ -195,6 +214,10 @@ export async function loadAgentSkill(input: {
 	);
 	const skill = matches.find((item) => item.scope === "project") ?? matches[0];
 	if (!skill) throw new Error(`Skill not found: ${parsed.skill}`);
+	if (!skill.valid)
+		throw new Error(
+			`Skill invalid: ${skill.name}: ${skill.errors.join(", ") || "validation failed"}`,
+		);
 	if (skillBlockedForAgent(skill, input.agent))
 		throw new Error(`Skill disabled by policy: ${skill.name}`);
 	const content = await readFile(skill.path, "utf8");

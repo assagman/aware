@@ -75,6 +75,43 @@ describe("skill catalog service", () => {
 			catalog.skills.find((skill) => skill.id === "project:project-1:local")
 				?.errors,
 		).toContain("missing YAML frontmatter");
+		expect(await skillSandboxPolicy({ projectId: "project-1" })).toMatchObject({
+			blockedWorkspaceSkillDirs: ["local"],
+		});
+		await expect(
+			loadAgentSkill({ projectId: "project-1", skill: "local" }),
+		).rejects.toThrow("Skill invalid: local");
+	});
+
+	it("loads active workspace skills before project root skills", async () => {
+		const projectRoot = await tempDir();
+		const worktreePath = await tempDir();
+		state.projects = [
+			{
+				id: "project-1",
+				name: "Project",
+				rootPath: projectRoot,
+				createdAt: "",
+				updatedAt: "",
+			},
+		];
+		await writeSkill(join(projectRoot, ".agents", "skills"), "demo");
+		await writeSkill(join(worktreePath, ".agents", "skills"), "demo");
+		await writeFile(
+			join(worktreePath, ".agents", "skills", "demo", "SKILL.md"),
+			"---\nname: demo\ndescription: Worktree demo\n---\n\nWorktree version.\n",
+		);
+
+		await expect(
+			loadAgentSkill({
+				projectId: "project-1",
+				workspacePath: worktreePath,
+				skill: "demo",
+			}),
+		).resolves.toMatchObject({
+			id: "project:project-1:demo",
+			content: expect.stringContaining("Worktree version"),
+		});
 	});
 
 	it("loads project skills before global and enforces policy", async () => {
