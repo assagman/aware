@@ -1,4 +1,5 @@
 import type { ThoughtGraph } from "@aware/shared";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	connectedThoughtGraphElementIds,
@@ -48,6 +49,30 @@ describe("ThoughtGraphView helpers", () => {
 		expect(layout.edges).toHaveLength(0);
 	});
 
+	it("builds connected flow left-to-right with clear sibling spacing", () => {
+		const branchingGraph: ThoughtGraph = {
+			...graph,
+			nodes: [
+				{ id: "root", kind: "intent", label: "Root", detail: "Start", phase: "Exploration", sourceEventIds: [] },
+				{ id: "branch-a", kind: "evidence", label: "Branch A", detail: "Evidence", phase: "Exploration", sourceEventIds: [] },
+				{ id: "branch-b", kind: "evidence", label: "Branch B", detail: "Evidence", phase: "Exploration", sourceEventIds: [] },
+				{ id: "final", kind: "decision", label: "Final", detail: "Decision", phase: "Exploration", sourceEventIds: [] },
+			],
+			edges: [
+				{ id: "r-a", source: "root", target: "branch-a", kind: "led_to" },
+				{ id: "r-b", source: "root", target: "branch-b", kind: "led_to" },
+				{ id: "a-final", source: "branch-a", target: "final", kind: "supported_by" },
+				{ id: "b-final", source: "branch-b", target: "final", kind: "supported_by" },
+			],
+		};
+		const layout = layoutThoughtGraph(branchingGraph, defaultThoughtGraphFilters);
+		const position = (id: string) => layout.nodes.find((node) => node.id === id)?.position;
+
+		expect((position("branch-a")?.x ?? 0) - (position("root")?.x ?? 0)).toBeGreaterThanOrEqual(380);
+		expect((position("final")?.x ?? 0) - (position("branch-a")?.x ?? 0)).toBeGreaterThanOrEqual(380);
+		expect(Math.abs((position("branch-b")?.y ?? 0) - (position("branch-a")?.y ?? 0))).toBeGreaterThanOrEqual(220);
+	});
+
 	it("marks connected nodes and edges for hover focus", () => {
 		const focus = connectedThoughtGraphElementIds(graph, "decision");
 		const layout = layoutThoughtGraph(graph, defaultThoughtGraphFilters, "", "decision");
@@ -59,6 +84,20 @@ describe("ThoughtGraphView helpers", () => {
 		expect(layout.nodes.find((node) => node.id === "intent")?.data.focusState).toBe("dimmed");
 		expect(layout.edges.find((edge) => edge.id === "e2")?.className).toContain("thought-edge-connected");
 		expect(layout.edges.find((edge) => edge.id === "e1")?.className).toContain("thought-edge-dimmed");
+	});
+
+	it("does not animate edges only because they are hovered", () => {
+		const layout = layoutThoughtGraph(graph, defaultThoughtGraphFilters, "", "e2");
+
+		expect(layout.edges.find((edge) => edge.id === "e2")?.animated).toBe(false);
+		expect(layout.edges.find((edge) => edge.id === "e3")?.animated).toBe(true);
+	});
+
+	it("keeps hover styles off ReactFlow interaction paths", () => {
+		const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+		expect(styles).not.toMatch(/\.thought-edge[^,{]*\spath\b/);
+		expect(styles).not.toMatch(/\.thought-edge[^,{]*\.react-flow__edge-interaction\b/);
 	});
 
 	it("reports empty and exports markdown", () => {
