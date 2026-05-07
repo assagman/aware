@@ -12,6 +12,7 @@ export function RunPage() {
 			runId={runId}
 			onBack={() => navigate(-1)}
 			onChanged={() => undefined}
+			onMarkDoneGraph={(href) => navigate(href, { replace: true })}
 		/>
 	);
 }
