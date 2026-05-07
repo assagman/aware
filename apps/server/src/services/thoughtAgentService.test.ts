@@ -4,18 +4,22 @@ import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
 import { THOUGHT_TOOL_NAMES, thoughtRuntimeAgent } from "./thoughtAgentService";
 
 describe("thought agent", () => {
-	it("is internal, sequential, and read-only allow-listed", () => {
+	it("is internal, sequential, read-only, and forced to OpenAI gpt-5.5 xhigh", () => {
 		const base: RuntimeAgent = {
 			id: "base",
 			name: "Base",
-			provider: "provider",
-			model: "model",
+			provider: "zai",
+			model: "zai/glm-5.1",
+			thinking: "off",
 			systemPrompt: "base",
 			tools: ["bash", "write", "edit"],
 		};
 
 		const agent = thoughtRuntimeAgent(base);
 
+		expect(agent.provider).toBe("openai-codex");
+		expect(agent.model).toBe("openai-codex/gpt-5.5");
+		expect(agent.thinking).toBe("xhigh");
 		expect(agent.roleName).toBe("thought-agent");
 		expect(agent.internal).toBe(true);
 		expect(agent.toolExecution).toBe("sequential");

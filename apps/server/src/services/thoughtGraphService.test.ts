@@ -1,4 +1,4 @@
-import type { AgentRun, RunArtifact, RunEvent, Task } from "@aware/shared";
+import type { AgentRun, RunArtifact, RunEvent, Task, ThoughtGraph } from "@aware/shared";
 import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -52,10 +52,10 @@ vi.mock("./projectService", () => ({
 }));
 
 const {
-	buildDeterministicThoughtGraph,
-	buildThoughtGraphAnalyzerInput,
+	currentThoughtGraphAnalyzerInput,
 	generateThoughtGraph,
 	getCachedThoughtGraph,
+	thoughtGraphSourceHash,
 } = await import("./thoughtGraphService");
 
 const task: Task = {
@@ -79,6 +79,16 @@ const run: AgentRun = {
 	startedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const thoughtAgent: RuntimeAgent = {
+	id: "thought",
+	name: "Thought",
+	provider: "openai-codex",
+	model: "openai-codex/gpt-5.5",
+	thinking: "xhigh",
+	systemPrompt: "",
+	tools: [],
+};
+
 function event(seq: number, type: string, payload: unknown): RunEvent {
 	return {
 		id: `event-${seq}`,
@@ -86,8 +96,45 @@ function event(seq: number, type: string, payload: unknown): RunEvent {
 		seq,
 		type,
 		payload,
-		createdAt: `2026-01-01T00:00:0${seq}.000Z`,
+		createdAt: `2026-01-01T00:00:${String(seq).padStart(2, "0")}.000Z`,
 	};
+}
+
+function graph(summary = "LLM distilled graph."): ThoughtGraph {
+	return {
+		version: 1,
+		runId: run.id,
+		sourceEventSeqRange: [1, Math.max(...rows.runEvents.map((item) => item.seq))],
+		sourceEventHash: thoughtGraphSourceHash(rows.runEvents),
+		summary,
+		nodes: [
+			{ id: "intent", kind: "intent", label: "User goal", detail: "Debug thought graph", phase: "User intent", sourceEventIds: ["event-1"] },
+			{ id: "decision", kind: "decision", label: "Show distilled graph", detail: "Hide noisy raw inputs from graph output.", phase: "Decisions", sourceEventIds: ["event-2"] },
+		],
+		edges: [{ id: "e1", source: "intent", target: "decision", kind: "led_to" }],
+		timeline: [{ seq: 2, type: "insight", title: "Decision", detail: "Show distilled graph", eventId: "event-2" }],
+		insights: [{ kind: "summary", text: summary, nodeIds: ["decision"] }],
+		risks: [],
+		openQuestions: [],
+		generatedAt: "2026-01-01T00:00:00.000Z",
+	};
+}
+
+function saveGraphArtifact(body = graph()) {
+	rows.runArtifacts.push({
+		id: `thought-graph:${run.id}`,
+		projectId: task.projectId,
+		taskId: task.id,
+		runId: run.id,
+		worktreeId: run.worktreeId,
+		kind: "thought_graph",
+		turnSeq: 1,
+		title: "Thought graph",
+		body: JSON.stringify(body),
+		metadata: { source: "thought-agent" },
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	});
 }
 
 describe("thought graph service", () => {
@@ -97,11 +144,11 @@ describe("thought graph service", () => {
 		rows.runArtifacts = [];
 		rows.runEvents = [
 			event(1, "user_message", { text: "Implement graph" }),
-			event(2, "thinking_delta_batch", { text: "Decision: use deterministic analyzer first. Risk: invalid thinking may be empty." }),
+			event(2, "thinking_delta_batch", { text: "Decision: use LLM analyzer. Risk: raw tool calls may overwhelm output." }),
 			event(3, "tool_start", { toolName: "read", args: { path: "src/a.ts" } }),
 			event(4, "tool_end", { toolName: "read", result: "found API" }),
-			event(5, "thinking_delta_batch", { text: "Pivot: switch to cached artifact after schema work." }),
-			event(6, "message_delta_batch", { text: "Done with final direction." }),
+			event(5, "turn_end", { turn: 1 }),
+			event(6, "artifact_saved", { artifactId: `session-report:${run.id}:1`, kind: "session_report", title: "Turn 1 session report" }),
 		];
 		startRun.mockReset();
 		listThoughtAgentsForRun.mockReset();
@@ -109,140 +156,47 @@ describe("thought graph service", () => {
 		assertAllowedWorktree.mockClear();
 	});
 
-	it("builds graph with decisions, pivots, risks, concrete actions, and outcome", () => {
-		const graph = buildDeterministicThoughtGraph({ run, events: rows.runEvents, artifacts: [] });
-
-		expect(graph.nodes.some((node) => node.kind === "decision")).toBe(true);
-		expect(graph.nodes.some((node) => node.kind === "pivot")).toBe(true);
-		expect(graph.nodes.some((node) => node.kind === "risk")).toBe(true);
-		expect(graph.nodes.some((node) => node.kind === "action")).toBe(true);
-		expect(graph.nodes.some((node) => node.kind === "outcome")).toBe(true);
-		expect(graph.summary).toContain("distilled");
-	});
-
-	it("saves and invalidates cached graph when events change", async () => {
-		const saved = await generateThoughtGraph(run.id);
-		expect(saved.runId).toBe(run.id);
-		expect(startRun).not.toHaveBeenCalled();
-		expect(rows.runArtifacts[0]?.kind).toBe("thought_graph");
-
-		const cached = await getCachedThoughtGraph(run.id);
-		expect(cached.stale).toBe(false);
-		expect(cached.graph?.sourceEventHash).toBe(saved.sourceEventHash);
-
+	it("passes full run inputs, tool calls, and artifacts to ThoughtAgent", async () => {
+		rows.runArtifacts.push({
+			id: `session-report:${run.id}:1`,
+			projectId: task.projectId,
+			taskId: task.id,
+			runId: run.id,
+			worktreeId: run.worktreeId,
+			kind: "session_report",
+			turnSeq: 1,
+			title: "Turn 1 session report",
+			body: "Tool call: read src/a.ts",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
 		rows.runEvents.push(event(7, "artifact_saved", { artifactId: `thought-graph:${run.id}`, kind: "thought_graph", title: "Thought graph" }));
-		const selfArtifactEvent = await getCachedThoughtGraph(run.id);
-		expect(selfArtifactEvent.stale).toBe(false);
 
-		rows.runEvents.push(event(8, "artifact_saved", { artifactId: `session-report:${run.id}:1`, kind: "session_report", title: "Turn 1 session report" }));
-		const sessionReportEvent = await getCachedThoughtGraph(run.id);
-		expect(sessionReportEvent.stale).toBe(false);
+		const input = await currentThoughtGraphAnalyzerInput(run.id);
 
-		rows.runEvents.push(event(9, "tool_end", { toolName: "test", result: "pass" }));
-		const stale = await getCachedThoughtGraph(run.id);
-		expect(stale.stale).toBe(true);
+		expect(input.events.map((item) => item.type)).toEqual(["user_message", "thinking_delta_batch", "tool_start", "tool_end", "turn_end", "artifact_saved"]);
+		expect(JSON.stringify(input.events)).toContain("found API");
+		expect(JSON.stringify(input.artifacts)).toContain("Turn 1 session report");
+		expect(JSON.stringify(input)).not.toContain(`thought-graph:${run.id}`);
 	});
 
-	it("skips turn session artifacts and raw tool event noise", () => {
-		const graph = buildDeterministicThoughtGraph({
-			run,
-			events: [
-				event(1, "user_message", { text: "Debug thought graph" }),
-				event(2, "thinking_delta_batch", { text: "Hypothesis: session reports are leaking. Decision: filter turn artifacts and keep concrete actions only." }),
-				event(3, "tool_start", { toolName: "context_mode_ctx_execute", args: { command: "rg thoughtGraph apps/server/src" } }),
-				event(4, "tool_end", { toolName: "context_mode_ctx_execute", result: "500 lines of tool output" }),
-				event(5, "message_delta_batch", { text: "Found graph service root cause." }),
-			],
-			artifacts: [{
-				id: "session-report:run-1:1",
-				projectId: task.projectId,
-				taskId: task.id,
-				runId: run.id,
-				worktreeId: run.worktreeId,
-				kind: "session_report",
-				turnSeq: 1,
-				title: "Turn 1 session report",
-				body: "Tool call: context_mode_ctx_execute\nTurn artifact body should not become graph evidence.",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				updatedAt: "2026-01-01T00:00:00.000Z",
-			}],
-		});
+	it("requires ThoughtAgent and never saves deterministic fallback", async () => {
+		await expect(generateThoughtGraph(run.id)).rejects.toThrow("ThoughtAgent unavailable");
 
-		const serialized = JSON.stringify({ nodes: graph.nodes, timeline: graph.timeline });
-		expect(serialized).not.toContain("Turn 1");
-		expect(serialized).not.toContain("tool_start");
-		expect(serialized).not.toContain("tool_end");
-		expect(graph.nodes.length).toBeLessThanOrEqual(8);
+		expect(startRun).not.toHaveBeenCalled();
+		expect(rows.runArtifacts).toEqual([]);
 	});
 
-	it("sanitizes ThoughtAgent input away from upstream Turn artifacts", () => {
-		const input = buildThoughtGraphAnalyzerInput({
-			events: [
-				event(1, "user_message", { text: "## User request\nDebug graph\n\n## Upstream Artifactory\n### Turn 1 session report\nTool call: read" }),
-				event(2, "thinking_delta_batch", { text: "Decision: inspect source thinking only." }),
-			],
-			artifacts: [{
-				id: "session-report:run-1:1",
-				projectId: task.projectId,
-				taskId: task.id,
-				runId: run.id,
-				worktreeId: run.worktreeId,
-				kind: "session_report",
-				turnSeq: 1,
-				title: "Turn 1 session report",
-				body: "Tool call: read",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				updatedAt: "2026-01-01T00:00:00.000Z",
-			}],
-		});
-
-		const serialized = JSON.stringify(input);
-		expect(serialized).not.toContain("Turn 1");
-		expect(serialized).not.toContain("Upstream Artifactory");
-		expect(input.omitted.sessionArtifacts).toBe(1);
-	});
-
-	it("does not invent pivots, risks, or follow-ups when source has none", () => {
-		const graph = buildDeterministicThoughtGraph({
-			run,
-			events: [
-				event(1, "user_message", { text: "Improve graph readability" }),
-				event(2, "thinking_delta_batch", { text: "Decision: keep nodes focused on reasoning." }),
-				event(3, "message_delta_batch", { text: "Applied focused graph direction." }),
-			],
-			artifacts: [],
-		});
-
-		expect(graph.nodes.filter((node) => node.kind === "pivot")).toHaveLength(0);
-		expect(graph.nodes.filter((node) => node.kind === "risk")).toHaveLength(0);
-		expect(graph.nodes.filter((node) => node.kind === "follow_up")).toHaveLength(0);
-		expect(graph.openQuestions).toEqual([]);
-	});
-
-	it("runs the ThoughtAgent analyzer when available and returns its saved graph", async () => {
-		listThoughtAgentsForRun.mockResolvedValueOnce([{ id: "thought", name: "Thought", provider: "zai", model: "zai/glm-5.1", systemPrompt: "", tools: [] }]);
+	it("returns the graph saved by the LLM ThoughtAgent", async () => {
+		listThoughtAgentsForRun.mockResolvedValueOnce([thoughtAgent]);
 		startRun.mockImplementationOnce(async () => {
-			const graph = buildDeterministicThoughtGraph({ run, events: rows.runEvents, artifacts: [] });
-			rows.runArtifacts.push({
-				id: `thought-graph:${run.id}`,
-				projectId: task.projectId,
-				taskId: task.id,
-				runId: run.id,
-				worktreeId: run.worktreeId,
-				kind: "thought_graph",
-				turnSeq: 1,
-				title: "Thought graph",
-				body: JSON.stringify({ ...graph, summary: "LLM distilled graph." }),
-				metadata: { source: "thought-agent" },
-				createdAt: "2026-01-01T00:00:00.000Z",
-				updatedAt: "2026-01-01T00:00:00.000Z",
-			});
+			saveGraphArtifact(graph("LLM-only insight graph."));
 			return { ...run, id: "analysis-run", lane: "graph", parentRunId: run.id };
 		});
 
-		const graph = await generateThoughtGraph(run.id);
+		const saved = await generateThoughtGraph(run.id);
 
-		expect(graph.summary).toBe("LLM distilled graph.");
+		expect(saved.summary).toBe("LLM-only insight graph.");
 		expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
 			lane: "graph",
 			parentRunId: run.id,
@@ -252,5 +206,27 @@ describe("thought graph service", () => {
 			waitForCompletion: true,
 			suppressUpstreamArtifacts: true,
 		}));
+	});
+
+	it("fails instead of generating fallback when ThoughtAgent does not save a graph", async () => {
+		listThoughtAgentsForRun.mockResolvedValueOnce([thoughtAgent]);
+		startRun.mockResolvedValueOnce({ ...run, id: "analysis-run", lane: "graph", parentRunId: run.id });
+
+		await expect(generateThoughtGraph(run.id)).rejects.toThrow("ThoughtAgent did not save thought graph");
+
+		expect(rows.runArtifacts).toEqual([]);
+	});
+
+	it("invalidates cached graph when any non-self source event changes", async () => {
+		saveGraphArtifact();
+
+		const cached = await getCachedThoughtGraph(run.id);
+		expect(cached.stale).toBe(false);
+
+		rows.runEvents.push(event(7, "artifact_saved", { artifactId: `thought-graph:${run.id}`, kind: "thought_graph", title: "Thought graph" }));
+		expect((await getCachedThoughtGraph(run.id)).stale).toBe(false);
+
+		rows.runEvents.push(event(8, "artifact_saved", { artifactId: `session-report:${run.id}:2`, kind: "session_report", title: "Turn 2 session report" }));
+		expect((await getCachedThoughtGraph(run.id)).stale).toBe(true);
 	});
 });

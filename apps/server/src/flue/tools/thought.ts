@@ -35,7 +35,7 @@ export function createThoughtTools(context: ThoughtToolContext): ToolDef[] {
 	return [
 		{
 			name: "thought_fetch_run_events",
-			description: "Read distilled analyzer input for the current run only. Includes thinking/message timeline, concrete actions, source hash/range, and omitted noise counts; excludes raw turn/tool/artifact noise.",
+			description: "Read all run-local source events and non-ThoughtGraph artifacts for the current run. Includes tool calls/results, thinking deltas, messages, turn markers, and session reports so the LLM can interpret context; graph output must still be distilled.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
@@ -44,19 +44,12 @@ export function createThoughtTools(context: ThoughtToolContext): ToolDef[] {
 		},
 		{
 			name: "thought_fetch_artifacts",
-			description: "Read non-ThoughtGraph, non-session-report artifacts for the current run only. Session reports/Turn artifacts are intentionally omitted as graph noise.",
+			description: "Read all non-ThoughtGraph artifacts for the current run, including session reports. Use as private context, not as raw graph output.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
-				const allArtifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId);
-				const artifacts = allArtifacts.filter((artifact) => artifact.kind !== "thought_graph" && artifact.kind !== "session_report");
-				return stringifyResult({
-					artifacts,
-					omitted: {
-						sessionReports: allArtifacts.filter((artifact) => artifact.kind === "session_report").length,
-						thoughtGraphs: allArtifacts.filter((artifact) => artifact.kind === "thought_graph").length,
-					},
-				});
+				const artifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId && artifact.kind !== "thought_graph");
+				return stringifyResult({ artifacts });
 			},
 		},
 		{
