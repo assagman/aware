@@ -17,7 +17,6 @@ import {
 	getAnnotationInProject,
 	getAnnotationTaskSuggestion,
 	listAnnotations,
-	listAnnotationTaskSuggestions,
 	markAnnotationsProcessing,
 	markAnnotationTaskSuggestions,
 	saveAnnotationTaskSuggestions,
@@ -247,18 +246,45 @@ export async function approveAnnotationSuggestion(input: {
 		? await getAnnotationTaskSuggestion(project.id, input.suggestionId)
 		: undefined;
 	if (input.suggestionId && !base) throw new RouteValidationError("missing suggestion", 404);
+	const title = input.title ?? base?.title ?? "";
+	const body = input.body ?? base?.body ?? "";
+	const requestedTargetKind = input.targetKind ?? base?.targetKind;
+	const candidateAnnotationIds = input.annotationIds ?? base?.annotationIds;
+	const candidateWorktreeId = input.worktreeId ?? base?.worktreeId;
+	const candidateTaskId = input.taskId ?? base?.taskId;
+	const candidate: AnnotationTaskSuggestion = {
+		id: base?.id ?? "approval-candidate",
+		projectId: project.id,
+		title: title.trim(),
+		body,
+		status: base?.status ?? "draft",
+		...(requestedTargetKind ? { targetKind: requestedTargetKind } : {}),
+		...(candidateAnnotationIds?.length ? { annotationIds: candidateAnnotationIds } : {}),
+		...(candidateWorktreeId ? { worktreeId: candidateWorktreeId } : {}),
+		...(candidateTaskId ? { taskId: candidateTaskId } : {}),
+		createdAt: base?.createdAt ?? now(),
+		updatedAt: base?.updatedAt ?? now(),
+	};
+	if (!candidate.title) throw new RouteValidationError("missing approved suggestion title", 400);
+	const annotations = await suggestionAnnotations(project.id, candidate);
+	const worktrees = await listWorktrees();
+	const targetKind = candidate.targetKind ?? classifySuggestionTarget(project, worktrees, annotations);
+	let runPlan: { worktreeId: string; task: Task } | undefined;
+	if (targetKind === "run") {
+		const worktreeId = primaryWorktreeId(candidate, annotations);
+		if (!worktreeId) throw new RouteValidationError("run suggestion needs one worktree", 409);
+		await getWorktreeInProjectOrThrow(project.id, worktreeId);
+		runPlan = { worktreeId, task: await taskForSuggestionRun(project.id, candidate, worktreeId) };
+	}
 	const suggestion = await upsertSuggestionForApproval(project.id, {
 		...(base ? { id: base.id } : {}),
-		title: input.title ?? base?.title ?? "",
-		body: input.body ?? base?.body ?? "",
-		...(input.targetKind ?? base?.targetKind ? { targetKind: input.targetKind ?? base?.targetKind } : {}),
-		...(input.annotationIds ?? base?.annotationIds ? { annotationIds: input.annotationIds ?? base?.annotationIds } : {}),
-		...(input.worktreeId ?? base?.worktreeId ? { worktreeId: input.worktreeId ?? base?.worktreeId } : {}),
-		...(input.taskId ?? base?.taskId ? { taskId: input.taskId ?? base?.taskId } : {}),
+		title,
+		body,
+		targetKind,
+		...(candidate.annotationIds?.length ? { annotationIds: candidate.annotationIds } : {}),
+		...(candidate.worktreeId ? { worktreeId: candidate.worktreeId } : {}),
+		...(candidate.taskId ? { taskId: candidate.taskId } : {}),
 	});
-	const annotations = await suggestionAnnotations(project.id, suggestion);
-	const worktrees = await listWorktrees();
-	const targetKind = suggestion.targetKind ?? classifySuggestionTarget(project, worktrees, annotations);
 	if (targetKind === "task") {
 		const task = await createTask({
 			projectId: project.id,
@@ -270,10 +296,7 @@ export async function approveAnnotationSuggestion(input: {
 		await markAnnotationTaskSuggestions([suggestion.id], { status: "created", targetKind, taskId: task.id });
 		return { suggestion: { ...suggestion, status: "created" as const, targetKind, taskId: task.id }, task };
 	}
-	const worktreeId = primaryWorktreeId(suggestion, annotations);
-	if (!worktreeId) throw new RouteValidationError("run suggestion needs one worktree", 409);
-	await getWorktreeInProjectOrThrow(project.id, worktreeId);
-	const task = await taskForSuggestionRun(project.id, suggestion, worktreeId);
+	const { worktreeId, task } = runPlan!;
 	await Promise.all(annotations.map((annotation) => updateAnnotation(annotation.id, { taskId: task.id })));
 	const message = annotationRunMessage(annotations, suggestion.body || suggestion.title);
 	const run = await startRunCommand({
@@ -293,6 +316,7 @@ export async function rejectAnnotationSuggestion(projectId: string, suggestionId
 	await getProjectOrThrow(projectId);
 	const suggestion = await getAnnotationTaskSuggestion(projectId, suggestionId);
 	if (!suggestion) throw new RouteValidationError("missing suggestion", 404);
+	if (suggestion.status === "created") throw new RouteValidationError("created suggestion cannot be rejected", 409);
 	const [updated] = await markAnnotationTaskSuggestions([suggestion.id], { status: "rejected" });
 	return updated ?? suggestion;
 }

@@ -354,7 +354,7 @@ export function AnnotationsPage() {
 								<div className="annotation-bulk-actions">
 									{suggestion.runId && suggestion.taskId ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(suggestion.taskId)}/runs/${encodeURIComponent(suggestion.runId)}`}>Run</Link> : null}
 									<button type="button" disabled={Boolean(busy) || suggestion.status === "created" || suggestion.status === "rejected"} onClick={() => void approveSuggestion(index)}>{busy === `approve:${suggestion.id}` ? "Approving…" : "Approve"}</button>
-									<button type="button" disabled={Boolean(busy) || suggestion.status === "rejected"} onClick={() => void rejectSuggestion(suggestion)}>{busy === `reject:${suggestion.id}` ? "Rejecting…" : "Reject"}</button>
+									<button type="button" disabled={Boolean(busy) || suggestion.status === "created" || suggestion.status === "rejected"} onClick={() => void rejectSuggestion(suggestion)}>{busy === `reject:${suggestion.id}` ? "Rejecting…" : "Reject"}</button>
 								</div>
 							</article>
 						))}
