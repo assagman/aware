@@ -50,8 +50,10 @@ import {
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 import {
+	activeGraphFocusNodeId,
 	focusedGraphNodeIds,
 	runAfterMarkDoneSuccess,
+	shouldSkipGraphViewportSync,
 } from "../app/markDoneGraphFocus";
 import { parsePatchFiles } from "../app/parsePatchFiles";
 import { collapseHomePath } from "../app/path";
@@ -2814,21 +2816,24 @@ function GraphViewportSync({
 	nodes,
 	focusTaskId,
 	focusNodeId,
+	onFocusNodeApplied,
+	skipSync,
 }: {
 	scopeKey: string;
 	signature: string;
 	nodes: GraphNode[];
 	focusTaskId: string;
 	focusNodeId: string;
+	onFocusNodeApplied?: ((nodeId: string) => void) | undefined;
+	skipSync?: boolean | undefined;
 }) {
 	const { fitView, setViewport } = useReactFlow();
 	useEffect(() => {
-		if (!signature) return;
-		const focusNodes = focusNodeId
-			? nodes
-					.filter((node) => node.id === focusNodeId)
-					.map((node) => ({ id: node.id }))
-			: focusedGraphNodeIds(nodes, focusTaskId);
+		if (!signature || skipSync) return;
+		const focusNodes = focusedGraphNodeIds(nodes, {
+			nodeId: focusNodeId,
+			taskId: focusTaskId,
+		});
 		const savedViewport = focusNodes.length
 			? undefined
 			: readGraphViewport(scopeKey, signature);
@@ -2837,9 +2842,20 @@ function GraphViewportSync({
 				void fitView({ nodes: focusNodes, padding: 0.24, duration: 320 });
 			else if (savedViewport) void setViewport(savedViewport, { duration: 0 });
 			else void fitView({ padding: 0.14, duration: 220 });
+			if (focusNodeId) onFocusNodeApplied?.(focusNodeId);
 		});
 		return () => window.cancelAnimationFrame(frame);
-	}, [fitView, focusNodeId, focusTaskId, nodes, scopeKey, setViewport, signature]);
+	}, [
+		fitView,
+		focusNodeId,
+		focusTaskId,
+		nodes,
+		onFocusNodeApplied,
+		scopeKey,
+		setViewport,
+		signature,
+		skipSync,
+	]);
 	return null;
 }
 
@@ -3994,9 +4010,13 @@ export function GraphRunChat({
 		try {
 			const navigated = await runAfterMarkDoneSuccess({
 				mutation: () => apiPost(`/runs/${runId}/done`, {}),
-				navigate: (href) => onMarkDoneGraph?.(href),
+				navigate: (href) => {
+					if (!onMarkDoneGraph) return false;
+					onMarkDoneGraph(href);
+				},
 				projectId,
 				taskId,
+				runId,
 				run,
 				task,
 			});
@@ -4217,6 +4237,11 @@ function GraphHomePage({
 	const [searchParams] = useSearchParams();
 	const focusNodeId = searchParams.get("focus") ?? "";
 	const requestedFocusTaskId = searchParams.get("focusTaskId") ?? "";
+	const [consumedFocusNodeId, setConsumedFocusNodeId] = useState("");
+	const activeFocusNodeId = activeGraphFocusNodeId(
+		focusNodeId,
+		consumedFocusNodeId,
+	);
 	const scopeKey = `${projectId || "global"}:${history ? "history" : "active"}`;
 	const [projection, setProjection] = useState<GraphProjection | null>(null);
 	const [tasks, setTasks] = useState<Task[]>([]);
@@ -4229,7 +4254,14 @@ function GraphHomePage({
 	const [busyRunId, setBusyRunId] = useState("");
 	const [archivingTaskId, setArchivingTaskId] = useState("");
 	const [focusedTaskId, setFocusedTaskId] = useState(() =>
-		projectId ? requestedFocusTaskId || getSelection().selectedTaskId : "",
+		projectId && !focusNodeId
+			? requestedFocusTaskId || getSelection().selectedTaskId
+			: "",
+	);
+	const skipGraphViewportSync = shouldSkipGraphViewportSync(
+		focusNodeId,
+		activeFocusNodeId,
+		focusedTaskId,
 	);
 	const refreshSeq = useRef(0);
 	const selectedProject = projects.find((project) => project.id === projectId);
@@ -4311,9 +4343,9 @@ function GraphHomePage({
 	}, [refresh]);
 	useEffect(() => {
 		setFocusedTaskId(
-			projectId ? requestedFocusTaskId || getSelection().selectedTaskId : "",
+			projectId && !focusNodeId ? requestedFocusTaskId || getSelection().selectedTaskId : "",
 		);
-	}, [projectId, requestedFocusTaskId]);
+	}, [focusNodeId, projectId, requestedFocusTaskId]);
 	useEffect(() => {
 		if (loadedScope !== scopeKey || !focusedTaskId) return;
 		if (!tasks.some((task) => task.id === focusedTaskId)) setFocusedTaskId("");
@@ -4601,10 +4633,10 @@ function GraphHomePage({
 	);
 	const handleGraphMoveEnd = useCallback(
 		(_: globalThis.MouseEvent | TouchEvent | null, viewport: Viewport) => {
-			if (focusedTaskId) return;
+			if (activeFocusNodeId || focusedTaskId) return;
 			saveGraphViewport(scopeKey, viewport, graphLayoutSignature);
 		},
-		[focusedTaskId, graphLayoutSignature, scopeKey],
+		[activeFocusNodeId, focusedTaskId, graphLayoutSignature, scopeKey],
 	);
 	async function markTaskDone(taskId: string) {
 		const task = tasks.find((row) => row.id === taskId);
@@ -4621,7 +4653,6 @@ function GraphHomePage({
 			task,
 			afterSuccess: async () => {
 				setSelectedTaskId(task.id);
-				setFocusedTaskId(task.id);
 				await refresh(true);
 			},
 		});
@@ -4644,10 +4675,14 @@ function GraphHomePage({
 			),
 		[tasks],
 	);
-	const handleTaskFilterChange = useCallback((nextTaskId: string) => {
-		setFocusedTaskId(nextTaskId);
-		setSelectedTaskId(nextTaskId);
-	}, []);
+	const handleTaskFilterChange = useCallback(
+		(nextTaskId: string) => {
+			if (focusNodeId) setConsumedFocusNodeId(focusNodeId);
+			setFocusedTaskId(nextTaskId);
+			setSelectedTaskId(nextTaskId);
+		},
+		[focusNodeId],
+	);
 	return (
 		<section className="home-page">
 			{projectsError || error ? (
@@ -4786,7 +4821,9 @@ function GraphHomePage({
 							signature={graphLayoutSignature}
 							nodes={graph.nodes}
 							focusTaskId={focusedTaskId}
-							focusNodeId={focusNodeId}
+							focusNodeId={activeFocusNodeId}
+							onFocusNodeApplied={setConsumedFocusNodeId}
+							skipSync={skipGraphViewportSync}
 						/>
 						<Background color="#164436" gap={24} />
 						<Controls />
