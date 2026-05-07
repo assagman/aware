@@ -3205,8 +3205,8 @@ function projectionMeta(meta: string[] | undefined) {
 	if (!meta?.length) return undefined;
 	return (
 		<>
-			{meta.map((item) => (
-				<span key={item}>{item}</span>
+			{meta.map((item, index) => (
+				<span key={`${index}:${item}`}>{item}</span>
 			))}
 		</>
 	);

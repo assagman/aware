@@ -120,6 +120,9 @@ describe("graph projection layout", () => {
 		const addParallelNode = node(projection, `add-run:${task.id}:parallel`);
 		expect(taskNode.actions.map((action) => action.command)).toContain("open_annotations");
 		expect(taskNode.actions.find((action) => action.command === "archive_task")?.payload).toEqual({ projectId: project.id, taskId: task.id });
+		expect(runNodes[0]?.meta?.[0]).toBe(task.title);
+		expect(gateNode.meta?.[0]).toBe(task.title);
+		expect(node(projection, `ship:${task.id}`).meta?.[0]).toBe(task.title);
 
 		expect(gateNode.position.y).toBe(taskNode.position.y);
 		expect(shipNode.position.y).toBe(taskNode.position.y);
@@ -161,6 +164,30 @@ describe("graph projection layout", () => {
 		expect(projection.edges.some((edge) => edge.kind === "annotation" || edge.kind === "annotation-run" || edge.kind === "annotation-tasks")).toBe(true);
 		expect(addTask).toBeTruthy();
 		expect(addTaskEdge?.source).toBe(`annotation-tasks:${project.id}`);
+	});
+
+	it("includes task titles on annotation runs when the task exists", async () => {
+		rows.annotations = [{
+			id: "annotation-1",
+			projectId: project.id,
+			worktreeId: worktree.id,
+			kind: "range",
+			filePath: "Makefile",
+			startLine: 28,
+			endLine: 29,
+			text: "check this",
+			sent: false,
+			status: "processing",
+			createdAt: startedAt(1),
+			updatedAt: startedAt(1),
+		}];
+		rows.runs = [
+			run({ id: "annotation-run-a", projectId: project.id, taskId: task.id, lane: "annotation", annotationIds: ["annotation-1"], startedAt: startedAt(1) }),
+		];
+
+		const projection = await buildGraphProjection(project.id);
+
+		expect(node(projection, "annotation-run:annotation-1:annotation-run-a").meta?.[0]).toBe(task.title);
 	});
 
 	it("omits archived annotations while preserving sent and processing annotations", async () => {
