@@ -7,6 +7,14 @@ export type Project = {
 	createdAt: string;
 	updatedAt: string;
 };
+export type ProjectSetupArtifact = {
+	id: ID;
+	projectId: ID;
+	signature: string;
+	commands: { command: string; args: string[]; reason: string }[];
+	createdAt: string;
+	updatedAt: string;
+};
 export type Worktree = {
 	id: ID;
 	projectId: ID;

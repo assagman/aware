@@ -1,5 +1,6 @@
 export const tables = [
 	"projects",
+	"projectSetupArtifacts",
 	"worktrees",
 	"agentProfiles",
 	"tasks",
