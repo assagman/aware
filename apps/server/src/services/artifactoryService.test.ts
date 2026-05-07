@@ -102,7 +102,7 @@ describe("artifactory service", () => {
 		const ship = run({ id: "ship", lane: "ship", startedAt: "2026-01-01T00:00:04.000Z" });
 		rows.runs = [taskRoot, taskChild, gate, ship];
 		rows.runArtifacts = [
-			artifact({ runId: taskRoot.id, turnSeq: 1, title: "root", body: "root body", lane: "task" }),
+			artifact({ runId: taskRoot.id, turnSeq: 1, title: "root", body: "root body\n- tool call: graph_fetch\n- tool start: bash\nkept after noise\nTool end: bash", lane: "task" }),
 			artifact({ runId: taskChild.id, turnSeq: 1, title: "child", body: "child body", lane: "task" }),
 			artifact({ runId: gate.id, turnSeq: 1, title: "gate", body: "gate body", lane: "gate" }),
 		];
@@ -110,8 +110,12 @@ describe("artifactory service", () => {
 		expect(await collectUpstreamRunIds(gate)).toEqual([taskRoot.id, taskChild.id]);
 		const context = await buildUpstreamArtifactContext(ship);
 		expect(context).toContain("root body");
+		expect(context).toContain("kept after noise");
 		expect(context).toContain("child body");
 		expect(context).toContain("gate body");
+		expect(context).not.toContain("tool call");
+		expect(context).not.toContain("tool start");
+		expect(context).not.toContain("Tool end");
 	});
 
 	it("creates fallback report on turn end when agent report missing", async () => {
@@ -119,6 +123,8 @@ describe("artifactory service", () => {
 		rows.runs = [current];
 		rows.runEvents = [
 			{ id: "event-1", runId: current.id, seq: 1, type: "user_message", payload: { text: "do work" }, createdAt: "2026-01-01T00:00:01.000Z" },
+			{ id: "event-2", runId: current.id, seq: 2, type: "tool_start", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:02.000Z" },
+			{ id: "event-3", runId: current.id, seq: 3, type: "tool_end", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:03.000Z" },
 		];
 
 		const saved = await ensureSessionReportForTurn({ run: current, task, turnSeq: 1 });
@@ -126,6 +132,9 @@ describe("artifactory service", () => {
 		expect(saved.title).toBe("Turn 1 auto report");
 		expect(saved.body).toContain("fallback session report");
 		expect(saved.body).toContain("do work");
+		expect(saved.body).not.toContain("tool start");
+		expect(saved.body).not.toContain("tool end");
+		expect(saved.body).not.toContain("bash");
 	});
 
 	it("adds final assistant message to agent-authored turn reports", async () => {

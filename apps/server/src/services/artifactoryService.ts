@@ -8,6 +8,7 @@ const MAX_FINAL_ASSISTANT_CHARS = 6_000;
 const MAX_CONTEXT_CHARS = 28_000;
 const MAX_CONTEXT_ARTIFACTS = 24;
 const FINAL_ASSISTANT_MARKER = "## Final assistant message";
+const TOOL_ACTIVITY_LINE_RE = /^\s*(?:[-*]\s*)?(?:tool\s*(?:call|start|end|result|execution)|tool_call|tool_use|function\s*call)\s*:/i;
 
 function runLane(run: AgentRun): RunLane {
 	return run.lane === "gate" || run.lane === "ship" || run.lane === "graph" ? run.lane : "task";
@@ -21,6 +22,15 @@ function sessionReportId(runId: string, turnSeq: number) {
 	return `session-report:${runId}:${turnSeq}`;
 }
 
+function sanitizeArtifactBodyForContext(body: string) {
+	return body
+		.split(/\r?\n/)
+		.filter((line) => !TOOL_ACTIVITY_LINE_RE.test(line))
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 function payloadText(payload: unknown) {
 	if (typeof payload === "string") return payload;
 	if (!payload || typeof payload !== "object") return "";
@@ -31,11 +41,7 @@ function payloadText(payload: unknown) {
 }
 
 function eventSummary(event: RunEvent) {
-	const payload = event.payload as { toolName?: unknown; isError?: unknown } | undefined;
-	if (event.type === "tool_start" && typeof payload?.toolName === "string")
-		return `tool start: ${payload.toolName}`;
-	if (event.type === "tool_end" && typeof payload?.toolName === "string")
-		return `tool end: ${payload.toolName}${payload.isError ? " (error)" : ""}`;
+	if (event.type === "tool_start" || event.type === "tool_end") return "";
 	if (event.type === "user_message") return `user: ${truncate(payloadText(event.payload), 600)}`;
 	if (event.type === "message_delta_batch" || event.type === "text_delta") return `assistant: ${truncate(payloadText(event.payload), 1000)}`;
 	if (event.type === "result") return "result recorded";
@@ -261,8 +267,11 @@ export async function buildUpstreamArtifactContext(run: AgentRun) {
 	const artifacts = await listUpstreamSessionReports(run);
 	if (!artifacts.length) return "(none)";
 	let total = 0;
+	let truncated = false;
 	const sections: string[] = [];
 	for (const artifact of artifacts) {
+		const body = sanitizeArtifactBodyForContext(artifact.body);
+		if (!body) continue;
 		const header = [
 			`### ${artifact.title}`,
 			`run: ${artifact.runId}`,
@@ -270,10 +279,13 @@ export async function buildUpstreamArtifactContext(run: AgentRun) {
 			`turn: ${artifact.turnSeq}`,
 			`saved: ${artifact.updatedAt}`,
 		].join(" · ");
-		const section = `${header}\n${artifact.body}`;
-		if (total + section.length > MAX_CONTEXT_CHARS) break;
+		const section = `${header}\n${body}`;
+		if (total + section.length > MAX_CONTEXT_CHARS) {
+			truncated = true;
+			break;
+		}
 		total += section.length;
 		sections.push(section);
 	}
-	return sections.join("\n\n---\n\n") || "(truncated)";
+	return sections.join("\n\n---\n\n") || (truncated ? "(truncated)" : "(none)");
 }
