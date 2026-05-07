@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveAgentTools } from "../flue/tools";
 import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
 import { THOUGHT_TOOL_NAMES, thoughtRuntimeAgent } from "./thoughtAgentService";
 
@@ -23,5 +24,12 @@ describe("thought agent", () => {
 		expect(agent.tools).not.toContain("bash");
 		expect(agent.tools).not.toContain("write");
 		expect(agent.tools).not.toContain("edit");
+	});
+
+	it("registers only scoped thought tools when thought context is present", () => {
+		const tools = resolveAgentTools([...THOUGHT_TOOL_NAMES], { thought: { runId: "run-1" } });
+
+		expect(tools.map((tool) => tool.name).sort()).toEqual([...THOUGHT_TOOL_NAMES].sort());
+		expect(resolveAgentTools([...THOUGHT_TOOL_NAMES]).map((tool) => tool.name)).toEqual([]);
 	});
 });

@@ -57,8 +57,18 @@ function toolArgs(payload: unknown) {
 	return p.args ?? p.arguments ?? p.input ?? p.params ?? p.parameters ?? {};
 }
 
+export function isThoughtGraphArtifactEvent(event: RunEvent) {
+	if (event.type !== "artifact_saved") return false;
+	const payload = payloadRecord(event.payload);
+	return payload.kind === "thought_graph" || String(payload.artifactId ?? "").startsWith("thought-graph:");
+}
+
+export function thoughtGraphSourceEvents(events: RunEvent[]) {
+	return events.filter((event) => !isThoughtGraphArtifactEvent(event));
+}
+
 function sourceEvents(events: RunEvent[]) {
-	return events
+	return thoughtGraphSourceEvents(events)
 		.sort((a, b) => a.seq - b.seq)
 		.map((event) => ({ id: event.id, seq: event.seq, type: event.type, payload: event.payload, createdAt: event.createdAt }));
 }
@@ -182,7 +192,7 @@ export function buildDeterministicThoughtGraph(input: {
 	events: RunEvent[];
 	artifacts: RunArtifact[];
 }): ThoughtGraph {
-	const events = [...input.events].sort((a, b) => a.seq - b.seq);
+	const events = thoughtGraphSourceEvents(input.events).sort((a, b) => a.seq - b.seq);
 	const sourceEventHash = thoughtGraphSourceHash(events);
 	const nodes: NodeDraft[] = [];
 	const edges: EdgeDraft[] = [];
@@ -301,7 +311,7 @@ async function loadTask(run: AgentRun) {
 
 export async function currentThoughtGraphSource(runId: string) {
 	await runEventHub.flush(runId);
-	const events = await runEventHub.persistedEvents(runId);
+	const events = thoughtGraphSourceEvents(await runEventHub.persistedEvents(runId));
 	return { events, sourceEventHash: thoughtGraphSourceHash(events), sourceEventSeqRange: seqRange(events) };
 }
 
@@ -318,14 +328,13 @@ export async function getCachedThoughtGraph(runId: string) {
 	}
 }
 
-export async function generateThoughtGraph(runId: string) {
+export async function saveThoughtGraphArtifact(runId: string, graphInput: ThoughtGraph, source = "deterministic") {
 	const run = await loadRun(runId);
 	if (!run) throw new Error("missing run");
 	const task = await loadTask(run);
 	if (!task) throw new Error("missing task");
-	const { events } = await currentThoughtGraphSource(runId);
+	const graph = thoughtGraphSchema.parse({ ...graphInput, runId });
 	const artifacts = (await db.list<RunArtifact>("runArtifacts")).filter((artifact) => artifact.runId === runId);
-	const graph = buildDeterministicThoughtGraph({ run, events, artifacts });
 	const timestamp = now();
 	const existing = artifacts.find((artifact) => artifact.id === artifactId(runId));
 	const artifact: RunArtifact = {
@@ -341,7 +350,7 @@ export async function generateThoughtGraph(runId: string) {
 		title: "Thought graph",
 		body: JSON.stringify(graph, null, 2),
 		metadata: {
-			source: "deterministic",
+			source,
 			sourceEventHash: graph.sourceEventHash,
 			sourceEventSeqRange: graph.sourceEventSeqRange,
 		},
@@ -350,5 +359,15 @@ export async function generateThoughtGraph(runId: string) {
 	};
 	await db.insert("runArtifacts", artifact);
 	await runEventHub.emit(runId, "artifact_saved", { artifactId: artifact.id, kind: artifact.kind, title: artifact.title }, { immediate: true });
+	return artifact;
+}
+
+export async function generateThoughtGraph(runId: string) {
+	const run = await loadRun(runId);
+	if (!run) throw new Error("missing run");
+	const { events } = await currentThoughtGraphSource(runId);
+	const artifacts = (await db.list<RunArtifact>("runArtifacts")).filter((artifact) => artifact.runId === runId);
+	const graph = buildDeterministicThoughtGraph({ run, events, artifacts });
+	await saveThoughtGraphArtifact(runId, graph, "deterministic");
 	return graph;
 }

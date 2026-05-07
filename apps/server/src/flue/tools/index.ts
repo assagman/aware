@@ -11,17 +11,23 @@ import {
 	SKILL_TOOL_NAMES,
 	type SkillToolContext,
 } from "./skills";
+import {
+	createThoughtTools,
+	THOUGHT_TOOL_NAMES,
+	type ThoughtToolContext,
+} from "./thought";
 
 const customToolNames = new Set<string>([
 	...EXA_TOOL_NAMES,
 	...GRAPH_TOOL_NAMES,
 	...ARTIFACTORY_TOOL_NAMES,
 	...SKILL_TOOL_NAMES,
+	...THOUGHT_TOOL_NAMES,
 ]);
 
 export function resolveAgentTools(
 	toolNames: string[],
-	context?: { artifactory?: ArtifactoryToolContext; skills?: SkillToolContext },
+	context?: { artifactory?: ArtifactoryToolContext; skills?: SkillToolContext; thought?: ThoughtToolContext },
 ): ToolDef[] {
 	const requested = new Set([
 		...toolNames.filter((name) => customToolNames.has(name)),
@@ -36,6 +42,7 @@ export function resolveAgentTools(
 			? createArtifactoryTools(context.artifactory)
 			: []),
 		...(context?.skills ? createSkillTools(context.skills) : []),
+		...(context?.thought ? createThoughtTools(context.thought) : []),
 	].filter((tool) => requested.has(tool.name));
 }
 
@@ -45,4 +52,5 @@ export {
 	EXA_TOOL_NAMES,
 	GRAPH_TOOL_NAMES,
 	SKILL_TOOL_NAMES,
+	THOUGHT_TOOL_NAMES,
 };

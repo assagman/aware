@@ -1,12 +1,7 @@
+import { THOUGHT_TOOL_NAMES } from "../flue/tools";
+export { THOUGHT_TOOL_NAMES } from "../flue/tools";
+import { listAgentProfilesForRun } from "./agentProfileService";
 import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
-
-export const THOUGHT_TOOL_NAMES = [
-	"thought_fetch_run_events",
-	"thought_fetch_artifacts",
-	"thought_save_graph",
-] as const;
-
-export type ThoughtToolName = (typeof THOUGHT_TOOL_NAMES)[number];
 
 export const thoughtAgentPrompt = [
 	"You are Aware's internal ThoughtAgent.",
@@ -33,4 +28,11 @@ export function thoughtRuntimeAgent(base: RuntimeAgent): RuntimeAgent {
 		allowedToolNames: [...THOUGHT_TOOL_NAMES],
 		toolExecution: "sequential",
 	};
+}
+
+export async function listThoughtAgentsForRun(): Promise<RuntimeAgent[]> {
+	const agents = await listAgentProfilesForRun();
+	const base = agents[0];
+	if (!base) throw new Error("Create at least one agent profile first.");
+	return [thoughtRuntimeAgent(base)];
 }

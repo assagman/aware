@@ -107,7 +107,11 @@ describe("thought graph service", () => {
 		expect(cached.stale).toBe(false);
 		expect(cached.graph?.sourceEventHash).toBe(saved.sourceEventHash);
 
-		rows.runEvents.push(event(7, "tool_end", { toolName: "test", result: "pass" }));
+		rows.runEvents.push(event(7, "artifact_saved", { artifactId: `thought-graph:${run.id}`, kind: "thought_graph", title: "Thought graph" }));
+		const selfArtifactEvent = await getCachedThoughtGraph(run.id);
+		expect(selfArtifactEvent.stale).toBe(false);
+
+		rows.runEvents.push(event(8, "tool_end", { toolName: "test", result: "pass" }));
 		const stale = await getCachedThoughtGraph(run.id);
 		expect(stale.stale).toBe(true);
 	});

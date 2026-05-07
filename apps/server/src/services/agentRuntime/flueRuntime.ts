@@ -601,18 +601,23 @@ export class FlueRuntime {
 			: process.env.ZAI_API_KEY
 				? "zai/glm-5.1"
 				: agent.model;
+		const isThoughtAgent = agent.roleName === "thought-agent";
 		const flueAgent = await ctx.init({
 			sandbox,
 			model,
 			persist: flueSessionStore,
 			role: profileRole,
 			tools: resolveAgentTools(agent.tools, {
-				artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
-				skills: {
-					projectId: input.task.projectId,
-					workspacePath: input.worktreePath,
-					agent,
-				},
+				...(isThoughtAgent
+					? { thought: { runId: run.id } }
+					: {
+						artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
+						skills: {
+							projectId: input.task.projectId,
+							workspacePath: input.worktreePath,
+							agent,
+						},
+					}),
 			}),
 		});
 		const session = (await flueAgent.session(
