@@ -276,6 +276,7 @@ export async function buildGraphProjection(
 		: allProjects;
 	const projectIds = new Set(projects.map((project) => project.id));
 	const tasks = allTasks.filter((task) => projectIds.has(task.projectId));
+	const taskById = new Map(tasks.map((task) => [task.id, task]));
 	const taskIds = new Set(tasks.map((task) => task.id));
 	const systemTasks: Task[] = [];
 	const systemTaskIds = new Set(systemTasks.map((task) => task.id));
@@ -533,7 +534,7 @@ export async function buildGraphProjection(
 						eyebrow: `Annotation run - ${compactId(run.id)}`,
 						title: run.request || run.mainAgentName || "Annotation run",
 						status: run.status,
-						meta: [new Date(run.startedAt).toLocaleString()],
+						meta: [taskById.get(run.taskId)?.title, new Date(run.startedAt).toLocaleString()].filter((item): item is string => Boolean(item)),
 						accent: ["annotation-run", run.status === "running" ? "live" : "", run.deletedAt ? "deleted" : ""].filter(Boolean).join(" "),
 						position: { x: GRAPH_X.annotationRun, y: runCenterY - GRAPH_RUN_NODE_HEIGHT / 2 },
 						href: annotationRunHref(project.id, run.id),
@@ -731,7 +732,7 @@ export async function buildGraphProjection(
 						eyebrow: `${input.lane === "gate" ? "Gate run" : input.lane === "ship" ? "Ship run" : "Run"} - ${compactId(run.id)}`,
 						title: run.deletedAt ? "Trashed" : run.request || run.mainAgentName || "Agent run",
 						status: run.status,
-						meta: [new Date(run.startedAt).toLocaleString()],
+						meta: [task.title, new Date(run.startedAt).toLocaleString()],
 						accent: [input.lane === "gate" ? "gate" : "", input.lane === "ship" ? "ship" : "", run.status === "running" ? "live" : "", run.deletedAt ? "deleted" : ""]
 							.filter(Boolean)
 							.join(" ") || undefined,
@@ -850,7 +851,7 @@ export async function buildGraphProjection(
 					eyebrow: "Gate",
 					title: "Task gate",
 					status: state,
-					meta: [`${activeTaskLaneRuns.filter((run) => run.status === "done").length}/${activeTaskLaneRuns.length} task runs done`],
+					meta: [task.title, `${activeTaskLaneRuns.filter((run) => run.status === "done").length}/${activeTaskLaneRuns.length} task runs done`],
 					position: { x: gateX, y: y - GRAPH_RUN_NODE_HEIGHT / 2 },
 					href: checkpointHref(project.id, task.id),
 					actions: [openGateAction, markGateAction].filter((item): item is GraphAction => Boolean(item)),
@@ -963,6 +964,7 @@ export async function buildGraphProjection(
 					title: "Release gate",
 					status: shipStatus,
 					meta: [
+						task.title,
 						activeGateRuns.length ? `${activeGateRuns.filter((run) => run.status === "done").length}/${activeGateRuns.length} gate runs done` : "no gate runs yet",
 						activeShipRuns.length ? `${activeShipRuns.length} ship run${activeShipRuns.length === 1 ? "" : "s"}` : "not shipped",
 					],
