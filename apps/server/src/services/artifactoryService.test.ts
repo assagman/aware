@@ -102,7 +102,7 @@ describe("artifactory service", () => {
 		const ship = run({ id: "ship", lane: "ship", startedAt: "2026-01-01T00:00:04.000Z" });
 		rows.runs = [taskRoot, taskChild, gate, ship];
 		rows.runArtifacts = [
-			artifact({ runId: taskRoot.id, turnSeq: 1, title: "root", body: "root body\n- tool call: graph_fetch\n- tool start: bash\nkept after noise\nTool end: bash", lane: "task" }),
+			artifact({ runId: taskRoot.id, turnSeq: 1, title: "root", body: "root body\n- tool call: graph_fetch\n- tool start: bash\nkept after noise\nTool end: bash\n\n### Upstream Artifactory\nnested leak", lane: "task" }),
 			artifact({ runId: taskChild.id, turnSeq: 1, title: "child", body: "child body", lane: "task" }),
 			artifact({ runId: gate.id, turnSeq: 1, title: "gate", body: "gate body", lane: "gate" }),
 		];
@@ -116,6 +116,67 @@ describe("artifactory service", () => {
 		expect(context).not.toContain("tool call");
 		expect(context).not.toContain("tool start");
 		expect(context).not.toContain("Tool end");
+		expect(context).not.toContain("nested leak");
+	});
+
+	it("keeps upstream context scoped to the current worktree", async () => {
+		const staleTask = run({ id: "stale-task", lane: "task", worktreeId: "stale-worktree", startedAt: "2026-01-01T00:00:01.000Z" });
+		const currentTask = run({ id: "current-task", lane: "task", worktreeId: "current-worktree", startedAt: "2026-01-01T00:00:02.000Z" });
+		const currentGate = run({ id: "current-gate", lane: "gate", worktreeId: "current-worktree", startedAt: "2026-01-01T00:00:03.000Z" });
+		rows.runs = [staleTask, currentTask, currentGate];
+		rows.runArtifacts = [
+			artifact({ runId: staleTask.id, worktreeId: staleTask.worktreeId, turnSeq: 1, title: "stale", body: "stale body must not leak", lane: "task" }),
+			artifact({ runId: currentTask.id, worktreeId: currentTask.worktreeId, turnSeq: 1, title: "current", body: "current body", lane: "task" }),
+		];
+
+		expect(await collectUpstreamRunIds(currentGate)).toEqual([currentTask.id]);
+		const context = await buildUpstreamArtifactContext(currentGate);
+		expect(context).toContain("current body");
+		expect(context).not.toContain("stale body must not leak");
+	});
+
+	it("uses only the latest session report per upstream run", async () => {
+		const parent = run({ id: "parent", lane: "task", startedAt: "2026-01-01T00:00:01.000Z" });
+		const child = run({ id: "child", lane: "task", parentRunId: parent.id, startedAt: "2026-01-01T00:00:02.000Z" });
+		rows.runs = [parent, child];
+		rows.runArtifacts = [
+			artifact({ runId: parent.id, turnSeq: 1, title: "parent turn 1", body: "old low-signal body", lane: "task", updatedAt: "2026-01-01T00:00:01.000Z" }),
+			artifact({ runId: parent.id, turnSeq: 2, title: "parent turn 2", body: "latest useful body", lane: "task", updatedAt: "2026-01-01T00:00:02.000Z" }),
+		];
+
+		const context = await buildUpstreamArtifactContext(child);
+		expect(context).toContain("latest useful body");
+		expect(context).not.toContain("old low-signal body");
+		expect(context.match(new RegExp(`run: ${parent.id}`, "g"))).toHaveLength(1);
+	});
+
+	it("skips empty fallback reports when building upstream context", async () => {
+		const parent = run({ id: "parent", lane: "task", startedAt: "2026-01-01T00:00:01.000Z" });
+		const child = run({ id: "child", lane: "task", parentRunId: parent.id, startedAt: "2026-01-01T00:00:02.000Z" });
+		rows.runs = [parent, child];
+		rows.runArtifacts = [
+			artifact({ runId: parent.id, turnSeq: 1, title: "useful", body: "useful agent body", lane: "task", metadata: { source: "agent" } }),
+			artifact({
+				runId: parent.id,
+				turnSeq: 2,
+				title: "empty fallback",
+				body: [
+					"## Conversation summary",
+					"- No user/assistant text captured.",
+					"## Thinking / evaluations / decisions",
+					"- No thinking/evaluation text captured.",
+					"## Files read/edited/written",
+					"- No read/edit/write file activity captured.",
+				].join("\n"),
+				lane: "task",
+				metadata: { source: "fallback" },
+				updatedAt: "2026-01-01T00:00:02.000Z",
+			}),
+		];
+
+		const context = await buildUpstreamArtifactContext(child);
+		expect(context).toContain("useful agent body");
+		expect(context).not.toContain("No user/assistant text captured");
 	});
 
 	it("creates fallback report on turn end when agent report missing", async () => {
