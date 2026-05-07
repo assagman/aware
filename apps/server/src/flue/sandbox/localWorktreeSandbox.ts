@@ -341,6 +341,8 @@ function hostCommands(workspaceRoot: string) {
 		hostCommand(workspaceRoot, "pnpm"),
 		hostCommand(workspaceRoot, "corepack"),
 		hostCommand(workspaceRoot, "bun"),
+		hostCommand(workspaceRoot, "make"),
+		hostCommand(workspaceRoot, "gh"),
 		hostCommand(workspaceRoot, "tea", resolveTeaBin()),
 		hostCommand(workspaceRoot, "python"),
 		hostCommand(workspaceRoot, "python3", "python3"),
