@@ -33,5 +33,3 @@ Delegate with the `task` tool using the exact role value.
 ### Upstream Artifactory
 
 {{upstreamArtifacts}}
-
-{{instructions}}

@@ -589,7 +589,7 @@ export async function buildGraphProjection(
 						label: "Archive task",
 						command: "archive_task",
 						inputSchema: "archive_task",
-						payload: { projectId: project.id, taskId: task.id, cleanup: true },
+						payload: { projectId: project.id, taskId: task.id },
 					}),
 				);
 			if (!options.history) {

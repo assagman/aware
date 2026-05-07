@@ -17,6 +17,10 @@ export type Worktree = {
 	createdAt: string;
 	updatedAt: string;
 };
+export type AgentSkillPolicy = {
+	allowed?: string[];
+	denied?: string[];
+};
 export type AgentProfile = {
 	id: ID;
 	name: string;
@@ -26,11 +30,42 @@ export type AgentProfile = {
 	temperature?: number;
 	systemPrompt: string;
 	tools: string[];
+	skillPolicy?: AgentSkillPolicy;
 	createdAt: string;
 	updatedAt: string;
 };
-export type TaskStatus = "draft" | "queued" | "running" | "need_review" | "done" | "failed";
-export type TaskSource = "user" | "direct-chat" | "annotation-run" | "annotation-tasks";
+export type AgentSkillScope = "global" | "project";
+export type AgentSkill = {
+	id: ID;
+	name: string;
+	directory: string;
+	description: string;
+	scope: AgentSkillScope;
+	path: string;
+	projectId?: ID;
+	projectName?: string;
+	enabled: boolean;
+	valid: boolean;
+	errors: string[];
+	warnings: string[];
+	defaultDisabledForInternalAgents: boolean;
+};
+export type AgentSkillCatalog = {
+	skills: AgentSkill[];
+	globalSkillsPath: string;
+};
+export type TaskStatus =
+	| "draft"
+	| "queued"
+	| "running"
+	| "need_review"
+	| "done"
+	| "failed";
+export type TaskSource =
+	| "user"
+	| "direct-chat"
+	| "annotation-run"
+	| "annotation-tasks";
 export type Task = {
 	id: ID;
 	projectId: ID;
@@ -93,7 +128,13 @@ export type RunStatus =
 	| "failed"
 	| "cancelled";
 export type RunRelation = "parallel" | "sequential";
-export type RunLane = "task" | "gate" | "ship" | "graph" | "annotation" | "annotation-tasks";
+export type RunLane =
+	| "task"
+	| "gate"
+	| "ship"
+	| "graph"
+	| "annotation"
+	| "annotation-tasks";
 export type AgentRun = {
 	id: ID;
 	taskId: ID;
@@ -207,7 +248,17 @@ export type GraphProjectionEdge = {
 	id: ID;
 	source: ID;
 	target: ID;
-	kind: "project-task" | "annotation" | "annotation-run" | "annotation-tasks" | "run" | "add" | "checkpoint" | "gate" | "ship" | "review";
+	kind:
+		| "project-task"
+		| "annotation"
+		| "annotation-run"
+		| "annotation-tasks"
+		| "run"
+		| "add"
+		| "checkpoint"
+		| "gate"
+		| "ship"
+		| "review";
 	status?: string;
 	animated?: boolean;
 };

@@ -188,7 +188,7 @@ export function ShippingPage() {
 					<div className="panel-head">
 						<div>
 							<h2>Shipping Agent</h2>
-							<small>One final run handles commit, rebase, PR, merge, cleanup, and default sync.</small>
+							<small>One final run handles commit, rebase, PR, and merge.</small>
 						</div>
 						<div className="task-route-head-actions">
 							{loading ? <BusyIndicator label="Refreshing" /> : null}
@@ -213,8 +213,8 @@ export function ShippingPage() {
 						<li>Commit remaining changes group by group with signed atomic commits.</li>
 						<li>Rebase onto default branch, then push current branch to origin.</li>
 						<li>Resolve origin host and create PR via gh or tea.</li>
-						<li>Merge PR, cleanup remote/local branch and worktree.</li>
-						<li>Switch default worktree and pull latest changes.</li>
+						<li>Merge PR.</li>
+						<li>Leave branches, worktrees, and default worktree untouched unless separately requested.</li>
 					</ul>
 				</section>
 				<section className="card checkpoint-card checkpoint-wide">

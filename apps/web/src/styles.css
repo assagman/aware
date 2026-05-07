@@ -1634,6 +1634,91 @@ pre {
 	resize: vertical;
 }
 
+.agent-skill-policy-list,
+.skills-list {
+	display: grid;
+	gap: 8px;
+}
+
+.agent-skill-policy-row,
+.skill-card {
+	padding: 10px;
+	border: 1px solid #242832;
+	border-radius: 8px;
+	background: #0a0d12;
+}
+
+.agent-skill-policy-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 140px;
+	align-items: center;
+}
+
+.agent-skill-policy-row span,
+.skill-card header > div {
+	display: grid;
+	gap: 3px;
+}
+
+.agent-skill-policy-row small,
+.skill-card small,
+.skill-card dd,
+.skill-card p,
+.skill-card li {
+	color: #94a3b8;
+}
+
+.skill-card header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.skill-card.invalid {
+	border-color: #ef4444;
+}
+
+.skill-card dl {
+	display: grid;
+	grid-template-columns: 90px minmax(0, 1fr);
+	gap: 4px 10px;
+	margin: 10px 0 0;
+}
+
+.skill-card dt {
+	color: #cbd5e1;
+	font-weight: 700;
+}
+
+.skill-card dd {
+	margin: 0;
+	word-break: break-all;
+}
+
+.skill-status {
+	padding: 3px 8px;
+	border-radius: 999px;
+	border: 1px solid #334155;
+	font-size: 12px;
+	text-transform: uppercase;
+}
+
+.skill-status.enabled {
+	color: #86efac;
+	border-color: #166534;
+}
+
+.skill-status.limited {
+	color: #fde68a;
+	border-color: #854d0e;
+}
+
+.skill-status.invalid {
+	color: #fca5a5;
+	border-color: #991b1b;
+}
+
 .agent-markdown-preview {
 	min-height: 260px;
 	padding: 10px 12px;
@@ -3171,7 +3256,8 @@ pre {
 	min-height: 0;
 }
 
-.settings-content-panel > .agents-page {
+.settings-content-panel > .agents-page,
+.settings-content-panel > .skills-page {
 	height: auto;
 	min-height: 0;
 	margin: 0;
@@ -3179,6 +3265,16 @@ pre {
 	border-radius: 0;
 	background: transparent;
 	overflow: hidden;
+}
+
+.skills-page {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	min-height: 0;
+}
+
+.skills-scroll {
+	padding: 0 12px 12px;
 }
 
 .settings-loading {
@@ -4277,6 +4373,128 @@ pre {
 .home-app-shell .tool-write:not(.tool-failed) summary strong,
 .home-app-shell .tool-write:not(.tool-failed) summary em {
 	color: #160f03;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	border-color: transparent;
+	background:
+		radial-gradient(circle at 16% 18%, rgb(167 139 250 / 24%), transparent 34%),
+		radial-gradient(circle at 88% 8%, rgb(45 212 191 / 18%), transparent 30%),
+		linear-gradient(145deg, rgb(18 11 42 / 96%), rgb(4 18 27 / 98%));
+	box-shadow:
+		0 0 0 1px rgb(167 139 250 / 18%),
+		0 20px 56px rgb(7 11 28 / 42%),
+		0 0 34px rgb(45 212 191 / 15%);
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::before,
+.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+	position: absolute;
+	content: "";
+	pointer-events: none;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::before {
+	inset: 0;
+	padding: 1px;
+	border-radius: inherit;
+	background: conic-gradient(
+		from var(--load-skill-angle, 0deg),
+		#8b5cf6,
+		#22d3ee,
+		#2dd4bf,
+		#f0abfc,
+		#8b5cf6
+	);
+	z-index: 0;
+	mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	mask-composite: exclude;
+	-webkit-mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	animation: load-skill-glow-spin 7s linear infinite;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+	inset: -38% -8% auto;
+	height: 90px;
+	z-index: 0;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		rgb(34 211 238 / 18%),
+		rgb(240 171 252 / 20%),
+		transparent
+	);
+	filter: blur(16px);
+	transform: translateX(-40%);
+	animation: load-skill-glow-sweep 4.8s ease-in-out infinite;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) > * {
+	position: relative;
+	z-index: 1;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) summary strong,
+.home-app-shell .tool-load-skill:not(.tool-failed) summary em {
+	color: #d8b4fe;
+	text-shadow: 0 0 16px rgb(168 85 247 / 46%);
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) summary .tool-summary-code,
+.home-app-shell .tool-load-skill:not(.tool-failed) .tool-chip {
+	border-color: rgb(125 211 252 / 22%);
+	background: rgb(12 21 48 / 56%);
+	box-shadow: inset 0 0 18px rgb(45 212 191 / 8%);
+}
+
+.home-app-shell .tool-load-skill.tool-running:not(.tool-failed) {
+	box-shadow:
+		0 0 0 1px rgb(34 211 238 / 24%),
+		0 20px 60px rgb(7 11 28 / 48%),
+		0 0 44px rgb(45 212 191 / 22%);
+}
+
+.home-app-shell .tool-load-skill.tool-running:not(.tool-failed)::before {
+	animation-duration: 3.2s;
+}
+
+@property --load-skill-angle {
+	syntax: "<angle>";
+	inherits: false;
+	initial-value: 0deg;
+}
+
+@keyframes load-skill-glow-spin {
+	to {
+		--load-skill-angle: 360deg;
+	}
+}
+
+@keyframes load-skill-glow-sweep {
+	0%,
+	100% {
+		transform: translateX(-42%);
+		opacity: 0.36;
+	}
+	50% {
+		transform: translateX(42%);
+		opacity: 0.78;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.home-app-shell .tool-load-skill:not(.tool-failed)::before,
+	.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+		animation: none;
+	}
 }
 
 .home-app-shell .message-error,

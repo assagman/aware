@@ -119,6 +119,7 @@ describe("graph projection layout", () => {
 		const runNodes = ["run-a", "run-b", "run-c"].map((id) => node(projection, `run:${id}`));
 		const addParallelNode = node(projection, `add-run:${task.id}:parallel`);
 		expect(taskNode.actions.map((action) => action.command)).toContain("open_annotations");
+		expect(taskNode.actions.find((action) => action.command === "archive_task")?.payload).toEqual({ projectId: project.id, taskId: task.id });
 
 		expect(gateNode.position.y).toBe(taskNode.position.y);
 		expect(shipNode.position.y).toBe(taskNode.position.y);

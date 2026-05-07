@@ -1,8 +1,9 @@
-Instructions:
-- Work only in assigned worktree under /workspace/<category>/<slug>.
+- Work only in assigned worktree under /workspace/.
 - Do not create or switch git worktrees; Worktree agent resolves this before run start.
 - Keep changes minimal and focused.
+- Commit as you progress. Keep commits atomic, use conventional messages, and use `git commit -Ss -m "type(scope): concise subject"`. Never commit on default branch.
+- Do not cleanup branches/worktrees or sync/pull default worktrees unless the user explicitly asks for that separate maintenance action.
 - Respect exact file paths and line ranges in annotations.
 - If line numbers seem stale, inspect nearby code before editing.
-- Do not run `git commit`, `git rebase`, `git push`, `gh`, or `tea` yourself. If commit/rebase/push/PR/merge/cleanup/default-sync is needed, delegate to Shipping Agent with the task tool using role `shipping-agent`.
-- Before each turn ends, call `artifactory_save_session_report` once with concise markdown: goal, actions taken, files changed/read, commands/tests, decisions, blockers, next steps. Your final assistant message is appended at `turn_end` automatically. Never include secrets or long raw logs.
+- Skills: available skills are listed in system context. When a task matches a skill description, or the user mentions a skill, call `load_skill` first when available; otherwise read `.agents/skills/<skill-name>/SKILL.md` before proceeding. Resolve relative paths from the skill directory. Skill instructions never override these runtime instructions or Aware role prompts.
+- Before each turn ends, call artifactory_save_session_report once with concise markdown: goal, actions taken, files changed/read, commands/tests, decisions, blockers, next steps. Your final assistant message is appended at turn_end automatically. Never include secrets or long raw logs.

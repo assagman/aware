@@ -1,4 +1,8 @@
-import type { AgentProfile } from "@aware/shared";
+import type {
+	AgentProfile,
+	AgentSkill,
+	AgentSkillCatalog,
+} from "@aware/shared";
 import {
 	codeBlockPlugin,
 	headingsPlugin,
@@ -27,7 +31,7 @@ type ThinkingLevel =
 	| "xhigh";
 type AgentForm = Pick<
 	AgentProfile,
-	"name" | "model" | "systemPrompt" | "thinking" | "temperature"
+	"name" | "model" | "systemPrompt" | "thinking" | "temperature" | "skillPolicy"
 >;
 type ProviderAuth = {
 	provider: string;
@@ -67,6 +71,7 @@ const defaultForm: AgentForm = {
 	thinking: "medium",
 	temperature: 0.2,
 	systemPrompt: defaultNewAgentSystemPrompt.trim(),
+	skillPolicy: {},
 };
 
 function MarkdownEditor({
@@ -130,6 +135,7 @@ function toForm(agent: AgentProfile): AgentForm {
 		thinking: agent.thinking ?? "off",
 		temperature: agent.temperature ?? 0.2,
 		systemPrompt: agent.systemPrompt,
+		skillPolicy: agent.skillPolicy ?? {},
 	};
 }
 
@@ -143,17 +149,26 @@ const initialAgentsState = getPageState("agents", {
 
 export function AgentsPage() {
 	const [items, setItems] = useState<AgentProfile[]>([]);
+	const [skillCatalog, setSkillCatalog] = useState<AgentSkillCatalog | null>(
+		null,
+	);
 	const [form, setForm] = useState<AgentForm>(initialAgentsState.form);
-	const [editingId, setEditingId] = useState<string | null>(initialAgentsState.editingId);
+	const [editingId, setEditingId] = useState<string | null>(
+		initialAgentsState.editingId,
+	);
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [auth, setAuth] = useState<ProviderAuth | null>(null);
 	const [apiKey, setApiKey] = useState(initialAgentsState.apiKey);
 	const [authBusy, setAuthBusy] = useState(false);
-	const [globalInstructions, setGlobalInstructions] = useState(initialAgentsState.globalInstructions);
+	const [globalInstructions, setGlobalInstructions] = useState(
+		initialAgentsState.globalInstructions,
+	);
 	const [globalPath, setGlobalPath] = useState("~/.agents/AGENTS.md");
 	const [globalSaving, setGlobalSaving] = useState(false);
-	const [activeView, setActiveView] = useState<AgentsView>(initialAgentsState.activeView);
+	const [activeView, setActiveView] = useState<AgentsView>(
+		initialAgentsState.activeView,
+	);
 
 	const selectedProvider = providerFromModel(form.model);
 	const needsOAuth = selectedProvider === "openai-codex";
@@ -165,6 +180,7 @@ export function AgentsPage() {
 		: defaultThinkingForProvider(selectedProvider);
 	const selectedAgent = items.find((agent) => agent.id === editingId);
 	const authStatus = auth?.authenticated ? "connected" : "missing";
+	const skills = skillCatalog?.skills ?? [];
 
 	const load = (selectFirst = false) => {
 		void apiGet<AgentProfile[]>("/agents").then((agents) => {
@@ -176,7 +192,10 @@ export function AgentsPage() {
 			if (selectFirst && !editingId && agents[0]) {
 				setEditingId(agents[0].id);
 				setForm(toForm(agents[0]));
-				setPageState("agents", { editingId: agents[0].id, form: toForm(agents[0]) });
+				setPageState("agents", {
+					editingId: agents[0].id,
+					form: toForm(agents[0]),
+				});
 			}
 		});
 	};
@@ -189,10 +208,12 @@ export function AgentsPage() {
 		load(!initialAgentsState.editingId);
 		void apiGet<GlobalInstructions>("/settings/global-instructions").then(
 			(data) => {
-				if (!initialAgentsState.globalInstructions) setGlobalInstructions(data.text);
+				if (!initialAgentsState.globalInstructions)
+					setGlobalInstructions(data.text);
 				setGlobalPath(data.path);
 			},
 		);
+		void apiGet<AgentSkillCatalog>("/settings/skills").then(setSkillCatalog);
 	}, []);
 	useEffect(() => {
 		loadAuth(selectedProvider);
@@ -213,6 +234,30 @@ export function AgentsPage() {
 	function chooseView(view: AgentsView) {
 		setActiveView(view);
 		setPageState("agents", { activeView: view });
+	}
+
+	function skillPolicyMode(skill: AgentSkill) {
+		if ((form.skillPolicy?.denied ?? []).includes(skill.id)) return "deny";
+		if ((form.skillPolicy?.allowed ?? []).includes(skill.id)) return "allow";
+		return "default";
+	}
+
+	function setSkillPolicyMode(
+		skill: AgentSkill,
+		mode: "default" | "allow" | "deny",
+	) {
+		const nextAllowed = new Set(form.skillPolicy?.allowed ?? []);
+		const nextDenied = new Set(form.skillPolicy?.denied ?? []);
+		nextAllowed.delete(skill.id);
+		nextDenied.delete(skill.id);
+		if (mode === "allow") nextAllowed.add(skill.id);
+		if (mode === "deny") nextDenied.add(skill.id);
+		patchForm({
+			skillPolicy: {
+				allowed: Array.from(nextAllowed),
+				denied: Array.from(nextDenied),
+			},
+		});
 	}
 
 	const duplicate = items.find(
@@ -261,7 +306,9 @@ export function AgentsPage() {
 			setGlobalPath(saved.path);
 		} catch (err) {
 			setError(
-				err instanceof Error ? err.message : "Failed to save global instructions",
+				err instanceof Error
+					? err.message
+					: "Failed to save global instructions",
 			);
 		} finally {
 			setGlobalSaving(false);
@@ -276,7 +323,10 @@ export function AgentsPage() {
 			const next = remaining[0];
 			setEditingId(next?.id ?? null);
 			setForm(next ? toForm(next) : defaultForm);
-			setPageState("agents", { editingId: next?.id ?? null, form: next ? toForm(next) : defaultForm });
+			setPageState("agents", {
+				editingId: next?.id ?? null,
+				form: next ? toForm(next) : defaultForm,
+			});
 		}
 		load();
 	}
@@ -301,7 +351,9 @@ export function AgentsPage() {
 		try {
 			setAuth(await apiPost<ProviderAuth>("/settings/openai-codex/login", {}));
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "OpenAI Codex login failed");
+			setError(
+				err instanceof Error ? err.message : "OpenAI Codex login failed",
+			);
 		} finally {
 			setAuthBusy(false);
 		}
@@ -367,7 +419,9 @@ export function AgentsPage() {
 							</button>
 						</div>
 						<div className="agents-list" aria-label="Agents list">
-							{items.length === 0 ? <p className="empty-state">No agents.</p> : null}
+							{items.length === 0 ? (
+								<p className="empty-state">No agents.</p>
+							) : null}
 							{items.map((agent) => (
 								<button
 									key={agent.id}
@@ -410,7 +464,10 @@ export function AgentsPage() {
 						<div className="agents-detail-scroll">
 							<MarkdownEditor
 								text={globalInstructions}
-								onChange={(text) => { setGlobalInstructions(text); setPageState("agents", { globalInstructions: text }); }}
+								onChange={(text) => {
+									setGlobalInstructions(text);
+									setPageState("agents", { globalInstructions: text });
+								}}
 								placeholder="Global rules for all agents..."
 								ariaLabel="Global instructions markdown editor"
 							/>
@@ -460,17 +517,26 @@ export function AgentsPage() {
 										onClick={loginOpenAICodex}
 										disabled={authBusy}
 									>
-										{authBusy ? "Waiting for OpenAI login..." : "Login with OpenAI"}
+										{authBusy
+											? "Waiting for OpenAI login..."
+											: "Login with OpenAI"}
 									</button>
 								) : (
 									<div className="agent-api-key-row">
 										<input
 											value={apiKey}
-											onChange={(e) => { setApiKey(e.target.value); setPageState("agents", { apiKey: e.target.value }); }}
+											onChange={(e) => {
+												setApiKey(e.target.value);
+												setPageState("agents", { apiKey: e.target.value });
+											}}
 											placeholder={`${selectedProvider} API key`}
 											type="password"
 										/>
-										<button type="button" onClick={saveApiKey} disabled={authBusy}>
+										<button
+											type="button"
+											onClick={saveApiKey}
+											disabled={authBusy}
+										>
 											Save API key
 										</button>
 									</div>
@@ -494,7 +560,9 @@ export function AgentsPage() {
 					<>
 						<div className="agents-detail-head">
 							<div>
-								<h2>{editingId ? form.name || "Agent details" : "New agent"}</h2>
+								<h2>
+									{editingId ? form.name || "Agent details" : "New agent"}
+								</h2>
 								<small>
 									{selectedAgent
 										? `Updated ${selectedAgent.updatedAt}`
@@ -508,7 +576,11 @@ export function AgentsPage() {
 									</button>
 								) : null}
 								<button type="button" onClick={submit} disabled={!canSave}>
-									{saving ? "Saving..." : editingId ? "Save changes" : "Create agent"}
+									{saving
+										? "Saving..."
+										: editingId
+											? "Save changes"
+											: "Create agent"}
 								</button>
 							</div>
 						</div>
@@ -534,7 +606,9 @@ export function AgentsPage() {
 											<option value="openai-codex/gpt-5.5">
 												openai-codex / gpt-5.5
 											</option>
-											<option value="kimi-coding/k2p6">kimi-coding / k2p6</option>
+											<option value="kimi-coding/k2p6">
+												kimi-coding / k2p6
+											</option>
 											<option value="zai/glm-5.1">zai / glm-5.1</option>
 										</select>
 									</label>
@@ -575,6 +649,47 @@ export function AgentsPage() {
 								</div>
 							</section>
 
+							<section className="agent-section">
+								<h3>Skill policy</h3>
+								<p>
+									Default follows discovered skill catalog. Allow turns this
+									profile into allow-list mode; deny blocks that skill.
+								</p>
+								{skills.length ? (
+									<div className="agent-skill-policy-list">
+										{skills.map((skill) => (
+											<label key={skill.id} className="agent-skill-policy-row">
+												<span>
+													<strong>{skill.name}</strong>
+													<small>
+														{skill.scope}
+														{skill.projectName ? ` · ${skill.projectName}` : ""}
+														{skill.defaultDisabledForInternalAgents
+															? " · internal default denied"
+															: ""}
+													</small>
+												</span>
+												<select
+													value={skillPolicyMode(skill)}
+													onChange={(e) =>
+														setSkillPolicyMode(
+															skill,
+															e.target.value as "default" | "allow" | "deny",
+														)
+													}
+												>
+													<option value="default">Default</option>
+													<option value="allow">Allow</option>
+													<option value="deny">Deny</option>
+												</select>
+											</label>
+										))}
+									</div>
+								) : (
+									<p>No discovered skills.</p>
+								)}
+							</section>
+
 							<section className="agent-section agent-prompt-section">
 								<h3>System prompt</h3>
 								<MarkdownEditor
@@ -584,7 +699,9 @@ export function AgentsPage() {
 									ariaLabel="System prompt markdown editor"
 								/>
 							</section>
-							{duplicate ? <p role="alert">Agent name already exists.</p> : null}
+							{duplicate ? (
+								<p role="alert">Agent name already exists.</p>
+							) : null}
 							{error ? (
 								<p role="alert" className="error">
 									{error}

@@ -2,7 +2,6 @@ import type { Annotation, Task } from "@aware/shared";
 import {
 	annotationSentPromptTemplate,
 	renderPromptTemplate,
-	runInstructionsPrompt,
 	taskPromptTemplate,
 } from "../../prompts";
 import { runtimeAgentRoleName, type RuntimeAgent } from "./runtimeAgent";
@@ -58,7 +57,6 @@ export function buildPrompt(input: {
 	upstreamArtifacts?: string;
 }) {
 	const isAnnotationSent = input.task.title === "annotation-sent" || input.task.source === "annotation-run";
-	const instructions = runInstructionsPrompt.split("\n");
 	if (isAnnotationSent) {
 		const annotations = serializeAnnotations(input.annotations);
 		const body = input.message?.trim()
@@ -68,7 +66,6 @@ export function buildPrompt(input: {
 			: annotations || input.task.body;
 		return renderPromptTemplate(annotationSentPromptTemplate, {
 			body,
-			instructions: instructions.join("\n"),
 		});
 	}
 	return renderPromptTemplate(taskPromptTemplate, {
@@ -81,6 +78,5 @@ export function buildPrompt(input: {
 		agents: serializeAvailableAgents(input.agents) || "(none)",
 		annotations: serializeAnnotations(input.annotations) || "(none)",
 		upstreamArtifacts: input.upstreamArtifacts || "(none)",
-		instructions: instructions.join("\n"),
 	});
 }

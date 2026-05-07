@@ -40,7 +40,7 @@ const descriptions: Record<keyof typeof graphCommandSchemas, string> = {
 	create_task: "Create a task inside a project graph.",
 	update_task: "Update task title, body, worktree, or archive/delete state.",
 	mark_task_done: "Mark task done after all active runs are done.",
-	archive_task: "Archive task into history and optionally cleanup task worktree/branch.",
+	archive_task: "Archive task into history without deleting its worktree or branch.",
 	start_run: "Start a task-lane or gate-lane agent run for a task.",
 	send_run_message: "Send a steering/continue message to an existing run.",
 	retry_run: "Create a new run from an existing run request.",

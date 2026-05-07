@@ -8,6 +8,10 @@ const MAX_FINAL_ASSISTANT_CHARS = 6_000;
 const MAX_CONTEXT_CHARS = 28_000;
 const MAX_CONTEXT_ARTIFACTS = 24;
 const FINAL_ASSISTANT_MARKER = "## Final assistant message";
+const TOOL_ACTIVITY_LINE_RE = /^\s*(?:[-*]\s*)?(?:tool\s*(?:call|start|end|result|execution)|tool_call|tool_use|function\s*call)\s*:/i;
+const MAX_SUMMARY_CHARS = 3_000;
+const MAX_THINKING_CHARS = 4_000;
+const MAX_FILE_ACTIVITY_ITEMS = 40;
 
 function runLane(run: AgentRun): RunLane {
 	return run.lane === "gate" || run.lane === "ship" || run.lane === "graph" ? run.lane : "task";
@@ -21,6 +25,15 @@ function sessionReportId(runId: string, turnSeq: number) {
 	return `session-report:${runId}:${turnSeq}`;
 }
 
+function sanitizeArtifactBodyForContext(body: string) {
+	return body
+		.split(/\r?\n/)
+		.filter((line) => !TOOL_ACTIVITY_LINE_RE.test(line))
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 function payloadText(payload: unknown) {
 	if (typeof payload === "string") return payload;
 	if (!payload || typeof payload !== "object") return "";
@@ -30,17 +43,118 @@ function payloadText(payload: unknown) {
 	return "";
 }
 
-function eventSummary(event: RunEvent) {
-	const payload = event.payload as { toolName?: unknown; isError?: unknown } | undefined;
-	if (event.type === "tool_start" && typeof payload?.toolName === "string")
-		return `tool start: ${payload.toolName}`;
-	if (event.type === "tool_end" && typeof payload?.toolName === "string")
-		return `tool end: ${payload.toolName}${payload.isError ? " (error)" : ""}`;
-	if (event.type === "user_message") return `user: ${truncate(payloadText(event.payload), 600)}`;
-	if (event.type === "message_delta_batch" || event.type === "text_delta") return `assistant: ${truncate(payloadText(event.payload), 1000)}`;
-	if (event.type === "result") return "result recorded";
-	if (event.type === "error") return `error: ${truncate(payloadText(event.payload), 1000)}`;
+function payloadRecord(payload: unknown) {
+	return payload && typeof payload === "object" && !Array.isArray(payload)
+		? payload as Record<string, unknown>
+		: {};
+}
+
+function extractPromptSection(text: string, heading: string) {
+	const index = text.indexOf(heading);
+	if (index < 0) return "";
+	const rest = text.slice(index + heading.length).replace(/^\s+/, "");
+	const nextHeading = rest.search(/\n##\s+/);
+	return (nextHeading >= 0 ? rest.slice(0, nextHeading) : rest).trim();
+}
+
+function userMessageSummary(text: string) {
+	const withoutUpstream = text.split(/\n\nUpstream Artifactory:/)[0]?.trim() ?? text.trim();
+	return truncate(
+		extractPromptSection(text, "## User request") ||
+			extractPromptSection(text, "## Annotation request") ||
+			withoutUpstream,
+		1200,
+	);
+}
+
+function uniqueNonEmpty(values: string[]) {
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function conversationSummary(events: RunEvent[]) {
+	const users = uniqueNonEmpty(
+		events
+			.filter((event) => event.type === "user_message")
+			.map((event) => userMessageSummary(payloadText(event.payload))),
+	).slice(-3);
+	const assistants = uniqueNonEmpty(assistantSegments(events).map((segment) => truncate(segment, 1200))).slice(-3);
+	const lines = ["## Conversation summary"];
+	if (users.length) lines.push("", "User:", ...users.map((value) => `- ${value}`));
+	if (assistants.length) lines.push("", "Assistant:", ...assistants.map((value) => `- ${value}`));
+	if (lines.length === 1) lines.push("", "- No user/assistant text captured.");
+	return truncate(lines.join("\n"), MAX_SUMMARY_CHARS);
+}
+
+function thinkingSummary(events: RunEvent[]) {
+	const thinking = uniqueNonEmpty(
+		events
+			.filter((event) => event.type === "thinking_delta" || event.type === "thinking_delta_batch")
+			.map((event) => payloadText(event.payload)),
+	).join("\n");
+	return [
+		"## Thinking / evaluations / decisions",
+		"",
+		thinking ? truncate(thinking, MAX_THINKING_CHARS) : "- No thinking/evaluation text captured.",
+	].join("\n");
+}
+
+function rawToolName(payload: Record<string, unknown>) {
+	const tool = payload.tool;
+	const nestedTool = tool && typeof tool === "object" && !Array.isArray(tool)
+		? (tool as Record<string, unknown>).name
+		: undefined;
+	const raw = [payload.toolName, payload.name, nestedTool]
+		.find((value): value is string => typeof value === "string");
+	return raw ?? "";
+}
+
+function fileToolLabel(name: string) {
+	const normalized = name.toLowerCase().split(/[.:/]/).at(-1) ?? name.toLowerCase();
+	if (normalized.startsWith("read")) return "Read";
+	if (normalized.startsWith("edit")) return "Edit";
+	if (normalized.startsWith("write")) return "Write";
 	return "";
+}
+
+function collectFilePaths(value: unknown, key = "", paths = new Set<string>()) {
+	const normalizedKey = key.toLowerCase();
+	const isPathKey = ["path", "filepath", "file", "filename", "targetpath"].includes(normalizedKey);
+	const isPathArrayKey = ["paths", "files", "filepaths"].includes(normalizedKey);
+	if (typeof value === "string") {
+		if (isPathKey || isPathArrayKey) paths.add(value);
+		return paths;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) collectFilePaths(item, key, paths);
+		return paths;
+	}
+	if (!value || typeof value !== "object") return paths;
+	for (const [childKey, childValue] of Object.entries(value)) collectFilePaths(childValue, childKey, paths);
+	return paths;
+}
+
+function fileActivitySummary(events: RunEvent[]) {
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const event of events) {
+		if (event.type !== "tool_start" && event.type !== "tool_end") continue;
+		const payload = payloadRecord(event.payload);
+		const label = fileToolLabel(rawToolName(payload));
+		if (!label) continue;
+		for (const path of collectFilePaths(payload)) {
+			const line = `- ${label}: ${truncate(path, 300)}`;
+			if (seen.has(line)) continue;
+			seen.add(line);
+			lines.push(line);
+			if (lines.length >= MAX_FILE_ACTIVITY_ITEMS) break;
+		}
+		if (lines.length >= MAX_FILE_ACTIVITY_ITEMS) break;
+	}
+	return [
+		"## Files read/edited/written",
+		"",
+		lines.length ? lines.join("\n") : "- No read/edit/write file activity captured.",
+	].join("\n");
 }
 
 function eventsForTurn(events: RunEvent[], turnSeq: number) {
@@ -201,18 +315,21 @@ export async function ensureSessionReportForTurn(input: {
 
 async function fallbackSessionReport(run: AgentRun, turnSeq: number) {
 	await runEventHub.flush(run.id);
-	const events = (await runEventHub.persistedEvents(run.id))
-		.filter((event) => event.type !== "prompt" && event.type !== "thinking_delta_batch")
-		.slice(-40)
-		.map(eventSummary)
-		.filter(Boolean);
+	const events = eventsForTurn(
+		(await runEventHub.persistedEvents(run.id))
+			.filter((event) => event.type !== "prompt"),
+		turnSeq,
+	);
 	return truncate([
 		`Aware generated this fallback session report because no agent-authored report was saved before turn ${turnSeq} ended.`,
 		`Run: ${run.id}`,
 		`Lane: ${runLane(run)}`,
 		"",
-		"Recent activity:",
-		events.length ? events.map((line) => `- ${line}`).join("\n") : "- No persisted activity beyond turn end.",
+		conversationSummary(events),
+		"",
+		thinkingSummary(events),
+		"",
+		fileActivitySummary(events),
 	].join("\n"));
 }
 
@@ -261,8 +378,11 @@ export async function buildUpstreamArtifactContext(run: AgentRun) {
 	const artifacts = await listUpstreamSessionReports(run);
 	if (!artifacts.length) return "(none)";
 	let total = 0;
+	let truncated = false;
 	const sections: string[] = [];
 	for (const artifact of artifacts) {
+		const body = sanitizeArtifactBodyForContext(artifact.body);
+		if (!body) continue;
 		const header = [
 			`### ${artifact.title}`,
 			`run: ${artifact.runId}`,
@@ -270,10 +390,13 @@ export async function buildUpstreamArtifactContext(run: AgentRun) {
 			`turn: ${artifact.turnSeq}`,
 			`saved: ${artifact.updatedAt}`,
 		].join(" · ");
-		const section = `${header}\n${artifact.body}`;
-		if (total + section.length > MAX_CONTEXT_CHARS) break;
+		const section = `${header}\n${body}`;
+		if (total + section.length > MAX_CONTEXT_CHARS) {
+			truncated = true;
+			break;
+		}
 		total += section.length;
 		sections.push(section);
 	}
-	return sections.join("\n\n---\n\n") || "(truncated)";
+	return sections.join("\n\n---\n\n") || (truncated ? "(truncated)" : "(none)");
 }

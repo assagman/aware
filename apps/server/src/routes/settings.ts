@@ -7,6 +7,7 @@ import {
 	saveProviderApiKey,
 	startOpenAICodexLogin,
 } from "../services/providerAuthService";
+import { listAgentSkills } from "../services/skillCatalogService";
 
 export const settings = new Hono();
 
@@ -22,7 +23,10 @@ async function readGlobalInstructions() {
 }
 
 settings.get("/global-instructions", async (c) =>
-	c.json({ path: globalInstructionsPath, text: await readGlobalInstructions() }),
+	c.json({
+		path: globalInstructionsPath,
+		text: await readGlobalInstructions(),
+	}),
 );
 
 settings.patch("/global-instructions", async (c) => {
@@ -40,6 +44,11 @@ settings.patch("/global-instructions", async (c) => {
 	}
 });
 
+settings.get("/skills", async (c) => {
+	const projectId = c.req.query("projectId");
+	return c.json(await listAgentSkills(projectId ? { projectId } : {}));
+});
+
 settings.get("/models", async (c) =>
 	c.json({
 		primary: {
@@ -48,10 +57,7 @@ settings.get("/models", async (c) =>
 			flueModel: "openai-codex/gpt-5.5",
 			env: "OpenAI subscription OAuth login",
 		},
-		aliases: [
-			"openai-codex/gpt-5.5",
-			"kimi-coding/k2p6",
-		],
+		aliases: ["openai-codex/gpt-5.5", "kimi-coding/k2p6"],
 		openaiCodex: {
 			provider: "openai-codex",
 			model: "gpt-5.5",

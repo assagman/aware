@@ -38,7 +38,7 @@ function shippingRuntimeAgent(base: RuntimeAgent) {
 		id: "internal:shipping-agent",
 		name: "Shipping Agent",
 		roleName: "shipping-agent",
-		description: "Internal service agent for commit, rebase, push, PR, merge, cleanup, and default-worktree sync.",
+		description: "Internal service agent for commit, rebase, push, PR creation, and PR merge.",
 		systemPrompt: shippingAgent.prompt,
 	});
 }

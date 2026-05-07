@@ -1,4 +1,11 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bashFactoryToSessionEnv } from "@flue/sdk/internal";
@@ -65,6 +72,37 @@ describe("local worktree sandbox", () => {
 		).toContain("Use demo.");
 	});
 
+	it("merges project skills with global skills and can hide blocked globals", async () => {
+		const root = await tempDir();
+		const worktree = join(root, "feat", "foo");
+		const globalSkills = join(await tempDir(), "skills");
+		await mkdir(join(worktree, ".agents", "skills", "local"), {
+			recursive: true,
+		});
+		await mkdir(join(globalSkills, "global"), { recursive: true });
+		await mkdir(join(globalSkills, "blocked"), { recursive: true });
+		await writeFile(
+			join(worktree, ".agents", "skills", "local", "SKILL.md"),
+			"local",
+		);
+		await writeFile(join(globalSkills, "global", "SKILL.md"), "global");
+		await writeFile(join(globalSkills, "blocked", "SKILL.md"), "blocked");
+
+		const env = await bashFactoryToSessionEnv(
+			await createLocalWorktreeSandbox({
+				workspaceRoot: root,
+				cwd: worktree,
+				globalSkillsDir: globalSkills,
+				blockedGlobalSkillDirs: ["blocked"],
+			}),
+		);
+
+		expect(await env.readdir(".agents/skills")).toEqual(["global", "local"]);
+		expect(await env.readFile(".agents/skills/local/SKILL.md")).toBe("local");
+		expect(await env.readFile(".agents/skills/global/SKILL.md")).toBe("global");
+		expect(await env.exists(".agents/skills/blocked/SKILL.md")).toBe(false);
+	});
+
 	it("passes heredoc stdin to host python commands", async () => {
 		const root = await tempDir();
 		const env = await bashFactoryToSessionEnv(
@@ -85,7 +123,7 @@ PY`);
 		await mkdir(binDir, { recursive: true });
 		for (const name of ["tea", "make", "gh"]) {
 			const bin = join(binDir, name);
-			await writeFile(bin, `#!/bin/sh\nprintf '${name}:%s\\n' \"$1\"\n`);
+			await writeFile(bin, `#!/bin/sh\nprintf '${name}:%s\\n' "$1"\n`);
 			await chmod(bin, 0o755);
 		}
 		const previousPath = process.env.PATH;

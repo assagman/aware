@@ -20,7 +20,8 @@ const retiredDefaultAgentSignatures = retiredDefaultAgentPromptPrefixes
 	.split("\n")
 	.map((line) => {
 		const [name, promptPrefix] = line.split("|");
-		if (!name || !promptPrefix) throw new Error("Invalid retired agent signature");
+		if (!name || !promptPrefix)
+			throw new Error("Invalid retired agent signature");
 		return { name, promptPrefix };
 	});
 
@@ -67,23 +68,49 @@ export async function createAgentProfile(
 			: {}),
 		systemPrompt: input.systemPrompt,
 		tools: input.tools ?? [],
+		...(input.skillPolicy ? { skillPolicy: input.skillPolicy } : {}),
 		createdAt: now(),
 		updatedAt: now(),
 	};
 	return db.insert("agentProfiles", row);
 }
 
+const retiredMainShippingBoundaryMarkers = [
+	"MUST always be delegated to Aware's internal Shipping Agent",
+	"exact role `shipping-agent` for all shipping operations",
+	"do not run `git " + "commit`, `git rebase`",
+];
+
 const mainShippingBoundary = [
 	"Shipping boundary:",
-	"- Never perform shipping operations yourself. Commit, rebase, push, pull-request creation, pull-request merge, branch cleanup, worktree cleanup, and default-worktree sync MUST always be delegated to Aware's internal Shipping Agent when needed.",
-	"- Use the task tool with exact role `shipping-agent` for all shipping operations. Never delegate to Main/current agent.",
-	"- If asked to ship from UI, stop implementation work and tell the user to start the Ship workflow; do not run `git commit`, `git rebase`, `git push`, `gh`, or `tea` yourself.",
+	"- Commit implementation progress yourself as coherent atomic changes.",
+	"- Never perform final shipping operations yourself. Rebase, push, pull-request creation, and pull-request merge MUST always be delegated to Aware's internal Shipping Agent when needed.",
+	"- Use the task tool with exact role `shipping-agent` for final shipping operations. Never delegate to Main/current agent.",
+	"- If asked to ship from UI, stop implementation work and tell the user to start the Ship workflow; do not run `git rebase`, `git push`, `gh`, or `tea` yourself.",
 ].join("\n");
 
+function removeRetiredMainShippingBoundary(prompt: string) {
+	return prompt
+		.split("\n")
+		.filter(
+			(line) =>
+				!retiredMainShippingBoundaryMarkers.some((marker) =>
+					line.includes(marker),
+				),
+		)
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 function ensureMainShippingBoundary(prompt: string) {
-	return prompt.includes("role `shipping-agent`")
-		? prompt
-		: `${prompt.trim()}\n\n${mainShippingBoundary}`;
+	const promptWithoutRetiredBoundary =
+		removeRetiredMainShippingBoundary(prompt);
+	return promptWithoutRetiredBoundary.includes("final shipping operations")
+		? promptWithoutRetiredBoundary
+		: [promptWithoutRetiredBoundary, mainShippingBoundary]
+				.filter(Boolean)
+				.join("\n\n");
 }
 
 function isRetiredDefaultAgent(agent: AgentProfile) {
@@ -132,13 +159,18 @@ async function ensureDefaultAgentProfiles() {
 			patch.tools = nextTools;
 		if (normalizeName(existing.name) === "main") {
 			const systemPrompt = ensureMainShippingBoundary(existing.systemPrompt);
-			if (systemPrompt !== existing.systemPrompt) patch.systemPrompt = systemPrompt;
+			if (systemPrompt !== existing.systemPrompt)
+				patch.systemPrompt = systemPrompt;
 		}
 		if (Object.keys(patch).length) {
-			const updated = await db.update<AgentProfile>("agentProfiles", existing.id, {
-				...patch,
-				updatedAt: now(),
-			});
+			const updated = await db.update<AgentProfile>(
+				"agentProfiles",
+				existing.id,
+				{
+					...patch,
+					updatedAt: now(),
+				},
+			);
 			if (updated) rows[rows.indexOf(existing)] = updated;
 		}
 	}

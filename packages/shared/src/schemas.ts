@@ -18,25 +18,65 @@ export const worktreeSchema = z.object({
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
+export const agentSkillPolicySchema = z.object({
+	allowed: z.array(z.string()).optional(),
+	denied: z.array(z.string()).optional(),
+});
 export const agentProfileSchema = z.object({
 	id: idSchema,
 	name: z.string(),
 	provider: z.string(),
 	model: z.string(),
 	thinking: z.string().optional(),
+	temperature: z.number().optional(),
 	systemPrompt: z.string(),
 	tools: z.array(z.string()),
+	skillPolicy: agentSkillPolicySchema.optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
-export const taskSourceSchema = z.enum(["user", "direct-chat", "annotation-run", "annotation-tasks"]);
+export const agentSkillSchema = z.object({
+	id: idSchema,
+	name: z.string(),
+	directory: z.string(),
+	description: z.string(),
+	scope: z.enum(["global", "project"]),
+	path: z.string(),
+	projectId: idSchema.optional(),
+	projectName: z.string().optional(),
+	enabled: z.boolean(),
+	valid: z.boolean(),
+	errors: z.array(z.string()),
+	warnings: z.array(z.string()),
+	defaultDisabledForInternalAgents: z.boolean(),
+});
+export const agentSkillCatalogSchema = z.object({
+	skills: z.array(agentSkillSchema),
+	globalSkillsPath: z.string(),
+});
+export const loadSkillInputSchema = z.object({
+	skill: z.string().min(1),
+});
+export const taskSourceSchema = z.enum([
+	"user",
+	"direct-chat",
+	"annotation-run",
+	"annotation-tasks",
+]);
 export const taskSchema = z.object({
 	id: idSchema,
 	projectId: idSchema,
 	worktreeId: idSchema.optional(),
 	title: z.string(),
 	body: z.string(),
-	status: z.enum(["draft", "queued", "running", "need_review", "done", "failed"]),
+	status: z.enum([
+		"draft",
+		"queued",
+		"running",
+		"need_review",
+		"done",
+		"failed",
+	]),
 	source: taskSourceSchema.optional(),
 	annotationIds: z.array(idSchema).optional(),
 	annotationTaskSuggestionId: idSchema.optional(),
@@ -90,7 +130,9 @@ export const runArtifactSchema = z.object({
 	worktreeId: idSchema,
 	kind: z.literal("session_report"),
 	turnSeq: z.number().int().positive(),
-	lane: z.enum(["task", "gate", "ship", "graph", "annotation", "annotation-tasks"]).optional(),
+	lane: z
+		.enum(["task", "gate", "ship", "graph", "annotation", "annotation-tasks"])
+		.optional(),
 	parentRunId: idSchema.optional(),
 	title: z.string(),
 	body: z.string(),
@@ -129,8 +171,9 @@ export const graphTaskIdentityInputSchema = z.object({
 	taskId: idSchema,
 });
 export const graphArchiveTaskInputSchema = graphTaskIdentityInputSchema.extend({
-	cleanup: z.boolean().optional(),
-	status: z.enum(["draft", "queued", "running", "need_review", "done", "failed"]).optional(),
+	status: z
+		.enum(["draft", "queued", "running", "need_review", "done", "failed"])
+		.optional(),
 });
 export const graphStartRunInputSchema = z.object({
 	projectId: idSchema,
@@ -146,9 +189,10 @@ export const graphRunIdentityInputSchema = z.object({
 	taskId: idSchema,
 	runId: idSchema,
 });
-export const graphSendRunMessageInputSchema = graphRunIdentityInputSchema.extend({
-	message: z.string().min(1),
-});
+export const graphSendRunMessageInputSchema =
+	graphRunIdentityInputSchema.extend({
+		message: z.string().min(1),
+	});
 export const graphRetryRunInputSchema = graphRunIdentityInputSchema.extend({
 	message: z.string().optional(),
 });
@@ -171,17 +215,23 @@ export const graphOpenAnnotationsInputSchema = z.object({
 	projectId: idSchema,
 	worktreeId: idSchema.optional(),
 });
-export const graphOpenAnnotationTasksInputSchema = z.object({ projectId: idSchema });
+export const graphOpenAnnotationTasksInputSchema = z.object({
+	projectId: idSchema,
+});
 export const graphSaveAnnotationTaskSuggestionsInputSchema = z.object({
 	projectId: idSchema,
-	suggestions: z.array(z.object({
-		title: z.string().min(1),
-		body: z.string().default(""),
-		targetKind: z.enum(["task", "run"]).optional(),
-		annotationIds: z.array(idSchema).optional(),
-		worktreeId: idSchema.optional(),
-		taskId: idSchema.optional(),
-	})).min(1),
+	suggestions: z
+		.array(
+			z.object({
+				title: z.string().min(1),
+				body: z.string().default(""),
+				targetKind: z.enum(["task", "run"]).optional(),
+				annotationIds: z.array(idSchema).optional(),
+				worktreeId: idSchema.optional(),
+				taskId: idSchema.optional(),
+			}),
+		)
+		.min(1),
 });
 
 export const graphCommandSchemas = {

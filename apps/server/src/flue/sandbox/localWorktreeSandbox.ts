@@ -1,5 +1,11 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
+import {
+	accessSync,
+	constants,
+	existsSync,
+	readdirSync,
+	statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, posix, resolve } from "node:path";
 import type { BashFactory } from "@flue/sdk/client";
@@ -150,6 +156,8 @@ type WorkspaceSandboxOptions = {
 	workspaceRoot: string;
 	cwd: string;
 	globalSkillsDir?: string;
+	blockedGlobalSkillDirs?: string[];
+	blockedWorkspaceSkillDirs?: string[];
 };
 
 type RoutedFs = {
@@ -157,8 +165,17 @@ type RoutedFs = {
 	path: string;
 };
 
+type SkillPath = {
+	workspacePath: string;
+	globalPath: string;
+	skillDir?: string;
+	root: boolean;
+};
+
 function defaultGlobalSkillsDir() {
-	return process.env.AWARE_GLOBAL_SKILLS_DIR ?? join(homedir(), ".agents", "skills");
+	return (
+		process.env.AWARE_GLOBAL_SKILLS_DIR ?? join(homedir(), ".agents", "skills")
+	);
 }
 
 function existingDirectory(path: string) {
@@ -172,12 +189,20 @@ function existingDirectory(path: string) {
 class WorkspaceSkillsFs implements IFileSystem {
 	private readonly workspaceFs: IFileSystem;
 	private readonly skillsFs?: IFileSystem;
+	private readonly blockedGlobalSkillDirs: Set<string>;
+	private readonly blockedWorkspaceSkillDirs: Set<string>;
 
 	constructor(options: {
 		workspaceRoot: string;
 		globalSkillsDir?: string | undefined;
+		blockedGlobalSkillDirs?: string[] | undefined;
+		blockedWorkspaceSkillDirs?: string[] | undefined;
 	}) {
 		this.workspaceFs = new ReadWriteFs({ root: options.workspaceRoot });
+		this.blockedGlobalSkillDirs = new Set(options.blockedGlobalSkillDirs ?? []);
+		this.blockedWorkspaceSkillDirs = new Set(
+			options.blockedWorkspaceSkillDirs ?? [],
+		);
 		const skillsDir = options.globalSkillsDir ?? defaultGlobalSkillsDir();
 		if (existingDirectory(skillsDir)) {
 			this.skillsFs = new OverlayFs({
@@ -188,73 +213,185 @@ class WorkspaceSkillsFs implements IFileSystem {
 		}
 	}
 
-	private route(path: string): RoutedFs {
-		if (this.skillsFs) {
-			const normalized = posix.normalize(path.startsWith("/") ? path : `/${path}`);
-			const marker = "/.agents/skills";
-			const markerIndex = normalized.indexOf(marker);
-			if (markerIndex >= 0) {
-				const rest = normalized.slice(markerIndex + marker.length);
-				if (!rest || rest.startsWith("/"))
-					return { fs: this.skillsFs, path: rest || "/" };
-			}
+	private skillPath(path: string): SkillPath | undefined {
+		const normalized = posix.normalize(
+			path.startsWith("/") ? path : `/${path}`,
+		);
+		const marker = "/.agents/skills";
+		const markerIndex = normalized.indexOf(marker);
+		if (markerIndex < 0) return undefined;
+		const rest = normalized.slice(markerIndex + marker.length);
+		if (rest && !rest.startsWith("/")) return undefined;
+		const skillDir = rest.split("/").filter(Boolean)[0];
+		return {
+			workspacePath: path,
+			globalPath: rest || "/",
+			...(skillDir ? { skillDir } : {}),
+			root: !skillDir,
+		};
+	}
+
+	private isBlocked(skillPath: SkillPath, scope: "global" | "workspace") {
+		if (!skillPath.skillDir) return false;
+		const blocked =
+			scope === "global"
+				? this.blockedGlobalSkillDirs
+				: this.blockedWorkspaceSkillDirs;
+		return blocked.has(skillPath.skillDir);
+	}
+
+	private async workspaceExists(path: string) {
+		try {
+			return await this.workspaceFs.exists(path);
+		} catch {
+			return false;
+		}
+	}
+
+	private async globalExists(path: string) {
+		try {
+			return this.skillsFs ? await this.skillsFs.exists(path) : false;
+		} catch {
+			return false;
+		}
+	}
+
+	private async readRoute(path: string): Promise<RoutedFs> {
+		const skillPath = this.skillPath(path);
+		if (skillPath) {
+			if (
+				!this.isBlocked(skillPath, "workspace") &&
+				(await this.workspaceExists(skillPath.workspacePath))
+			)
+				return { fs: this.workspaceFs, path: skillPath.workspacePath };
+			if (
+				this.skillsFs &&
+				!this.isBlocked(skillPath, "global") &&
+				(await this.globalExists(skillPath.globalPath))
+			)
+				return { fs: this.skillsFs, path: skillPath.globalPath };
 		}
 		return { fs: this.workspaceFs, path };
 	}
 
-	readFile: IFileSystem["readFile"] = (path, options) => {
-		const routed = this.route(path);
+	private async writeRoute(path: string): Promise<RoutedFs> {
+		const skillPath = this.skillPath(path);
+		if (
+			skillPath &&
+			this.skillsFs &&
+			!this.isBlocked(skillPath, "global") &&
+			(await this.globalExists(skillPath.globalPath)) &&
+			!(await this.workspaceExists(skillPath.workspacePath))
+		)
+			return { fs: this.skillsFs, path: skillPath.globalPath };
+		return { fs: this.workspaceFs, path };
+	}
+
+	readFile: IFileSystem["readFile"] = async (path, options) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.readFile(routed.path, options);
 	};
-	readFileBuffer: IFileSystem["readFileBuffer"] = (path) => {
-		const routed = this.route(path);
+	readFileBuffer: IFileSystem["readFileBuffer"] = async (path) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.readFileBuffer(routed.path);
 	};
-	writeFile: IFileSystem["writeFile"] = (path, content, options) => {
-		const routed = this.route(path);
+	writeFile: IFileSystem["writeFile"] = async (path, content, options) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.writeFile(routed.path, content, options);
 	};
-	appendFile: IFileSystem["appendFile"] = (path, content, options) => {
-		const routed = this.route(path);
+	appendFile: IFileSystem["appendFile"] = async (path, content, options) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.appendFile(routed.path, content, options);
 	};
-	exists: IFileSystem["exists"] = (path) => {
-		const routed = this.route(path);
-		return routed.fs.exists(routed.path);
+	exists: IFileSystem["exists"] = async (path) => {
+		const skillPath = this.skillPath(path);
+		if (!skillPath) return this.workspaceFs.exists(path);
+		return (
+			(!this.isBlocked(skillPath, "workspace") &&
+				(await this.workspaceExists(skillPath.workspacePath))) ||
+			(!this.isBlocked(skillPath, "global") &&
+				(await this.globalExists(skillPath.globalPath)))
+		);
 	};
-	stat: IFileSystem["stat"] = (path) => {
-		const routed = this.route(path);
+	stat: IFileSystem["stat"] = async (path) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.stat(routed.path);
 	};
-	lstat: IFileSystem["lstat"] = (path) => {
-		const routed = this.route(path);
+	lstat: IFileSystem["lstat"] = async (path) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.lstat(routed.path);
 	};
-	mkdir: IFileSystem["mkdir"] = (path, options) => {
-		const routed = this.route(path);
+	mkdir: IFileSystem["mkdir"] = async (path, options) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.mkdir(routed.path, options);
 	};
-	readdir: IFileSystem["readdir"] = (path) => {
-		const routed = this.route(path);
-		return routed.fs.readdir(routed.path);
+	readdir: IFileSystem["readdir"] = async (path) => {
+		const skillPath = this.skillPath(path);
+		if (!skillPath?.root) {
+			const routed = await this.readRoute(path);
+			return routed.fs.readdir(routed.path);
+		}
+		const workspaceEntries = await this.workspaceFs
+			.readdir(skillPath.workspacePath)
+			.catch(() => []);
+		const globalEntries = this.skillsFs
+			? await this.skillsFs.readdir(skillPath.globalPath).catch(() => [])
+			: [];
+		return Array.from(
+			new Set([
+				...workspaceEntries.filter(
+					(entry) => !this.blockedWorkspaceSkillDirs.has(entry),
+				),
+				...globalEntries.filter(
+					(entry) => !this.blockedGlobalSkillDirs.has(entry),
+				),
+			]),
+		).sort();
 	};
 	readdirWithFileTypes(path: string) {
-		const routed = this.route(path);
-		return routed.fs.readdirWithFileTypes?.(routed.path) ?? Promise.resolve([]);
+		const skillPath = this.skillPath(path);
+		if (!skillPath?.root)
+			return this.readRoute(path).then(
+				(routed) => routed.fs.readdirWithFileTypes?.(routed.path) ?? [],
+			);
+		return Promise.all([
+			this.workspaceFs
+				.readdirWithFileTypes?.(skillPath.workspacePath)
+				?.catch(() => []) ?? Promise.resolve([]),
+			this.skillsFs
+				?.readdirWithFileTypes?.(skillPath.globalPath)
+				?.catch(() => []) ?? Promise.resolve([]),
+		]).then(([workspaceEntries, globalEntries]) => {
+			const byName = new Map<string, (typeof workspaceEntries)[number]>();
+			for (const entry of workspaceEntries) {
+				if (!this.blockedWorkspaceSkillDirs.has(entry.name))
+					byName.set(entry.name, entry);
+			}
+			for (const entry of globalEntries) {
+				if (
+					!this.blockedGlobalSkillDirs.has(entry.name) &&
+					!byName.has(entry.name)
+				)
+					byName.set(entry.name, entry as (typeof workspaceEntries)[number]);
+			}
+			return Array.from(byName.values()).sort((left, right) =>
+				left.name.localeCompare(right.name),
+			);
+		});
 	}
-	rm: IFileSystem["rm"] = (path, options) => {
-		const routed = this.route(path);
+	rm: IFileSystem["rm"] = async (path, options) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.rm(routed.path, options);
 	};
-	cp: IFileSystem["cp"] = (src, dest, options) => {
-		const from = this.route(src);
-		const to = this.route(dest);
+	cp: IFileSystem["cp"] = async (src, dest, options) => {
+		const from = await this.writeRoute(src);
+		const to = await this.writeRoute(dest);
 		if (from.fs === to.fs) return from.fs.cp(from.path, to.path, options);
 		throw new Error("Cross-filesystem copy is not supported for global skills");
 	};
-	mv: IFileSystem["mv"] = (src, dest) => {
-		const from = this.route(src);
-		const to = this.route(dest);
+	mv: IFileSystem["mv"] = async (src, dest) => {
+		const from = await this.writeRoute(src);
+		const to = await this.writeRoute(dest);
 		if (from.fs === to.fs) return from.fs.mv(from.path, to.path);
 		throw new Error("Cross-filesystem move is not supported for global skills");
 	};
@@ -263,30 +400,30 @@ class WorkspaceSkillsFs implements IFileSystem {
 	getAllPaths: IFileSystem["getAllPaths"] = () => [
 		...this.workspaceFs.getAllPaths(),
 	];
-	chmod: IFileSystem["chmod"] = (path, mode) => {
-		const routed = this.route(path);
+	chmod: IFileSystem["chmod"] = async (path, mode) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.chmod(routed.path, mode);
 	};
-	symlink: IFileSystem["symlink"] = (target, linkPath) => {
-		const routed = this.route(linkPath);
+	symlink: IFileSystem["symlink"] = async (target, linkPath) => {
+		const routed = await this.writeRoute(linkPath);
 		return routed.fs.symlink(target, routed.path);
 	};
-	link: IFileSystem["link"] = (existingPath, newPath) => {
-		const from = this.route(existingPath);
-		const to = this.route(newPath);
+	link: IFileSystem["link"] = async (existingPath, newPath) => {
+		const from = await this.writeRoute(existingPath);
+		const to = await this.writeRoute(newPath);
 		if (from.fs === to.fs) return from.fs.link(from.path, to.path);
 		throw new Error("Cross-filesystem link is not supported for global skills");
 	};
-	readlink: IFileSystem["readlink"] = (path) => {
-		const routed = this.route(path);
+	readlink: IFileSystem["readlink"] = async (path) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.readlink(routed.path);
 	};
-	realpath: IFileSystem["realpath"] = (path) => {
-		const routed = this.route(path);
+	realpath: IFileSystem["realpath"] = async (path) => {
+		const routed = await this.readRoute(path);
 		return routed.fs.realpath(routed.path);
 	};
-	utimes: IFileSystem["utimes"] = (path, atime, mtime) => {
-		const routed = this.route(path);
+	utimes: IFileSystem["utimes"] = async (path, atime, mtime) => {
+		const routed = await this.writeRoute(path);
 		return routed.fs.utimes(routed.path, atime, mtime);
 	};
 }
@@ -353,6 +490,8 @@ export async function createLocalWorktreeSandbox({
 	workspaceRoot,
 	cwd,
 	globalSkillsDir,
+	blockedGlobalSkillDirs,
+	blockedWorkspaceSkillDirs,
 }: WorkspaceSandboxOptions): Promise<BashFactory> {
 	const root = resolve(workspaceRoot);
 	const hostCwd = await assertHostWorkspacePath(cwd, root);
@@ -360,7 +499,12 @@ export async function createLocalWorktreeSandbox({
 	const fs = new MountableFs({ base: new InMemoryFs() });
 	fs.mount(
 		SANDBOX_WORKSPACE_ROOT,
-		new WorkspaceSkillsFs({ workspaceRoot: root, globalSkillsDir }),
+		new WorkspaceSkillsFs({
+			workspaceRoot: root,
+			globalSkillsDir,
+			blockedGlobalSkillDirs,
+			blockedWorkspaceSkillDirs,
+		}),
 	);
 	const customCommands = hostCommands(root);
 	return () =>
