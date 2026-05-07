@@ -162,7 +162,7 @@ runs.post("/:id/thought-graph", async (c) => {
 runs.get("/:id/thought-graph/stream", async (c) => {
 	const id = c.req.param("id");
 	const encoder = new TextEncoder();
-	const steps = ["collecting events", "segmenting turns", "extracting decisions", "building graph", "saved"];
+	const steps = ["starting ThoughtAgent", "reading run inputs", "synthesizing insights", "saving graph", "saved"];
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			try {

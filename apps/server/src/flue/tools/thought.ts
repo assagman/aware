@@ -2,7 +2,7 @@ import { Type, type ToolDef } from "@flue/sdk/client";
 import { thoughtGraphSchema } from "@aware/shared";
 import { db } from "../../db/client";
 import {
-	currentThoughtGraphSource,
+	currentThoughtGraphAnalyzerInput,
 	saveThoughtGraphArtifact,
 } from "../../services/thoughtGraphService";
 
@@ -35,21 +35,20 @@ export function createThoughtTools(context: ThoughtToolContext): ToolDef[] {
 	return [
 		{
 			name: "thought_fetch_run_events",
-			description: "Read sanitized events for the current run only. Excludes Thought Graph artifact self-events from graph source.",
+			description: "Read all run-local source events and non-ThoughtGraph artifacts for the current run. Includes tool calls/results, thinking deltas, messages, turn markers, and session reports so the LLM can interpret context; graph output must still be distilled.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
-				const source = await currentThoughtGraphSource(runId);
-				return stringifyResult(source);
+				return stringifyResult(await currentThoughtGraphAnalyzerInput(runId));
 			},
 		},
 		{
 			name: "thought_fetch_artifacts",
-			description: "Read artifacts for the current run only. Use as evidence; do not mutate or export unrelated runs.",
+			description: "Read all non-ThoughtGraph artifacts for the current run, including session reports. Use as private context, not as raw graph output.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
-				const artifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId);
+				const artifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId && artifact.kind !== "thought_graph");
 				return stringifyResult({ artifacts });
 			},
 		},

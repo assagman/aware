@@ -9,7 +9,7 @@ describe("thought graph schema", () => {
 			sourceEventSeqRange: [1, 3],
 			sourceEventHash: "sha256:test",
 			summary: "Decision followed evidence.",
-			nodes: [{ id: "n1", kind: "decision", label: "Chose path", detail: "Use deterministic graph.", phase: "Decisions", sourceEventIds: [] }],
+			nodes: [{ id: "n1", kind: "decision", label: "Chose path", detail: "Use distilled LLM graph.", phase: "Decisions", sourceEventIds: [] }],
 			edges: [],
 			timeline: [],
 			insights: [{ kind: "summary", text: "Useful handoff.", nodeIds: ["n1"] }],

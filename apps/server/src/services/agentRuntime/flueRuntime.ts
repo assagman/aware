@@ -186,6 +186,9 @@ export type StartRunInput = {
 	parentRunId?: string;
 	affectsTaskStatus?: boolean;
 	completedStatus?: RunStatus;
+	thoughtTargetRunId?: string;
+	waitForCompletion?: boolean;
+	suppressUpstreamArtifacts?: boolean;
 };
 
 export type StartChatInput = {
@@ -333,7 +336,9 @@ export class FlueRuntime {
 		};
 		await db.insert("runs", run);
 		const annotations = await listAnnotations({ taskId: input.task.id });
-		const upstreamArtifacts = await buildUpstreamArtifactContext(run);
+		const upstreamArtifacts = input.suppressUpstreamArtifacts
+			? "(none)"
+			: await buildUpstreamArtifactContext(run);
 		const prompt = buildPrompt({
 			task: input.task,
 			agents: input.agents,
@@ -347,11 +352,13 @@ export class FlueRuntime {
 				status: "running",
 				updatedAt: now(),
 			});
-		void this.executeRun(run, {
+		const execution = this.executeRun(run, {
 			...input,
 			prompt,
 			annotationIds: annotations.map((annotation) => annotation.id),
 		});
+		if (input.waitForCompletion) await execution;
+		else void execution;
 		return run;
 	}
 
@@ -477,6 +484,7 @@ export class FlueRuntime {
 		normalizeToolPath();
 		const agent = input.agents[0];
 		if (!agent) throw new Error("Create at least one agent profile first.");
+		const isThoughtAgent = agent.roleName === "thought-agent";
 		const provider = providerFromModel(agent.model);
 		const globalInstructions = await readGlobalAgentInstructions();
 		const runtimeApiKey = await getProviderRuntimeApiKey(provider);
@@ -590,7 +598,7 @@ export class FlueRuntime {
 		ctx.setEventCallback((event) => {
 			onRuntimeActivity();
 			void this.log(run.id, event.type, event);
-			if (event.type === "turn_end") {
+			if (event.type === "turn_end" && !isThoughtAgent) {
 				const turnSeq = currentTurnSeq;
 				currentTurnSeq += 1;
 				queueTurnEndReport(turnSeq);
@@ -601,7 +609,6 @@ export class FlueRuntime {
 			: process.env.ZAI_API_KEY
 				? "zai/glm-5.1"
 				: agent.model;
-		const isThoughtAgent = agent.roleName === "thought-agent";
 		const flueAgent = await ctx.init({
 			sandbox,
 			model,
@@ -609,7 +616,7 @@ export class FlueRuntime {
 			role: profileRole,
 			tools: resolveAgentTools(agent.tools, {
 				...(isThoughtAgent
-					? { thought: { runId: run.id } }
+					? { thought: { runId: input.thoughtTargetRunId ?? run.id } }
 					: {
 						artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
 						skills: {

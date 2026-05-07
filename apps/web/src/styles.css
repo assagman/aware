@@ -2690,7 +2690,7 @@ pre {
 }
 
 .home-flow-node {
-	width: 240px;
+	width: 220px;
 	padding: 0;
 	border: 0 !important;
 	background: transparent !important;
@@ -5025,9 +5025,20 @@ pre {
 	color: #e2e8f0;
 }
 
-.thought-flow-node.selected {
-	border-color: rgb(45 212 191 / 85%);
-	box-shadow: 0 0 0 2px rgb(45 212 191 / 18%), 0 16px 40px rgb(0 0 0 / 28%);
+.thought-flow-node.selected,
+.thought-flow-node-focused {
+	border-color: rgb(45 212 191 / 88%);
+	box-shadow: 0 0 0 2px rgb(45 212 191 / 22%), 0 18px 46px rgb(0 0 0 / 34%);
+}
+
+.thought-flow-node-connected {
+	border-color: rgb(96 165 250 / 82%);
+	box-shadow: 0 0 0 2px rgb(96 165 250 / 16%), 0 16px 40px rgb(0 0 0 / 30%);
+}
+
+.thought-flow-node-dimmed {
+	opacity: 0.28;
+	filter: grayscale(0.35);
 }
 
 .thought-flow-node strong,
@@ -5070,6 +5081,15 @@ pre {
 .thought-edge-changed_mind path { stroke: #c084fc; }
 .thought-edge-supported_by path { stroke: #60a5fa; }
 .thought-edge-left_open path { stroke: #fb7185; }
+.thought-edge-focused path,
+.thought-edge-connected path {
+	stroke-width: 3;
+	filter: drop-shadow(0 0 6px rgb(45 212 191 / 50%));
+}
+.thought-edge-dimmed path,
+.thought-edge-dimmed .react-flow__edge-text {
+	opacity: 0.18;
+}
 
 .thought-page-inspector {
 	min-height: 0;
