@@ -226,9 +226,8 @@ export class FlueRuntime {
 			annotations: input.annotations,
 			message: input.message,
 		});
-		await this.log(run.id, "user_message", { text: input.message });
+		await this.log(run.id, "user_message", { text: prompt });
 		await this.log(run.id, "annotations", { annotations: input.annotations });
-		await this.log(run.id, "prompt", { text: prompt });
 		void this.executeRun(run, {
 			task,
 			worktreeId: input.worktreeId,
@@ -313,9 +312,7 @@ export class FlueRuntime {
 			upstreamArtifacts,
 			...(input.message ? { message: input.message } : {}),
 		});
-		if (input.message)
-			await this.log(run.id, "user_message", { text: input.message });
-		await this.log(run.id, "prompt", { text: prompt });
+		await this.log(run.id, "user_message", { text: prompt });
 		if (input.affectsTaskStatus !== false)
 			await db.update("tasks", input.task.id, {
 				status: "running",
@@ -378,11 +375,11 @@ export class FlueRuntime {
 			: run.lane === "graph"
 				? await listGraphAgentsForRun()
 				: await listMainAgentsForRun();
-		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		const upstreamArtifacts = await buildUpstreamArtifactContext(run);
 		const promptMessage = upstreamArtifacts === "(none)"
 			? message
 			: `${message}\n\nUpstream Artifactory:\n${upstreamArtifacts}`;
+		this.log(run.id, "user_message", { text: promptMessage }, { immediate: true });
 		try {
 			if (affectsTaskStatus)
 				await db.update("tasks", task?.id ?? run.taskId, {

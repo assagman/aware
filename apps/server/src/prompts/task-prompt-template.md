@@ -1,19 +1,37 @@
-Task: {{taskTitle}}
+# User message
+
+## Task
+
+- **Project id:** {{projectId}}
+- **Task id:** {{taskId}}
+- **Task title:** {{taskTitle}}
+
+### Task brief
+
 {{taskBody}}
 
-User message:
+## User request
+
 {{userMessage}}
 
-Selected agent:
+## Runtime context
+
+### Selected agent
+
 {{selectedAgent}}
 
-Available agents (delegate with task tool; use exact role value):
+### Available agents
+
+Delegate with the `task` tool using the exact role value.
+
 {{agents}}
 
-Selected annotations:
+### Selected annotations
+
 {{annotations}}
 
-Upstream Artifactory:
+### Upstream Artifactory
+
 {{upstreamArtifacts}}
 
 {{instructions}}

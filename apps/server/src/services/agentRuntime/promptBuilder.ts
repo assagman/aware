@@ -60,12 +60,20 @@ export function buildPrompt(input: {
 	const isAnnotationSent = input.task.title === "annotation-sent" || input.task.source === "annotation-run";
 	const instructions = runInstructionsPrompt.split("\n");
 	if (isAnnotationSent) {
+		const annotations = serializeAnnotations(input.annotations);
+		const body = input.message?.trim()
+			? annotations && !input.message.includes(annotations)
+				? `${input.message.trim()}\n\n## Selected annotations\n\n${annotations}`
+				: input.message.trim()
+			: annotations || input.task.body;
 		return renderPromptTemplate(annotationSentPromptTemplate, {
-			body: serializeAnnotations(input.annotations) || input.message || input.task.body,
+			body,
 			instructions: instructions.join("\n"),
 		});
 	}
 	return renderPromptTemplate(taskPromptTemplate, {
+		projectId: input.task.projectId,
+		taskId: input.task.id,
 		taskTitle: input.task.title,
 		taskBody: input.task.body,
 		userMessage: input.message || input.task.body,
