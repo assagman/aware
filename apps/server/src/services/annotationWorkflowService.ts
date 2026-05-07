@@ -95,6 +95,7 @@ export async function startAnnotationRun(input: {
 		annotations,
 		annotationIds: annotations.map((annotation) => annotation.id),
 		taskTitle: annotations.length === 1 ? `Annotation: ${annotationLocation(annotations[0]!)}` : `Annotations: ${annotations.length}`,
+		taskSource: "annotation-run",
 	});
 	await markAnnotationsProcessing(annotations.map((annotation) => annotation.id), run.id);
 	return run;
