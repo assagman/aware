@@ -7,6 +7,7 @@ import type {
 	Project,
 	RunEvent,
 	RunLane,
+	ThoughtGraph,
 	RunRelation,
 	Task,
 	TaskStatus,
@@ -62,6 +63,7 @@ import { BusyIndicator } from "../components/BusyIndicator";
 import { FileTreeView } from "../components/FileTreeView";
 import { AddProjectButton, fuzzyScore } from "../components/ProjectPicker";
 import { SimpleFileDiff as FileDiff } from "../components/SimpleFileDiff";
+import { ThoughtGraphPanel, type ThoughtGraphPanelState } from "../components/ThoughtGraphPanel";
 import { WorktreePicker } from "../components/WorktreePicker";
 
 type Payload = Record<string, unknown>;
@@ -3848,6 +3850,9 @@ export function GraphRunChat({
 	);
 	const [sending, setSending] = useState(false);
 	const [working, setWorking] = useState(false);
+	const [thoughtGraphOpen, setThoughtGraphOpen] = useState(false);
+	const [thoughtGraphState, setThoughtGraphState] = useState<ThoughtGraphPanelState>({ status: "idle" });
+	const [thoughtGraphLoading, setThoughtGraphLoading] = useState(false);
 	const bottomRef = useRef<HTMLDivElement | null>(null);
 	const load = useCallback(async () => {
 		const runPath =
@@ -3990,6 +3995,25 @@ export function GraphRunChat({
 			setWorking(false);
 		}
 	}
+	async function openThoughtGraph() {
+		if (!runId || thoughtGraphLoading) return;
+		setThoughtGraphOpen(true);
+		setThoughtGraphLoading(true);
+		setThoughtGraphState({ status: "loading" });
+		try {
+			let graph: ThoughtGraph;
+			try {
+				graph = await apiGet<ThoughtGraph>(`/runs/${encodeURIComponent(runId)}/thought-graph`);
+			} catch {
+				graph = await apiPost<ThoughtGraph>(`/runs/${encodeURIComponent(runId)}/thought-graph`, {});
+			}
+			setThoughtGraphState({ status: "ready", graph });
+		} catch (error) {
+			setThoughtGraphState({ status: "error", error: error instanceof Error ? error.message : String(error) });
+		} finally {
+			setThoughtGraphLoading(false);
+		}
+	}
 	const runStatus = run?.status;
 	const instructionLine = run
 		? firstInstructionLine(run.request)
@@ -4024,8 +4048,18 @@ export function GraphRunChat({
 					>
 						Mark run done
 					</button>
+					<button
+						type="button"
+						disabled={!run || thoughtGraphLoading}
+						onClick={() => void openThoughtGraph()}
+					>
+						{thoughtGraphLoading ? "Analyzing…" : "Thought Graph"}
+					</button>
 				</div>
 			</header>
+			{thoughtGraphOpen ? (
+				<ThoughtGraphPanel state={thoughtGraphState} onClose={() => setThoughtGraphOpen(false)} />
+			) : null}
 			<div className="home-run-chat-scroll">
 				<ChatTimeline events={events} />
 				<div ref={bottomRef} />

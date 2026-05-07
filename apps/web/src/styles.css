@@ -4869,3 +4869,158 @@ pre {
 .annotation-select-label input {
 	margin-top: 8px;
 }
+
+.thought-graph-panel {
+	border-bottom: 1px solid rgb(53 231 210 / 18%);
+	background: linear-gradient(180deg, rgb(8 13 18 / 96%), rgb(13 18 27 / 96%));
+	padding: 14px;
+	max-height: 46vh;
+	overflow: auto;
+}
+
+.thought-graph-header,
+.thought-graph-metrics,
+.thought-node-topline,
+.thought-graph-footnotes {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.thought-graph-header {
+	justify-content: space-between;
+	margin-bottom: 10px;
+}
+
+.thought-graph-header h3,
+.thought-graph-header small,
+.thought-graph-summary p,
+.thought-graph-footnotes h4,
+.thought-graph-footnotes p {
+	margin: 0;
+}
+
+.thought-graph-header small,
+.thought-node-topline,
+.thought-lane-empty,
+.thought-graph-state,
+.thought-graph-metrics {
+	color: #94a3b8;
+}
+
+.thought-graph-summary {
+	border: 1px solid rgb(148 163 184 / 18%);
+	border-radius: 14px;
+	padding: 10px;
+	background: rgb(15 23 42 / 72%);
+	margin-bottom: 12px;
+}
+
+.thought-graph-metrics {
+	margin-top: 8px;
+	font-size: 12px;
+	flex-wrap: wrap;
+}
+
+.thought-graph-metrics span,
+.thought-node-topline em {
+	border: 1px solid rgb(148 163 184 / 20%);
+	border-radius: 999px;
+	padding: 2px 8px;
+	background: rgb(2 6 23 / 46%);
+}
+
+.thought-graph-lanes {
+	display: grid;
+	grid-template-columns: repeat(9, minmax(180px, 1fr));
+	gap: 10px;
+	align-items: start;
+	overflow-x: auto;
+	padding-bottom: 8px;
+}
+
+.thought-graph-lane {
+	min-width: 180px;
+	border: 1px solid rgb(148 163 184 / 14%);
+	border-radius: 14px;
+	padding: 8px;
+	background: rgb(2 6 23 / 35%);
+}
+
+.thought-graph-lane h4 {
+	margin: 0 0 8px;
+	font-size: 12px;
+	color: #cbd5e1;
+}
+
+.thought-node {
+	position: relative;
+	border: 1px solid rgb(148 163 184 / 22%);
+	border-radius: 12px;
+	padding: 9px;
+	margin-bottom: 8px;
+	background: rgb(15 23 42 / 82%);
+	box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+}
+
+.thought-node strong,
+.thought-node p,
+.thought-node small {
+	display: block;
+	margin: 4px 0 0;
+}
+
+.thought-node p {
+	color: #dbeafe;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.thought-node small {
+	color: #64748b;
+}
+
+.thought-node-decision {
+	border-color: rgb(45 212 191 / 55%);
+	box-shadow: 0 0 0 1px rgb(45 212 191 / 14%);
+}
+
+.thought-node-pivot {
+	border-color: rgb(192 132 252 / 70%);
+	box-shadow: 0 0 22px rgb(251 146 60 / 16%);
+}
+
+.thought-node-risk {
+	border-color: rgb(251 113 133 / 65%);
+}
+
+.thought-node-evidence,
+.thought-node-action {
+	border-color: rgb(96 165 250 / 58%);
+}
+
+.thought-node-assumption {
+	border-style: dashed;
+}
+
+.thought-graph-footnotes {
+	align-items: stretch;
+	margin-top: 12px;
+}
+
+.thought-graph-footnotes > div {
+	flex: 1;
+	border: 1px solid rgb(148 163 184 / 16%);
+	border-radius: 12px;
+	padding: 10px;
+	background: rgb(15 23 42 / 58%);
+}
+
+.thought-graph-footnotes ul {
+	margin: 8px 0 0;
+	padding-left: 18px;
+}
+
+.thought-graph-error {
+	color: #fecaca;
+}
