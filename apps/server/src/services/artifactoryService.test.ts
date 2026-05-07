@@ -123,15 +123,29 @@ describe("artifactory service", () => {
 		rows.runs = [current];
 		rows.runEvents = [
 			{ id: "event-1", runId: current.id, seq: 1, type: "user_message", payload: { text: "do work" }, createdAt: "2026-01-01T00:00:01.000Z" },
-			{ id: "event-2", runId: current.id, seq: 2, type: "tool_start", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:02.000Z" },
-			{ id: "event-3", runId: current.id, seq: 3, type: "tool_end", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:03.000Z" },
+			{ id: "event-2", runId: current.id, seq: 2, type: "thinking_delta_batch", payload: { text: "Evaluated options. Decision: keep concise fallback summary." }, createdAt: "2026-01-01T00:00:02.000Z" },
+			{ id: "event-3", runId: current.id, seq: 3, type: "tool_start", payload: { toolName: "read", path: "src/a.ts" }, createdAt: "2026-01-01T00:00:03.000Z" },
+			{ id: "event-4", runId: current.id, seq: 4, type: "tool_start", payload: { toolName: "edit", path: "src/a.ts" }, createdAt: "2026-01-01T00:00:04.000Z" },
+			{ id: "event-5", runId: current.id, seq: 5, type: "tool_start", payload: { toolName: "write", path: "src/b.ts" }, createdAt: "2026-01-01T00:00:05.000Z" },
+			{ id: "event-6", runId: current.id, seq: 6, type: "tool_start", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:06.000Z" },
+			{ id: "event-7", runId: current.id, seq: 7, type: "tool_end", payload: { toolName: "bash" }, createdAt: "2026-01-01T00:00:07.000Z" },
+			{ id: "event-8", runId: current.id, seq: 8, type: "message_delta_batch", payload: { text: "Done. Summary." }, createdAt: "2026-01-01T00:00:08.000Z" },
 		];
 
 		const saved = await ensureSessionReportForTurn({ run: current, task, turnSeq: 1 });
 
 		expect(saved.title).toBe("Turn 1 auto report");
 		expect(saved.body).toContain("fallback session report");
+		expect(saved.body).toContain("## Conversation summary");
 		expect(saved.body).toContain("do work");
+		expect(saved.body).toContain("Done. Summary.");
+		expect(saved.body).toContain("## Thinking / evaluations / decisions");
+		expect(saved.body).toContain("Decision: keep concise fallback summary");
+		expect(saved.body).toContain("## Files read/edited/written");
+		expect(saved.body).toContain("- Read: src/a.ts");
+		expect(saved.body).toContain("- Edit: src/a.ts");
+		expect(saved.body).toContain("- Write: src/b.ts");
+		expect(saved.body).not.toContain("Recent activity");
 		expect(saved.body).not.toContain("tool start");
 		expect(saved.body).not.toContain("tool end");
 		expect(saved.body).not.toContain("bash");
