@@ -369,6 +369,8 @@ function toolArgsSummary(name: string, args: unknown) {
 
 function toolColorClass(name: string) {
 	const normalized = name.toLowerCase();
+	if (normalized === "load_skill" || normalized.includes("load_skill"))
+		return "tool-load-skill";
 	if (normalized.includes("read")) return "tool-read";
 	if (normalized.includes("bash") || normalized.includes("shell"))
 		return "tool-bash";

@@ -4375,6 +4375,129 @@ pre {
 	color: #160f03;
 }
 
+.home-app-shell .tool-load-skill:not(.tool-failed) {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	border-color: transparent;
+	background:
+		radial-gradient(circle at 16% 18%, rgb(167 139 250 / 24%), transparent 34%),
+		radial-gradient(circle at 88% 8%, rgb(45 212 191 / 18%), transparent 30%),
+		linear-gradient(145deg, rgb(18 11 42 / 96%), rgb(4 18 27 / 98%));
+	box-shadow:
+		0 0 0 1px rgb(167 139 250 / 18%),
+		0 20px 56px rgb(7 11 28 / 42%),
+		0 0 34px rgb(45 212 191 / 15%);
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::before,
+.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+	position: absolute;
+	content: "";
+	pointer-events: none;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::before {
+	inset: 0;
+	z-index: -1;
+	padding: 1px;
+	border-radius: inherit;
+	background: conic-gradient(
+		from var(--load-skill-angle, 0deg),
+		#8b5cf6,
+		#22d3ee,
+		#2dd4bf,
+		#f0abfc,
+		#8b5cf6
+	);
+	z-index: 0;
+	mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	mask-composite: exclude;
+	-webkit-mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	animation: load-skill-glow-spin 7s linear infinite;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+	inset: -38% -8% auto;
+	height: 90px;
+	z-index: 0;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		rgb(34 211 238 / 18%),
+		rgb(240 171 252 / 20%),
+		transparent
+	);
+	filter: blur(16px);
+	transform: translateX(-40%);
+	animation: load-skill-glow-sweep 4.8s ease-in-out infinite;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) > * {
+	position: relative;
+	z-index: 1;
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) summary strong,
+.home-app-shell .tool-load-skill:not(.tool-failed) summary em {
+	color: #d8b4fe;
+	text-shadow: 0 0 16px rgb(168 85 247 / 46%);
+}
+
+.home-app-shell .tool-load-skill:not(.tool-failed) summary .tool-summary-code,
+.home-app-shell .tool-load-skill:not(.tool-failed) .tool-chip {
+	border-color: rgb(125 211 252 / 22%);
+	background: rgb(12 21 48 / 56%);
+	box-shadow: inset 0 0 18px rgb(45 212 191 / 8%);
+}
+
+.home-app-shell .tool-load-skill.tool-running:not(.tool-failed) {
+	box-shadow:
+		0 0 0 1px rgb(34 211 238 / 24%),
+		0 20px 60px rgb(7 11 28 / 48%),
+		0 0 44px rgb(45 212 191 / 22%);
+}
+
+.home-app-shell .tool-load-skill.tool-running:not(.tool-failed)::before {
+	animation-duration: 3.2s;
+}
+
+@property --load-skill-angle {
+	syntax: "<angle>";
+	inherits: false;
+	initial-value: 0deg;
+}
+
+@keyframes load-skill-glow-spin {
+	to {
+		--load-skill-angle: 360deg;
+	}
+}
+
+@keyframes load-skill-glow-sweep {
+	0%,
+	100% {
+		transform: translateX(-42%);
+		opacity: 0.36;
+	}
+	50% {
+		transform: translateX(42%);
+		opacity: 0.78;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.home-app-shell .tool-load-skill:not(.tool-failed)::before,
+	.home-app-shell .tool-load-skill:not(.tool-failed)::after {
+		animation: none;
+	}
+}
+
 .home-app-shell .message-error,
 .home-app-shell .tool-failed {
 	border-color: rgb(var(--home-red-rgb) / 50%);
