@@ -75,7 +75,7 @@ vi.mock("./runEventHub", () => ({
 	},
 }));
 
-const { FlueRuntime } = await import("./flueRuntime");
+const { FlueRuntime, agentProfileRoleInstructions } = await import("./flueRuntime");
 
 describe("flue runtime prompt event shape", () => {
 	const task: Task = {
@@ -117,6 +117,15 @@ describe("flue runtime prompt event shape", () => {
 		const expected = buildPrompt({ task, agents, annotations: state.annotations, upstreamArtifacts: "prior artifact", message: "User request" });
 		expect(state.events[0]).toMatchObject({ type: "user_message", payload: { text: expected } });
 		expect(state.events.map((event) => event.type)).not.toContain("prompt");
+	});
+
+	it("adds runtime instructions to agent role overlays", () => {
+		const instructions = agentProfileRoleInstructions("Profile prompt", "Global prompt");
+
+		expect(instructions).toContain("Commit as you progress");
+		expect(instructions).toContain(".agents/skills/<skill-name>/SKILL.md");
+		expect(instructions).toContain("Profile prompt");
+		expect(instructions).toContain("Global prompt");
 	});
 
 	it("continues runs with only the typed user message", async () => {

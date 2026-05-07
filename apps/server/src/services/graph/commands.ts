@@ -1,10 +1,7 @@
-import { lstat } from "node:fs/promises";
-import type { AgentRun, AnnotationTaskSuggestion, RunLane, RunRelation, Task, Worktree } from "@aware/shared";
+import type { AgentRun, AnnotationTaskSuggestion, RunLane, RunRelation, Task } from "@aware/shared";
 import { db } from "../../db/client";
 import { flueRuntime } from "../agentRuntime/flueRuntime";
-import { isDefaultBranch } from "../defaultBranchGuard";
-import { git } from "../gitService";
-import { assertAllowedWorktree, addProject, listStoredWorktrees } from "../projectService";
+import { assertAllowedWorktree, addProject } from "../projectService";
 import { listMainAgentsForRun, listShippingAgentsForRun } from "../shippingAgentService";
 import { worktreeAgent } from "../worktreeAgentService";
 import { archiveTask, createTask, updateTask } from "../taskService";
@@ -22,7 +19,8 @@ export const AUTO_CONTINUE_MESSAGE =
 const SHIPPING_RUN_MESSAGE = [
 	"Perform final shipping workflow for this task worktree now.",
 	"Commit remaining changes atomically with `git commit -Ss -m \"type(scope): concise subject\"`.",
-	"Rebase onto default branch, push origin, create concise PR with host CLI, merge it, cleanup branch/worktree, then sync default worktree.",
+	"Rebase onto default branch, push origin, create concise PR with host CLI, and merge it.",
+	"Do not cleanup branches/worktrees or sync/pull default worktrees.",
 ].join("\n");
 
 function runLane(run: AgentRun): RunLane {
@@ -31,40 +29,6 @@ function runLane(run: AgentRun): RunLane {
 
 function activeRuns(runs: AgentRun[]) {
 	return runs.filter((run) => !run.deletedAt);
-}
-
-async function branchExists(projectPath: string, branch: string) {
-	try {
-		await git(projectPath, ["show-ref", "--verify", `refs/heads/${branch}`]);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function pathExists(path: string) {
-	try {
-		await lstat(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function cleanupTaskWorktree(projectPath: string, worktree: Worktree | undefined) {
-	if (!worktree || isDefaultBranch(worktree))
-		return { worktreeRemoved: false, branchDeleted: false, skipped: true };
-	const worktreeExists = await pathExists(worktree.path);
-	if (worktreeExists) await git(projectPath, ["worktree", "remove", "--force", worktree.path]);
-	const canDeleteBranch = worktree.branch && !isDefaultBranch(worktree) && await branchExists(projectPath, worktree.branch);
-	if (canDeleteBranch) await git(projectPath, ["branch", "-D", worktree.branch]);
-	const deletedAt = new Date().toISOString();
-	await db.update<Worktree>("worktrees", worktree.id, { deletedAt, updatedAt: deletedAt });
-	return {
-		worktreeRemoved: worktreeExists,
-		branchDeleted: Boolean(canDeleteBranch),
-		skipped: false,
-	};
 }
 
 export async function createProjectCommand(input: { path: string }) {
@@ -125,17 +89,10 @@ export async function updateTaskCommand(input: {
 export async function archiveTaskCommand(input: {
 	projectId: string;
 	taskId: string;
-	cleanup?: boolean | undefined;
 	status?: Task["status"] | undefined;
 }) {
 	const task = await getTaskInProjectOrThrow(input.projectId, input.taskId);
-	const project = await getProjectOrThrow(input.projectId);
-	const worktree = task.worktreeId
-		? (await listStoredWorktrees()).find((row) => row.id === task.worktreeId && row.projectId === project.id)
-		: undefined;
-	const cleanup = input.cleanup ? await cleanupTaskWorktree(project.rootPath, worktree) : undefined;
-	const archived = await archiveTask(task.id, input.status ? { status: input.status } : {});
-	return { task: archived, cleanup };
+	return archiveTask(task.id, input.status ? { status: input.status } : {});
 }
 
 async function assertParentRun(input: {
@@ -307,7 +264,7 @@ export async function startShippingRunCommand(input: {
 		body: [
 			"Shipping context:",
 			`Project: ${project.name}`,
-			`Project root/default worktree candidate: ${project.rootPath}`,
+			`Project root: ${project.rootPath}`,
 			`Task worktree: ${worktree.path}`,
 			`Task branch: ${worktree.branch || "unknown"}`,
 			"",

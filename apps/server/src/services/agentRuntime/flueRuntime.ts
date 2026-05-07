@@ -85,11 +85,12 @@ async function readGlobalAgentInstructions() {
 	}
 }
 
-function agentProfileRoleInstructions(
+export function agentProfileRoleInstructions(
 	agentPrompt: string,
 	globalInstructions: string,
 ) {
 	return [
+		runInstructionsPrompt,
 		globalInstructions
 			? renderPromptTemplate(globalAgentInstructionsBlockTemplate, {
 					globalInstructions,
@@ -626,7 +627,7 @@ export class FlueRuntime {
 		taskTool.description = [
 			"Delegate to an available Aware agent. You must pass one exact role value; omitting role is blocked to prevent Main/current-agent recursion.",
 			`Available agents: ${availableText}.`,
-			"Use role `shipping-agent` for all commit, rebase, push, PR, merge, cleanup, and default-worktree sync operations.",
+			"Use role `shipping-agent` for final shipping operations: rebase, push, PR creation, and PR merge.",
 		].join(" ");
 		taskTool.execute = async (toolCallId, params, signal) => {
 			const role = typeof params.role === "string" ? params.role.trim() : "";

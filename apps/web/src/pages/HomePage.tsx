@@ -4493,17 +4493,12 @@ function GraphHomePage({
 	const archiveTaskFromNode = useCallback(
 		async (targetProjectId: string, targetTaskId: string) => {
 			if (history || archivingTaskId) return;
-			if (
-				!window.confirm(
-					"Archive task and remove its task worktree/local branch if present?",
-				)
-			)
-				return;
+			if (!window.confirm("Archive task?")) return;
 			setArchivingTaskId(targetTaskId);
 			try {
 				await apiPost(
 					`/projects/${encodeURIComponent(targetProjectId)}/tasks/${encodeURIComponent(targetTaskId)}/archive`,
-					{ cleanup: true },
+					{},
 				);
 				await refresh(true);
 			} finally {

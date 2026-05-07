@@ -129,7 +129,6 @@ export const graphTaskIdentityInputSchema = z.object({
 	taskId: idSchema,
 });
 export const graphArchiveTaskInputSchema = graphTaskIdentityInputSchema.extend({
-	cleanup: z.boolean().optional(),
 	status: z.enum(["draft", "queued", "running", "need_review", "done", "failed"]).optional(),
 });
 export const graphStartRunInputSchema = z.object({
