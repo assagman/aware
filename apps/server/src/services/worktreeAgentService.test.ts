@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
 	HOST_WORKSPACE_ROOT,
@@ -8,7 +11,18 @@ import {
 	sandboxToHostPath,
 	worktreePathForBranch,
 } from "./workspaceConvention";
+import { detectProjectInstallCommands } from "./worktreeAgentService";
 import { classifyTaskChange, slugifyTask } from "./worktreeNaming";
+
+async function tempProject(files: Record<string, string>) {
+	const path = await mkdtemp(join(tmpdir(), "aware-install-detect-"));
+	await Promise.all(
+		Object.entries(files).map(([file, contents]) =>
+			writeFile(join(path, file), contents),
+		),
+	);
+	return path;
+}
 
 describe("Worktree agent", () => {
 	it("classifies dedicated change categories", () => {
@@ -42,6 +56,44 @@ describe("Worktree agent", () => {
 				body: "",
 			}),
 		).toBe("behavior-when-starting-new");
+	});
+
+	it("detects JS project install command from package manager metadata", async () => {
+		const path = await tempProject({
+			"package.json": JSON.stringify({ packageManager: "pnpm@9.15.0" }),
+		});
+		await expect(detectProjectInstallCommands(path)).resolves.toEqual([
+			{ command: "pnpm", args: ["install"], reason: "pnpm project" },
+		]);
+	});
+
+	it("detects documented setup commands beyond JS/TS", async () => {
+		const path = await tempProject({
+			"DEVELOPMENT.md": "## Setup\n```sh\nmake setup\nbundle install\n```\n",
+		});
+		await expect(detectProjectInstallCommands(path)).resolves.toEqual([
+			{ command: "bundle", args: ["install"], reason: "documented Bundler install" },
+			{ command: "make", args: ["setup"], reason: "documented Make setup" },
+		]);
+	});
+
+	it("detects Python sync/install commands", async () => {
+		await expect(
+			detectProjectInstallCommands(await tempProject({ "uv.lock": "" })),
+		).resolves.toEqual([
+			{ command: "uv", args: ["sync"], reason: "uv Python project" },
+		]);
+		await expect(
+			detectProjectInstallCommands(
+				await tempProject({ "requirements.txt": "pytest\n" }),
+			),
+		).resolves.toEqual([
+			{
+				command: "python3",
+				args: ["-m", "pip", "install", "-r", "requirements.txt"],
+				reason: "Python requirements",
+			},
+		]);
 	});
 
 	it("maps branches to host paths and sandbox paths separately", () => {
