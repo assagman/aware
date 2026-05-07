@@ -155,6 +155,7 @@ function policyReferencesSkill(reference: string, skill: AgentSkill) {
 
 export function skillBlockedForAgent(skill: AgentSkill, agent?: RuntimeAgent) {
 	if (!skill.valid) return true;
+	if (agent?.skillsEnabled === false) return true;
 	if (agent?.internal && skill.defaultDisabledForInternalAgents) return true;
 	const policy: AgentSkillPolicy | undefined = agent?.skillPolicy;
 	const allowed = policy?.allowed?.filter(Boolean) ?? [];

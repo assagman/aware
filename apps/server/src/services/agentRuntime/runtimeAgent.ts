@@ -17,7 +17,13 @@ export type RuntimeAgent = Pick<
 		internal?: boolean;
 		roleName?: string;
 		allowedToolNames?: string[];
+		skillsEnabled?: boolean;
 		toolExecution?: "parallel" | "sequential";
+		delegationPolicy?: {
+			requiredRole?: string;
+			minCalls?: number;
+			maxCalls?: number;
+		};
 	};
 
 function slug(value: string) {

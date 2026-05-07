@@ -1,5 +1,7 @@
-import type { Task, Worktree } from "@aware/shared";
+import type { AgentRun, Task, Worktree } from "@aware/shared";
+import { db } from "../db/client";
 import { flueRuntime } from "./agentRuntime/flueRuntime";
+import { listGraphAutomationAgentsForRun } from "./graphAutomationAgentService";
 import { listGraphAgentsForRun } from "./graphAgentService";
 import { listWorktrees } from "./projectService";
 import {
@@ -24,6 +26,38 @@ function modeTitle(mode: GraphAgentMode) {
 	return "Auto ship prep";
 }
 
+async function modeAgents(mode: GraphAgentMode) {
+	return mode === "task_runs" ? listGraphAutomationAgentsForRun() : listGraphAgentsForRun();
+}
+
+const executionPlanContract = [
+	"## Execution plan contract",
+	"",
+	"Main must plan; Graph Agent must mutate only. Handoff to Graph Agent with this normalized JSON shape:",
+	"",
+	"```json",
+	"{",
+	"  \"version\": 1,",
+	"  \"projectId\": \"<project id>\",",
+	"  \"taskId\": \"<task id>\",",
+	"  \"duplicateAvoidance\": [\"Inspect graph_get_projection first\", \"Do not create runs equivalent to active/completed runs\"],",
+	"  \"runs\": [",
+	"    {",
+	"      \"planId\": \"short-stable-ref\",",
+	"      \"title\": \"Concise purpose\",",
+	"      \"lane\": \"task\",",
+	"      \"relation\": \"parallel\",",
+	"      \"dependsOn\": [],",
+	"      \"parentPlanId\": null,",
+	"      \"prompt\": \"Concrete scoped run prompt with files/areas, deliverables, tests, and non-overlap boundaries\"",
+	"    }",
+	"  ]",
+	"}",
+	"```",
+	"",
+	"Rules: lane must be 'task'; relation is 'parallel' unless the run requires output from a prior run; sequential runs must set parentPlanId to the immediate predecessor planId. Use dependsOn for human-readable dependency context. Prompts must be executable standalone and explicitly mention duplicate/non-overlap boundaries. Graph Agent must pass the complete object to graph_start_execution_plan so the server can machine-validate the complete plan before creating runs.",
+].join("\n");
+
 function modePrompt(input: { mode: GraphAgentMode; projectId: string; task: Task }) {
 	const base = [
 		"## Run context",
@@ -42,8 +76,12 @@ function modePrompt(input: { mode: GraphAgentMode; projectId: string; task: Task
 	if (input.mode === "task_runs")
 		return [
 			...base,
-			"Use graph_get_projection, inspect existing task-lane runs, then create missing task-lane implementation runs for this task using graph_start_run with lane 'task'.",
-			"Create concrete, non-overlapping parallel runs that together cover the task. Avoid duplicates.",
+			executionPlanContract,
+			"",
+			"Analyze the task as Main. Break down all required implementation work into the structured execution plan before any graph mutation.",
+			"Prefer parallel task-lane runs only where independent. Use sequential task-lane runs when one run needs another run's output; set parentPlanId/dependsOn accordingly.",
+			"Then call delegate_agent exactly once with role `graph-agent`, passing the complete execution plan. Instruct Graph Agent to: call graph_get_projection, avoid duplicate active/completed equivalent runs, then call graph_start_execution_plan exactly once with the full plan so the server can machine-validate the complete plan before creating runs.",
+			"Do not call graph_* tools directly from Main; Graph Agent owns graph mutation and Main's tool scope is planning-only.",
 		].join("\n");
 	if (input.mode === "gate_runs")
 		return [
@@ -58,7 +96,25 @@ function modePrompt(input: { mode: GraphAgentMode; projectId: string; task: Task
 	].join("\n");
 }
 
-export async function startGraphAgentRunCommand(input: {
+const graphAutomationLocks = new Map<string, Promise<AgentRun>>();
+
+function automationLockKey(input: { projectId: string; taskId: string; mode: GraphAgentMode }) {
+	return `${input.projectId}:${input.taskId}:${input.mode}`;
+}
+
+function isActiveGraphAutomationRun(run: AgentRun, input: { taskId: string; mode: GraphAgentMode }) {
+	return !run.deletedAt
+		&& run.taskId === input.taskId
+		&& run.lane === "graph"
+		&& (run.status === "running" || run.status === "queued")
+		&& (run.request ?? "").includes(`- **Mode:** ${input.mode}`);
+}
+
+async function activeGraphAutomationRun(input: { taskId: string; mode: GraphAgentMode }) {
+	return (await db.list<AgentRun>("runs")).find((run) => isActiveGraphAutomationRun(run, input));
+}
+
+async function startGraphAgentRunUnlocked(input: {
 	projectId: string;
 	taskId: string;
 	mode: GraphAgentMode;
@@ -69,7 +125,9 @@ export async function startGraphAgentRunCommand(input: {
 		? await getWorktreeInProjectOrThrow(project.id, task.worktreeId)
 		: projectWorktree(project.id, await listWorktrees());
 	if (!worktree) throw new RouteValidationError("project has no worktree for graph agent", 409);
-	const agents = await listGraphAgentsForRun();
+	const active = await activeGraphAutomationRun({ taskId: task.id, mode: input.mode });
+	if (active) return active;
+	const agents = await modeAgents(input.mode);
 	return flueRuntime.startRun({
 		task: {
 			...task,
@@ -96,6 +154,21 @@ export async function startGraphAgentRunCommand(input: {
 		affectsTaskStatus: false,
 		completedStatus: "done",
 	});
+}
+
+export async function startGraphAgentRunCommand(input: {
+	projectId: string;
+	taskId: string;
+	mode: GraphAgentMode;
+}) {
+	const key = automationLockKey(input);
+	const pending = graphAutomationLocks.get(key);
+	if (pending) return pending;
+	const run = startGraphAgentRunUnlocked(input).finally(() => {
+		graphAutomationLocks.delete(key);
+	});
+	graphAutomationLocks.set(key, run);
+	return run;
 }
 
 export function graphAgentRunLabel(mode: GraphAgentMode) {

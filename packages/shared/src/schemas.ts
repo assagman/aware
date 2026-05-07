@@ -184,6 +184,22 @@ export const graphStartRunInputSchema = z.object({
 	lane: z.enum(["task", "gate"]).optional(),
 	parentRunId: idSchema.optional(),
 });
+export const graphExecutionPlanRunSchema = z.object({
+	planId: z.string().min(1),
+	title: z.string().min(1),
+	lane: z.literal("task"),
+	relation: z.enum(["parallel", "sequential"]).default("parallel"),
+	dependsOn: z.array(z.string().min(1)).default([]),
+	parentPlanId: z.string().min(1).nullable().optional(),
+	prompt: z.string().min(1),
+});
+export const graphStartExecutionPlanInputSchema = z.object({
+	version: z.literal(1),
+	projectId: idSchema,
+	taskId: idSchema,
+	duplicateAvoidance: z.array(z.string().min(1)).optional(),
+	runs: z.array(graphExecutionPlanRunSchema).min(1),
+});
 export const graphRunIdentityInputSchema = z.object({
 	projectId: idSchema,
 	taskId: idSchema,

@@ -24,15 +24,34 @@ function indent(value: string) {
 	return value.split(/\r?\n/).map((line) => `    ${line}`).join("\n");
 }
 
+function serializeToolScope(agent: RuntimeAgent) {
+	return agent.allowedToolNames?.length
+		? `tools ${agent.allowedToolNames.join(", ")}`
+		: agent.tools.length
+			? `tools ${agent.tools.join(", ")}`
+			: "no tools";
+}
+
+function serializeSkillScope(agent: RuntimeAgent) {
+	return agent.skillsEnabled === false ? "skills disabled" : "skills per profile policy";
+}
+
 function serializeSelectedAgent(agent: RuntimeAgent | undefined) {
 	if (!agent) return "(none)";
 	const details = [
 		`provider ${agent.provider}`,
 		`model ${agent.model}`,
 		`thinking ${agent.thinking ?? "off"}`,
-		agent.tools.length ? `tools ${agent.tools.join(", ")}` : "no tools",
+		serializeToolScope(agent),
+		serializeSkillScope(agent),
 	];
 	return `- ${agent.name}: ${details.join("; ")}`;
+}
+
+function delegationInstructions(agents: RuntimeAgent[]) {
+	if (agents[0]?.tools.includes("delegate_agent"))
+		return "Delegate with the `delegate_agent` tool using the exact role value.";
+	return "Delegate with the `task` tool using the exact role value.";
 }
 
 function serializeAvailableAgents(agents: RuntimeAgent[]) {
@@ -42,6 +61,8 @@ function serializeAvailableAgents(agents: RuntimeAgent[]) {
 			const details = [
 				`role ${runtimeAgentRoleName(agent)}`,
 				agent.internal ? "internal service" : "agent profile",
+				serializeToolScope(agent),
+				serializeSkillScope(agent),
 				agent.description,
 			].filter(Boolean);
 			return `- ${agent.name}: ${details.join("; ")}`;
@@ -75,6 +96,7 @@ export function buildPrompt(input: {
 		taskBody: input.task.body,
 		userMessage: input.message || input.task.body,
 		selectedAgent: serializeSelectedAgent(input.agents[0]),
+		delegationInstructions: delegationInstructions(input.agents),
 		agents: serializeAvailableAgents(input.agents) || "(none)",
 		annotations: serializeAnnotations(input.annotations) || "(none)",
 		upstreamArtifacts: input.upstreamArtifacts || "(none)",

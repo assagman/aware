@@ -22,6 +22,7 @@ function graphRuntimeAgent(base: RuntimeAgent): RuntimeAgent {
 		tools: [...GRAPH_TOOL_NAMES, ...ARTIFACTORY_TOOL_NAMES],
 		internal: true,
 		allowedToolNames: [...GRAPH_TOOL_NAMES, ...ARTIFACTORY_TOOL_NAMES],
+		skillsEnabled: false,
 		toolExecution: "sequential",
 	};
 }

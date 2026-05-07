@@ -178,4 +178,30 @@ describe("skill catalog service", () => {
 		expect(policy.blockedGlobalSkillDirs).toContain("ship");
 		expect(policy.blockedGlobalSkillDirs).not.toContain("browser");
 	});
+
+	it("blocks every skill when an internal runtime agent disables skills", async () => {
+		const globalSkills = await tempDir();
+		const projectRoot = await tempDir();
+		process.env.AWARE_GLOBAL_SKILLS_DIR = globalSkills;
+		state.projects = [{ id: "project-1", name: "Project", rootPath: projectRoot, createdAt: "", updatedAt: "" }];
+		await writeSkill(globalSkills, "browser");
+		await writeSkill(join(projectRoot, ".agents", "skills"), "local");
+
+		const agent = {
+			id: "internal",
+			name: "Graph Agent",
+			provider: "p",
+			model: "p/m",
+			systemPrompt: "",
+			tools: [],
+			internal: true,
+			skillsEnabled: false,
+		};
+
+		await expect(loadAgentSkill({ projectId: "project-1", skill: "browser", agent })).rejects.toThrow("disabled by policy");
+		expect(await skillSandboxPolicy({ projectId: "project-1", agent })).toMatchObject({
+			blockedGlobalSkillDirs: ["browser"],
+			blockedWorkspaceSkillDirs: ["local"],
+		});
+	});
 });

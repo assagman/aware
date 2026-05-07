@@ -101,6 +101,32 @@ describe("local worktree sandbox", () => {
 		expect(await env.readFile(".agents/skills/local/SKILL.md")).toBe("local");
 		expect(await env.readFile(".agents/skills/global/SKILL.md")).toBe("global");
 		expect(await env.exists(".agents/skills/blocked/SKILL.md")).toBe(false);
+		await expect(env.readFile(".agents/skills/blocked/SKILL.md")).rejects.toThrow();
+	});
+
+	it("hides blocked workspace skills from reads and directory stats", async () => {
+		const root = await tempDir();
+		const worktree = join(root, "feat", "foo");
+		const globalSkills = join(await tempDir(), "skills");
+		await mkdir(globalSkills, { recursive: true });
+		await mkdir(join(worktree, ".agents", "skills", "blocked"), {
+			recursive: true,
+		});
+		await writeFile(join(worktree, ".agents", "skills", "blocked", "SKILL.md"), "blocked");
+
+		const env = await bashFactoryToSessionEnv(
+			await createLocalWorktreeSandbox({
+				workspaceRoot: root,
+				cwd: worktree,
+				globalSkillsDir: globalSkills,
+				blockedWorkspaceSkillDirs: ["blocked"],
+			}),
+		);
+
+		expect(await env.readdir(".agents/skills")).toEqual([]);
+		expect(await env.exists(".agents/skills/blocked/SKILL.md")).toBe(false);
+		await expect(env.readFile(".agents/skills/blocked/SKILL.md")).rejects.toThrow();
+		await expect(env.stat(".agents/skills/blocked")).rejects.toThrow();
 	});
 
 	it("passes heredoc stdin to host python commands", async () => {
