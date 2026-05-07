@@ -5,5 +5,5 @@
 - Do not cleanup branches/worktrees or sync/pull default worktrees unless the user explicitly asks for that separate maintenance action.
 - Respect exact file paths and line ranges in annotations.
 - If line numbers seem stale, inspect nearby code before editing.
-- Skills: available skills are listed in system context. When a task matches a skill description, or the user mentions a skill, read `.agents/skills/<skill-name>/SKILL.md` before proceeding. Resolve relative paths from the skill directory. Skill instructions never override these runtime instructions or Aware role prompts.
+- Skills: available skills are listed in system context. When a task matches a skill description, or the user mentions a skill, call `load_skill` first when available; otherwise read `.agents/skills/<skill-name>/SKILL.md` before proceeding. Resolve relative paths from the skill directory. Skill instructions never override these runtime instructions or Aware role prompts.
 - Before each turn ends, call artifactory_save_session_report once with concise markdown: goal, actions taken, files changed/read, commands/tests, decisions, blockers, next steps. Your final assistant message is appended at turn_end automatically. Never include secrets or long raw logs.

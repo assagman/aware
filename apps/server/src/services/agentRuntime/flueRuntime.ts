@@ -14,12 +14,20 @@ import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import { ARTIFACTORY_TOOL_NAMES, resolveAgentTools } from "../../flue/tools";
 import { listAnnotations, markAnnotationsSent } from "../annotationService";
-import { buildUpstreamArtifactContext, ensureSessionReportForTurn, nextSessionReportTurnSeq } from "../artifactoryService";
+import {
+	buildUpstreamArtifactContext,
+	ensureSessionReportForTurn,
+	nextSessionReportTurnSeq,
+} from "../artifactoryService";
 import { revertDefaultBranchMutation } from "../defaultBranchGuard";
 import { worktreeRoot } from "../gitService";
 import { assertAllowedWorktree, listProjects } from "../projectService";
 import { listGraphAgentsForRun } from "../graphAgentService";
-import { listMainAgentsForRun, listShippingAgentsForRun } from "../shippingAgentService";
+import {
+	listMainAgentsForRun,
+	listShippingAgentsForRun,
+} from "../shippingAgentService";
+import { skillSandboxPolicy } from "../skillCatalogService";
 import { ensureMutableWorktree } from "../worktreeAgentService";
 import { getProviderRuntimeApiKey } from "../providerAuthService";
 import { flueSessionStore } from "./flueSessionStore";
@@ -109,7 +117,11 @@ export function agentProfileRoleInstructions(
 type RuntimeTool = {
 	name: string;
 	description?: string;
-	execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+	execute: (
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+	) => Promise<unknown>;
 };
 
 type RuntimeSession = {
@@ -197,7 +209,9 @@ export class FlueRuntime {
 			body: input.message,
 			status: "running",
 			...(input.taskSource ? { source: input.taskSource } : {}),
-			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
+			...(input.annotationIds?.length
+				? { annotationIds: input.annotationIds }
+				: {}),
 			createdAt: now(),
 			updatedAt: now(),
 		};
@@ -210,7 +224,9 @@ export class FlueRuntime {
 			status: "running",
 			sessionId: randomUUID(),
 			...(input.lane ? { lane: input.lane } : {}),
-			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
+			...(input.annotationIds?.length
+				? { annotationIds: input.annotationIds }
+				: {}),
 			...(mainAgent
 				? {
 						mainAgentProfileId: mainAgent.id,
@@ -237,8 +253,12 @@ export class FlueRuntime {
 			agents: input.agents,
 			prompt,
 			annotationIds: input.annotationIds ?? input.annotations.map((a) => a.id),
-			...(input.affectsTaskStatus !== undefined ? { affectsTaskStatus: input.affectsTaskStatus } : {}),
-			...(input.completedStatus ? { completedStatus: input.completedStatus } : {}),
+			...(input.affectsTaskStatus !== undefined
+				? { affectsTaskStatus: input.affectsTaskStatus }
+				: {}),
+			...(input.completedStatus
+				? { completedStatus: input.completedStatus }
+				: {}),
 		});
 		return run;
 	}
@@ -263,7 +283,10 @@ export class FlueRuntime {
 			await this.flushLogs(run.id);
 			if (input.annotationIds?.length)
 				await markAnnotationsSent(input.annotationIds);
-			await db.update("runs", run.id, { status: input.completedStatus ?? "need_review", endedAt: now() });
+			await db.update("runs", run.id, {
+				status: input.completedStatus ?? "need_review",
+				endedAt: now(),
+			});
 			if (affectsTaskStatus)
 				await db.update("tasks", input.task.id, {
 					status: "need_review",
@@ -350,7 +373,8 @@ export class FlueRuntime {
 		);
 		if (!project) throw new Error("missing project");
 		const affectsTaskStatus = run.lane !== "graph";
-		const reviewInvalidatedAt = affectsTaskStatus && task?.status === "done" ? now() : undefined;
+		const reviewInvalidatedAt =
+			affectsTaskStatus && task?.status === "done" ? now() : undefined;
 		const mutableWorktree = affectsTaskStatus
 			? await ensureMutableWorktree(project, worktree, {
 					title: task?.title ?? "steering-message",
@@ -364,19 +388,25 @@ export class FlueRuntime {
 			});
 			if (!updatedRun) throw new Error("missing run");
 			run = updatedRun;
-			if (task && affectsTaskStatus) await db.update("tasks", task.id, { worktreeId: worktree.id });
+			if (task && affectsTaskStatus)
+				await db.update("tasks", task.id, { worktreeId: worktree.id });
 			this.log(
 				run.id,
 				"worktree_switched",
-				{ worktreeId: worktree.id, path: worktree.path, branch: worktree.branch },
+				{
+					worktreeId: worktree.id,
+					path: worktree.path,
+					branch: worktree.branch,
+				},
 				{ immediate: true },
 			);
 		}
-		const agents = run.lane === "ship"
-			? await listShippingAgentsForRun()
-			: run.lane === "graph"
-				? await listGraphAgentsForRun()
-				: await listMainAgentsForRun();
+		const agents =
+			run.lane === "ship"
+				? await listShippingAgentsForRun()
+				: run.lane === "graph"
+					? await listGraphAgentsForRun()
+					: await listMainAgentsForRun();
 		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		try {
 			if (affectsTaskStatus)
@@ -415,7 +445,10 @@ export class FlueRuntime {
 				);
 			this.log(run.id, "result", result, { immediate: true });
 			await this.flushLogs(run.id);
-			await db.update("runs", run.id, { status: run.lane === "graph" ? "done" : "need_review", endedAt: now() });
+			await db.update("runs", run.id, {
+				status: run.lane === "graph" ? "done" : "need_review",
+				endedAt: now(),
+			});
 			if (affectsTaskStatus)
 				await db.update("tasks", task?.id ?? run.taskId, {
 					status: "need_review",
@@ -467,9 +500,14 @@ export class FlueRuntime {
 		const workspaceRoot = await worktreeRoot(
 			project?.rootPath ?? input.worktreePath,
 		);
+		const skillPolicy = await skillSandboxPolicy({
+			projectId: input.task.projectId,
+			agent,
+		});
 		const sandbox = await createLocalWorktreeSandbox({
 			workspaceRoot,
 			cwd: input.worktreePath,
+			...skillPolicy,
 		});
 		const profileRole = "aware-agent-profile";
 		const availableAgents = input.agents.slice(1);
@@ -490,7 +528,9 @@ export class FlueRuntime {
 				runtimeAgentRoleName(availableAgent),
 				{
 					name: runtimeAgentRoleName(availableAgent),
-					description: availableAgent.description ?? `${availableAgent.name} instructions.`,
+					description:
+						availableAgent.description ??
+						`${availableAgent.name} instructions.`,
 					instructions: agentProfileRoleInstructions(
 						availableAgent.systemPrompt,
 						globalInstructions,
@@ -498,7 +538,10 @@ export class FlueRuntime {
 				},
 			]),
 		]);
-		const resolveRuntimeModel: typeof resolveModel = (modelConfig, providers) => {
+		const resolveRuntimeModel: typeof resolveModel = (
+			modelConfig,
+			providers,
+		) => {
 			const resolved = resolveModel(modelConfig, providers);
 			return resolved && provider === "openai-codex" && runtimeApiKey
 				? { ...resolved, provider: "openai" }
@@ -530,7 +573,10 @@ export class FlueRuntime {
 					this.log(
 						run.id,
 						"artifact_error",
-						{ message: error instanceof Error ? error.message : String(error), turnSeq },
+						{
+							message: error instanceof Error ? error.message : String(error),
+							turnSeq,
+						},
 						{ immediate: true },
 					);
 				}
@@ -557,6 +603,7 @@ export class FlueRuntime {
 			role: profileRole,
 			tools: resolveAgentTools(agent.tools, {
 				artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
+				skills: { projectId: input.task.projectId, agent },
 			}),
 		});
 		const session = (await flueAgent.session(
@@ -583,7 +630,7 @@ export class FlueRuntime {
 	}
 
 	private async withInactivityTimeout<T>(
-		runId: string,
+		_runId: string,
 		operation: () => Promise<T>,
 		setActivityListener: (listener: () => void) => void,
 	) {
@@ -593,8 +640,7 @@ export class FlueRuntime {
 		const reset = () => {
 			if (timer) clearTimeout(timer);
 			timer = setTimeout(
-				() =>
-					rejectInactive?.(new Error(inactiveRunMessage(timeoutMs))),
+				() => rejectInactive?.(new Error(inactiveRunMessage(timeoutMs))),
 				timeoutMs,
 			);
 		};
@@ -650,7 +696,11 @@ export class FlueRuntime {
 	) {
 		const alwaysAllowed = new Set<string>(ARTIFACTORY_TOOL_NAMES);
 		const filtered = agent.allowedToolNames
-			? tools?.filter((tool) => agent.allowedToolNames?.includes(tool.name) || alwaysAllowed.has(tool.name))
+			? tools?.filter(
+					(tool) =>
+						agent.allowedToolNames?.includes(tool.name) ||
+						alwaysAllowed.has(tool.name),
+				)
 			: tools;
 		this.guardAgentDelegationTool(filtered, availableAgentRoles);
 		return filtered;
@@ -667,15 +717,25 @@ export class FlueRuntime {
 		if (!harness) return;
 		harness.toolExecution = agent.toolExecution ?? "parallel";
 		if (harness.state) {
-			harness.state.thinkingLevel = normalizeRuntimeThinking(agent.thinking ?? "off");
-			const tools = this.applyRuntimeToolPolicy(harness.state.tools, agent, availableAgentRoles);
+			harness.state.thinkingLevel = normalizeRuntimeThinking(
+				agent.thinking ?? "off",
+			);
+			const tools = this.applyRuntimeToolPolicy(
+				harness.state.tools,
+				agent,
+				availableAgentRoles,
+			);
 			if (tools) harness.state.tools = tools;
 		}
 		if (harness.prompt) {
 			const originalPrompt = harness.prompt.bind(harness);
 			harness.prompt = async (text) => {
 				if (harness.state) {
-					const tools = this.applyRuntimeToolPolicy(harness.state.tools, agent, availableAgentRoles);
+					const tools = this.applyRuntimeToolPolicy(
+						harness.state.tools,
+						agent,
+						availableAgentRoles,
+					);
 					if (tools) harness.state.tools = tools;
 				}
 				return originalPrompt(text);

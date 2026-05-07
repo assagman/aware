@@ -20,7 +20,8 @@ const retiredDefaultAgentSignatures = retiredDefaultAgentPromptPrefixes
 	.split("\n")
 	.map((line) => {
 		const [name, promptPrefix] = line.split("|");
-		if (!name || !promptPrefix) throw new Error("Invalid retired agent signature");
+		if (!name || !promptPrefix)
+			throw new Error("Invalid retired agent signature");
 		return { name, promptPrefix };
 	});
 
@@ -67,6 +68,7 @@ export async function createAgentProfile(
 			: {}),
 		systemPrompt: input.systemPrompt,
 		tools: input.tools ?? [],
+		...(input.skillPolicy ? { skillPolicy: input.skillPolicy } : {}),
 		createdAt: now(),
 		updatedAt: now(),
 	};
@@ -102,10 +104,13 @@ function removeRetiredMainShippingBoundary(prompt: string) {
 }
 
 function ensureMainShippingBoundary(prompt: string) {
-	const promptWithoutRetiredBoundary = removeRetiredMainShippingBoundary(prompt);
+	const promptWithoutRetiredBoundary =
+		removeRetiredMainShippingBoundary(prompt);
 	return promptWithoutRetiredBoundary.includes("final shipping operations")
 		? promptWithoutRetiredBoundary
-		: [promptWithoutRetiredBoundary, mainShippingBoundary].filter(Boolean).join("\n\n");
+		: [promptWithoutRetiredBoundary, mainShippingBoundary]
+				.filter(Boolean)
+				.join("\n\n");
 }
 
 function isRetiredDefaultAgent(agent: AgentProfile) {
@@ -154,13 +159,18 @@ async function ensureDefaultAgentProfiles() {
 			patch.tools = nextTools;
 		if (normalizeName(existing.name) === "main") {
 			const systemPrompt = ensureMainShippingBoundary(existing.systemPrompt);
-			if (systemPrompt !== existing.systemPrompt) patch.systemPrompt = systemPrompt;
+			if (systemPrompt !== existing.systemPrompt)
+				patch.systemPrompt = systemPrompt;
 		}
 		if (Object.keys(patch).length) {
-			const updated = await db.update<AgentProfile>("agentProfiles", existing.id, {
-				...patch,
-				updatedAt: now(),
-			});
+			const updated = await db.update<AgentProfile>(
+				"agentProfiles",
+				existing.id,
+				{
+					...patch,
+					updatedAt: now(),
+				},
+			);
 			if (updated) rows[rows.indexOf(existing)] = updated;
 		}
 	}

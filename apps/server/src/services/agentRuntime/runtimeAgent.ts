@@ -2,13 +2,16 @@ import type { AgentProfile } from "@aware/shared";
 
 export type RuntimeAgent = Pick<
 	AgentProfile,
-	"id" | "name" | "provider" | "model" | "systemPrompt" | "tools"
+	| "id"
+	| "name"
+	| "provider"
+	| "model"
+	| "systemPrompt"
+	| "tools"
+	| "skillPolicy"
 > &
 	Partial<
-		Pick<
-			AgentProfile,
-			"thinking" | "temperature" | "createdAt" | "updatedAt"
-		>
+		Pick<AgentProfile, "thinking" | "temperature" | "createdAt" | "updatedAt">
 	> & {
 		description?: string;
 		internal?: boolean;
@@ -18,11 +21,13 @@ export type RuntimeAgent = Pick<
 	};
 
 function slug(value: string) {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "") || "agent";
+	return (
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "") || "agent"
+	);
 }
 
 export function runtimeAgentRoleName(agent: RuntimeAgent) {
