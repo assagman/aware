@@ -4281,7 +4281,7 @@ function GraphHomePage({
 			if (data.kind === "annotation-tasks" && data.projectId) {
 				navigate(
 					data.href ||
-						`/projects/${encodeURIComponent(data.projectId)}/annotation-tasks`,
+						`/projects/${encodeURIComponent(data.projectId)}/annotations`,
 				);
 				return;
 			}
@@ -4326,7 +4326,7 @@ function GraphHomePage({
 					);
 				else
 					navigate(
-						`/projects/${encodeURIComponent(data.projectId)}/annotation-runs/${encodeURIComponent(data.runId)}`,
+						`/projects/${encodeURIComponent(data.projectId)}/annotations/history`,
 					);
 				return;
 			}
@@ -4619,14 +4619,6 @@ function GraphHomePage({
 							to={`/projects/${encodeURIComponent(selectedProject.id)}/annotations?${new URLSearchParams({ worktreeId: projectWorktree.id })}`}
 						>
 							Annotations
-						</Link>
-					) : null}
-					{!history ? (
-						<Link
-							className="home-action-link"
-							to={`/projects/${encodeURIComponent(selectedProject.id)}/annotation-tasks`}
-						>
-							AnnotationTasks
 						</Link>
 					) : null}
 					{!history ? (

@@ -22,7 +22,7 @@ export async function getStoredTaskInProjectOrThrow(
 	taskId: string,
 ): Promise<Task> {
 	await getProjectOrThrow(projectId);
-	const task = (await listTasks({ projectId }, { includeArchived: true })).find((row) => row.id === taskId);
+	const task = (await listTasks({ projectId }, { includeArchived: true, includeSystem: true })).find((row) => row.id === taskId);
 	if (!task) throw new RouteValidationError("missing task", 404);
 	return task;
 }

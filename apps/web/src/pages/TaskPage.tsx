@@ -158,6 +158,7 @@ export function TaskPage() {
 					{isArchived ? <span className="task-status status-done">Archived</span> : null}
 					<span className={`task-status status-${task.status}`}>{labelStatus(task.status)}</span>
 					{worktree && !isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/worktrees/${encodeURIComponent(worktree.id)}/diffs`}>View Diffs</Link> : null}
+					{!isArchived ? <Link className="home-action-link" to={worktree ? `/projects/${encodeURIComponent(projectId)}/annotations?${new URLSearchParams({ worktreeId: worktree.id })}` : `/projects/${encodeURIComponent(projectId)}/annotations`}>Annotations</Link> : null}
 					<Link className="home-action-link" to={isArchived ? `/projects/${encodeURIComponent(projectId)}/history` : `/projects/${encodeURIComponent(projectId)}`}>{isArchived ? "History" : "Graph"}</Link>
 					{!isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoint`}>Gate</Link> : null}
 					{!isArchived ? <Link className="home-action-link" to={`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/ship`}>Ship</Link> : null}

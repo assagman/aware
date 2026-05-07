@@ -146,13 +146,16 @@ export function createGraphTools(): ToolDef[] {
 		},
 		{
 			name: "graph_save_annotation_task_suggestions",
-			description: "Save draft task suggestions for the AnnotationTasks approval page. Use this instead of creating tasks when user approval is required.",
+			description: "Save draft annotation suggestions for the Annotations page. Use targetKind task for default worktree annotations and run for custom worktree annotations. Do not create tasks or runs directly.",
 			parameters: Type.Object({
 				projectId,
 				suggestions: Type.Array(Type.Object({
 					title: Type.String({ description: "Suggested task title." }),
-					body: optionalText("Suggested task markdown/details."),
+					body: optionalText("Suggested task/run markdown details."),
+					targetKind: optionalText("task or run."),
 					annotationIds: Type.Optional(Type.Array(Type.String({ description: "Relevant annotation id." }))),
+					worktreeId: optionalText("Source worktree id for run suggestions."),
+					taskId: optionalText("Existing task id for run suggestions when known."),
 				})),
 			}),
 			execute: async (args) => {

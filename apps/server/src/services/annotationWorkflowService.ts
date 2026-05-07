@@ -4,22 +4,25 @@ import type { AgentRun, Annotation, AnnotationTaskSuggestion, Project, Task, Wor
 import { db } from "../db/client";
 import { flueRuntime } from "./agentRuntime/flueRuntime";
 import { git, worktreeRoot } from "./gitService";
-import { getProjectOrThrow, getWorktreeInProjectOrThrow, RouteValidationError } from "./graph/validation";
+import { getProjectOrThrow, getTaskInProjectOrThrow, getWorktreeInProjectOrThrow, RouteValidationError } from "./graph/validation";
 import { addWorktree, listWorktrees } from "./projectService";
 import { listGraphAgentsForRun } from "./graphAgentService";
 import { listMainAgentsForRun } from "./shippingAgentService";
-import { createTask } from "./taskService";
+import { createTask, listTasks } from "./taskService";
+import { startRunCommand } from "./graph/commands";
 import { worktreePathForBranch } from "./workspaceConvention";
 import { withQueuedLock } from "./worktreeLock";
 import {
 	annotationLocation,
 	getAnnotationInProject,
+	getAnnotationTaskSuggestion,
 	listAnnotations,
 	listAnnotationTaskSuggestions,
 	markAnnotationsProcessing,
 	markAnnotationTaskSuggestions,
 	saveAnnotationTaskSuggestions,
 	serializeAnnotations,
+	updateAnnotation,
 } from "./annotationService";
 
 const now = () => new Date().toISOString();
@@ -59,10 +62,11 @@ export async function ensureAnnotationWorktree(project: Project) {
 	});
 }
 
-function annotationRunMessage(annotations: Annotation[]) {
+function annotationRunMessage(annotations: Annotation[], userPrompt?: string | undefined) {
 	return [
-		"Handle these Aware annotations in isolation.",
-		"Use annotation context exactly; preserve file paths and line ranges when editing.",
+		userPrompt?.trim() ? `User prompt:\n${userPrompt.trim()}` : "Handle these Aware annotations in isolation.",
+		"",
+		"Use annotation context exactly; preserve file paths, line ranges, exact selections, and notes when editing.",
 		"If multiple annotations conflict, report tradeoffs before broad changes.",
 		"",
 		"Annotations:",
@@ -81,18 +85,16 @@ export async function startAnnotationRun(input: {
 	if (!annotations.length) throw new RouteValidationError("missing annotations", 404);
 	const worktree = await ensureAnnotationWorktree(project);
 	const agents = await listMainAgentsForRun();
-	const message = input.message?.trim() || annotationRunMessage(annotations);
+	const message = annotationRunMessage(annotations, input.message);
 	const run = await flueRuntime.startChat({
 		projectId: project.id,
 		worktreeId: worktree.id,
 		worktreePath: worktree.path,
 		agents,
 		message,
-		annotations: annotations.map((annotation) => ({ ...annotation, worktreeId: worktree.id })),
+		annotations,
 		annotationIds: annotations.map((annotation) => annotation.id),
 		taskTitle: annotations.length === 1 ? `Annotation: ${annotationLocation(annotations[0]!)}` : `Annotations: ${annotations.length}`,
-		taskSource: "annotation-run",
-		lane: "annotation",
 	});
 	await markAnnotationsProcessing(annotations.map((annotation) => annotation.id), run.id);
 	return run;
@@ -106,6 +108,22 @@ function projectWorktree(project: Project, worktrees: Worktree[]) {
 		?? scoped[0];
 }
 
+function isDefaultWorktree(project: Project, worktree: Worktree | undefined) {
+	if (!worktree) return false;
+	return worktree.path === project.rootPath || worktree.branch === "main" || worktree.branch === "master";
+}
+
+function classifySuggestionTarget(project: Project, worktrees: Worktree[], annotations: Annotation[]) {
+	if (!annotations.length) return "task" as const;
+	return annotations.every((annotation) => isDefaultWorktree(project, worktrees.find((worktree) => worktree.id === annotation.worktreeId))) ? "task" : "run";
+}
+
+function primaryWorktreeId(suggestion: AnnotationTaskSuggestion, annotations: Annotation[]) {
+	if (suggestion.worktreeId) return suggestion.worktreeId;
+	const ids = [...new Set(annotations.map((annotation) => annotation.worktreeId).filter(Boolean))];
+	return ids.length === 1 ? ids[0] : undefined;
+}
+
 async function createAnnotationTasksSystemTask(project: Project, title: string, body: string, worktree: Worktree) {
 	return createTask({
 		projectId: project.id,
@@ -116,25 +134,32 @@ async function createAnnotationTasksSystemTask(project: Project, title: string, 
 	});
 }
 
-export async function startAnnotationTaskGeneratorRun(projectId: string) {
+export async function startAnnotationTaskGeneratorRun(projectId: string, input: { annotationIds?: string[]; worktreeId?: string } = {}) {
 	const project = await getProjectOrThrow(projectId);
-	const worktree = projectWorktree(project, await listWorktrees());
-	if (!worktree) throw new RouteValidationError("project has no worktree for annotation task generator", 409);
-	const annotations = await listAnnotations({ projectId: project.id });
+	const worktrees = await listWorktrees();
+	const worktree = projectWorktree(project, worktrees);
+	if (!worktree) throw new RouteValidationError("project has no worktree for annotation suggestions", 409);
+	const annotations = (await listAnnotations({ projectId: project.id, state: "active", ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}) }))
+		.filter((annotation) => !input.annotationIds?.length || input.annotationIds.includes(annotation.id));
 	const task = await createAnnotationTasksSystemTask(
 		project,
-		"Annotation task generator",
-		serializeAnnotations(annotations) || "No annotations yet.",
+		"Annotation suggestions generator",
+		serializeAnnotations(annotations) || "No active annotations yet.",
 		worktree,
 	);
 	const agents = await listGraphAgentsForRun();
 	const message = [
-		"Mode: annotation_task_suggestions",
+		"Mode: annotation_suggestions",
 		`Project id: ${project.id}`,
-		"Use graph_get_projection to inspect annotations, annotation runs, current tasks, and worktrees.",
-		"Recommend isolated, non-overlapping implementation tasks that consume prior annotation runs.",
-		"Call graph_save_annotation_task_suggestions with concise task titles/bodies and relevant annotationIds.",
-		"Do not call graph_create_task. User approval required before task creation.",
+		"Generate suggestions for Annotations page only. Do not create tasks or runs directly.",
+		"Call graph_save_annotation_task_suggestions with concise titles/bodies and relevant annotationIds.",
+		"Set targetKind='task' only when every source annotation is on the default worktree (project root/main/master).",
+		"Set targetKind='run' when any source annotation is on a custom worktree. Include worktreeId and taskId if known.",
+		"Preserve invariant: 1 task : 1 worktree. Custom-worktree suggestions attach runs to existing task/worktree flow.",
+		"Use graph_get_projection only for current tasks/runs/worktrees; annotations are provided below.",
+		"",
+		"Active annotations:",
+		serializeAnnotations(annotations) || "(none)",
 	].join("\n");
 	return flueRuntime.startRun({
 		task: { ...task, status: "running" },
@@ -149,80 +174,146 @@ export async function startAnnotationTaskGeneratorRun(projectId: string) {
 	});
 }
 
-async function prepareApprovedSuggestions(input: {
-	projectId: string;
-	suggestions: Array<{ id?: string | undefined; title: string; body: string; annotationIds?: string[] | undefined }>;
+async function suggestionAnnotations(projectId: string, suggestion: AnnotationTaskSuggestion) {
+	if (!suggestion.annotationIds?.length) return [];
+	return (await Promise.all(suggestion.annotationIds.map((id) => getAnnotationInProject(projectId, id))))
+		.filter((item): item is Annotation => Boolean(item));
+}
+
+async function upsertSuggestionForApproval(projectId: string, input: {
+	id?: string | undefined;
+	title: string;
+	body?: string | undefined;
+	targetKind?: "task" | "run" | undefined;
+	annotationIds?: string[] | undefined;
+	worktreeId?: string | undefined;
+	taskId?: string | undefined;
 }) {
-	const existing = new Map((await listAnnotationTaskSuggestions(input.projectId)).map((row) => [row.id, row]));
-	const prepared: AnnotationTaskSuggestion[] = [];
-	for (const suggestion of input.suggestions) {
-		const title = suggestion.title.trim();
-		if (!title) continue;
-		if (suggestion.id && existing.has(suggestion.id)) {
-			const updated = await db.update<AnnotationTaskSuggestion>("annotationTaskSuggestions", suggestion.id, {
-				title,
-				body: suggestion.body,
-				status: "creating",
-				...(suggestion.annotationIds?.length ? { annotationIds: suggestion.annotationIds } : {}),
-				updatedAt: now(),
-			});
-			if (updated) prepared.push(updated);
-			continue;
-		}
-		const [created] = await saveAnnotationTaskSuggestions({
-			projectId: input.projectId,
-			suggestions: [{ title, body: suggestion.body, annotationIds: suggestion.annotationIds }],
+	const title = input.title.trim();
+	if (!title) throw new RouteValidationError("missing approved suggestion title", 400);
+	if (input.id) {
+		const existing = await getAnnotationTaskSuggestion(projectId, input.id);
+		if (!existing) throw new RouteValidationError("missing suggestion", 404);
+		const updated = await db.update<AnnotationTaskSuggestion>("annotationTaskSuggestions", input.id, {
+			title,
+			body: input.body ?? existing.body,
+			status: "creating",
+			...(input.targetKind ? { targetKind: input.targetKind } : {}),
+			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
+			...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+			...(input.taskId ? { taskId: input.taskId } : {}),
+			updatedAt: now(),
 		});
-		if (created) {
-			await markAnnotationTaskSuggestions([created.id], { status: "creating" });
-			prepared.push({ ...created, status: "creating" });
-		}
+		if (!updated) throw new RouteValidationError("missing suggestion", 404);
+		return updated;
 	}
-	if (!prepared.length) throw new RouteValidationError("missing approved suggestions", 400);
-	return prepared;
+	const [created] = await saveAnnotationTaskSuggestions({
+		projectId,
+		suggestions: [{
+			title,
+			body: input.body ?? "",
+			...(input.targetKind ? { targetKind: input.targetKind } : {}),
+			...(input.annotationIds?.length ? { annotationIds: input.annotationIds } : {}),
+			...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+			...(input.taskId ? { taskId: input.taskId } : {}),
+		}],
+	});
+	if (!created) throw new RouteValidationError("missing suggestion", 400);
+	await markAnnotationTaskSuggestions([created.id], { status: "creating" });
+	return { ...created, status: "creating" as const };
+}
+
+async function taskForSuggestionRun(projectId: string, suggestion: AnnotationTaskSuggestion, worktreeId: string) {
+	if (suggestion.taskId) return getTaskInProjectOrThrow(projectId, suggestion.taskId);
+	const tasks = await listTasks({ projectId, worktreeId });
+	const task = tasks.find((item) => !item.archivedAt && !item.deletedAt);
+	if (!task) throw new RouteValidationError("custom-worktree suggestion needs existing task for worktree", 409);
+	return task;
+}
+
+export async function approveAnnotationSuggestion(input: {
+	projectId: string;
+	suggestionId?: string | undefined;
+	title?: string | undefined;
+	body?: string | undefined;
+	targetKind?: "task" | "run" | undefined;
+	annotationIds?: string[] | undefined;
+	worktreeId?: string | undefined;
+	taskId?: string | undefined;
+}) {
+	const project = await getProjectOrThrow(input.projectId);
+	const base = input.suggestionId
+		? await getAnnotationTaskSuggestion(project.id, input.suggestionId)
+		: undefined;
+	if (input.suggestionId && !base) throw new RouteValidationError("missing suggestion", 404);
+	const suggestion = await upsertSuggestionForApproval(project.id, {
+		...(base ? { id: base.id } : {}),
+		title: input.title ?? base?.title ?? "",
+		body: input.body ?? base?.body ?? "",
+		...(input.targetKind ?? base?.targetKind ? { targetKind: input.targetKind ?? base?.targetKind } : {}),
+		...(input.annotationIds ?? base?.annotationIds ? { annotationIds: input.annotationIds ?? base?.annotationIds } : {}),
+		...(input.worktreeId ?? base?.worktreeId ? { worktreeId: input.worktreeId ?? base?.worktreeId } : {}),
+		...(input.taskId ?? base?.taskId ? { taskId: input.taskId ?? base?.taskId } : {}),
+	});
+	const annotations = await suggestionAnnotations(project.id, suggestion);
+	const worktrees = await listWorktrees();
+	const targetKind = suggestion.targetKind ?? classifySuggestionTarget(project, worktrees, annotations);
+	if (targetKind === "task") {
+		const task = await createTask({
+			projectId: project.id,
+			title: suggestion.title,
+			body: suggestion.body,
+			annotationTaskSuggestionId: suggestion.id,
+			...(suggestion.annotationIds?.length ? { sourceAnnotationIds: suggestion.annotationIds } : {}),
+		});
+		await markAnnotationTaskSuggestions([suggestion.id], { status: "created", targetKind, taskId: task.id });
+		return { suggestion: { ...suggestion, status: "created" as const, targetKind, taskId: task.id }, task };
+	}
+	const worktreeId = primaryWorktreeId(suggestion, annotations);
+	if (!worktreeId) throw new RouteValidationError("run suggestion needs one worktree", 409);
+	await getWorktreeInProjectOrThrow(project.id, worktreeId);
+	const task = await taskForSuggestionRun(project.id, suggestion, worktreeId);
+	await Promise.all(annotations.map((annotation) => updateAnnotation(annotation.id, { taskId: task.id })));
+	const message = annotationRunMessage(annotations, suggestion.body || suggestion.title);
+	const run = await startRunCommand({
+		projectId: project.id,
+		taskId: task.id,
+		worktreeId,
+		message,
+		relation: "parallel",
+		lane: "task",
+	});
+	await markAnnotationsProcessing(annotations.map((annotation) => annotation.id), run.id);
+	await markAnnotationTaskSuggestions([suggestion.id], { status: "created", targetKind, taskId: task.id, runId: run.id, worktreeId });
+	return { suggestion: { ...suggestion, status: "created" as const, targetKind, taskId: task.id, runId: run.id, worktreeId }, run, task };
+}
+
+export async function rejectAnnotationSuggestion(projectId: string, suggestionId: string) {
+	await getProjectOrThrow(projectId);
+	const suggestion = await getAnnotationTaskSuggestion(projectId, suggestionId);
+	if (!suggestion) throw new RouteValidationError("missing suggestion", 404);
+	const [updated] = await markAnnotationTaskSuggestions([suggestion.id], { status: "rejected" });
+	return updated ?? suggestion;
 }
 
 export async function startAnnotationTaskApprovalRun(input: {
 	projectId: string;
-	suggestions: Array<{ id?: string | undefined; title: string; body: string; annotationIds?: string[] | undefined }>;
+	suggestions: Array<{ id?: string | undefined; title: string; body: string; targetKind?: "task" | "run" | undefined; annotationIds?: string[] | undefined; worktreeId?: string | undefined; taskId?: string | undefined }>;
 }) {
-	const project = await getProjectOrThrow(input.projectId);
-	const worktree = projectWorktree(project, await listWorktrees());
-	if (!worktree) throw new RouteValidationError("project has no worktree for annotation task approval", 409);
-	const suggestions = await prepareApprovedSuggestions(input);
-	const task = await createAnnotationTasksSystemTask(
-		project,
-		"Approved annotation tasks",
-		JSON.stringify(suggestions, null, 2),
-		worktree,
-	);
-	const agents = await listGraphAgentsForRun();
-	const message = [
-		"Mode: approved_annotation_task_creation",
-		`Project id: ${project.id}`,
-		"Create exactly these user-approved tasks via graph_create_task.",
-		"For each item, pass annotationTaskSuggestionId and sourceAnnotationIds when provided.",
-		"Do not start runs. Do not create extra tasks. Avoid duplicates only if an identical task already exists.",
-		"",
-		"Approved suggestions JSON:",
-		JSON.stringify(suggestions.map((suggestion) => ({
-			annotationTaskSuggestionId: suggestion.id,
+	const results = [];
+	for (const suggestion of input.suggestions) {
+		results.push(await approveAnnotationSuggestion({
+			projectId: input.projectId,
+			...(suggestion.id ? { suggestionId: suggestion.id } : {}),
 			title: suggestion.title,
 			body: suggestion.body,
-			sourceAnnotationIds: suggestion.annotationIds ?? [],
-		})), null, 2),
-	].join("\n");
-	return flueRuntime.startRun({
-		task: { ...task, status: "running" },
-		worktreeId: worktree.id,
-		worktreePath: worktree.path,
-		agents,
-		message,
-		relation: "parallel",
-		lane: "annotation-tasks",
-		affectsTaskStatus: false,
-		completedStatus: "done",
-	});
+			...(suggestion.targetKind ? { targetKind: suggestion.targetKind } : {}),
+			...(suggestion.annotationIds?.length ? { annotationIds: suggestion.annotationIds } : {}),
+			...(suggestion.worktreeId ? { worktreeId: suggestion.worktreeId } : {}),
+			...(suggestion.taskId ? { taskId: suggestion.taskId } : {}),
+		}));
+	}
+	return results;
 }
 
 export async function assertAnnotationWorktree(projectId: string, worktreeId: string) {
@@ -230,7 +321,15 @@ export async function assertAnnotationWorktree(projectId: string, worktreeId: st
 }
 
 export async function annotationRunsForProject(projectId: string) {
-	return (await db.list<AgentRun>("runs")).filter((run) => run.projectId === projectId && (run.lane === "annotation" || run.lane === "annotation-tasks"));
+	const tasks = (await db.list<Task>("tasks")).filter((task) => task.projectId === projectId && (task.source === "annotation-run" || task.source === "annotation-tasks"));
+	const taskIds = new Set(tasks.map((task) => task.id));
+	return (await db.list<AgentRun>("runs")).filter((run) =>
+		run.projectId === projectId && (
+			Boolean(run.annotationIds?.length) ||
+			run.lane === "annotation-tasks" ||
+			taskIds.has(run.taskId)
+		),
+	);
 }
 
 export async function annotationSystemTasks(projectId: string) {
