@@ -9,6 +9,7 @@ const MAX_CONTEXT_CHARS = 28_000;
 const MAX_CONTEXT_ARTIFACTS = 24;
 const FINAL_ASSISTANT_MARKER = "## Final assistant message";
 const TOOL_ACTIVITY_LINE_RE = /^\s*(?:[-*]\s*)?(?:tool\s*(?:call|start|end|result|execution)|tool_call|tool_use|function\s*call)\s*:/i;
+const UPSTREAM_ARTIFACTORY_HEADING_RE = /^\s{0,3}#{1,6}\s+Upstream Artifactory\b.*$/i;
 const MAX_SUMMARY_CHARS = 3_000;
 const MAX_THINKING_CHARS = 4_000;
 const MAX_FILE_ACTIVITY_ITEMS = 40;
@@ -25,8 +26,14 @@ function sessionReportId(runId: string, turnSeq: number) {
 	return `session-report:${runId}:${turnSeq}`;
 }
 
+function stripUpstreamArtifactSection(text: string) {
+	const lines = text.split(/\r?\n/);
+	const upstreamIndex = lines.findIndex((line) => UPSTREAM_ARTIFACTORY_HEADING_RE.test(line));
+	return (upstreamIndex >= 0 ? lines.slice(0, upstreamIndex) : lines).join("\n");
+}
+
 function sanitizeArtifactBodyForContext(body: string) {
-	return body
+	return stripUpstreamArtifactSection(body)
 		.split(/\r?\n/)
 		.filter((line) => !TOOL_ACTIVITY_LINE_RE.test(line))
 		.join("\n")
@@ -58,10 +65,10 @@ function extractPromptSection(text: string, heading: string) {
 }
 
 function userMessageSummary(text: string) {
-	const withoutUpstream = text.split(/\n\nUpstream Artifactory:/)[0]?.trim() ?? text.trim();
+	const withoutUpstream = stripUpstreamArtifactSection(text).split(/\n\nUpstream Artifactory:/)[0]?.trim() ?? text.trim();
 	return truncate(
-		extractPromptSection(text, "## User request") ||
-			extractPromptSection(text, "## Annotation request") ||
+		extractPromptSection(withoutUpstream, "## User request") ||
+			extractPromptSection(withoutUpstream, "## Annotation request") ||
 			withoutUpstream,
 		1200,
 	);
@@ -337,9 +344,24 @@ function startedBeforeOrSame(left: AgentRun, right: AgentRun) {
 	return left.startedAt.localeCompare(right.startedAt) <= 0;
 }
 
+function sameTaskWorktree(left: AgentRun, right: AgentRun) {
+	return left.taskId === right.taskId && left.worktreeId === right.worktreeId;
+}
+
+function newerArtifact(left: RunArtifact, right: RunArtifact) {
+	return left.turnSeq > right.turnSeq || (left.turnSeq === right.turnSeq && left.updatedAt.localeCompare(right.updatedAt) > 0);
+}
+
+function lowSignalFallbackArtifact(artifact: RunArtifact) {
+	return artifact.metadata?.source === "fallback" &&
+		artifact.body.includes("- No user/assistant text captured.") &&
+		artifact.body.includes("- No thinking/evaluation text captured.") &&
+		artifact.body.includes("- No read/edit/write file activity captured.");
+}
+
 export async function collectUpstreamRunIds(run: AgentRun) {
 	const runs = (await db.list<AgentRun>("runs")).filter(
-		(row) => row.taskId === run.taskId && row.id !== run.id && !row.deletedAt,
+		(row) => row.id !== run.id && !row.deletedAt && sameTaskWorktree(row, run),
 	);
 	const byId = new Map(runs.map((row) => [row.id, row]));
 	const ordered = new Map<string, AgentRun>();
@@ -366,11 +388,18 @@ export async function collectUpstreamRunIds(run: AgentRun) {
 }
 
 export async function listUpstreamSessionReports(run: AgentRun) {
-	const upstream = new Set(await collectUpstreamRunIds(run));
+	const upstreamIds = await collectUpstreamRunIds(run);
+	const upstream = new Set(upstreamIds);
 	if (!upstream.size) return [];
-	return (await db.list<RunArtifact>("runArtifacts"))
-		.filter((artifact) => artifact.kind === "session_report" && upstream.has(artifact.runId))
-		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+	const latestByRun = new Map<string, RunArtifact>();
+	for (const artifact of await db.list<RunArtifact>("runArtifacts")) {
+		if (artifact.kind !== "session_report" || !upstream.has(artifact.runId) || lowSignalFallbackArtifact(artifact)) continue;
+		const existing = latestByRun.get(artifact.runId);
+		if (!existing || newerArtifact(artifact, existing)) latestByRun.set(artifact.runId, artifact);
+	}
+	return upstreamIds
+		.map((runId) => latestByRun.get(runId))
+		.filter((artifact): artifact is RunArtifact => Boolean(artifact))
 		.slice(0, MAX_CONTEXT_ARTIFACTS);
 }
 
