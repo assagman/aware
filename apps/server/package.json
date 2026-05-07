@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@aware/shared": "workspace:*",
-    "@flue/sdk": "^0.3.10",
+    "@flue/sdk": "^0.3.11",
     "@hono/node-server": "^1.14.0",
     "@mariozechner/pi-ai": "0.73.0",
     "chokidar": "^5.0.0",
