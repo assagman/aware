@@ -128,7 +128,7 @@ export const runArtifactSchema = z.object({
 	taskId: idSchema,
 	runId: idSchema,
 	worktreeId: idSchema,
-	kind: z.literal("session_report"),
+	kind: z.enum(["session_report", "thought_graph"]),
 	turnSeq: z.number().int().positive(),
 	lane: z
 		.enum(["task", "gate", "ship", "graph", "annotation", "annotation-tasks"])

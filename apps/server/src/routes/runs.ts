@@ -7,6 +7,7 @@ import {
 	runEventHub,
 } from "../services/agentRuntime/runEventHub";
 import { allTaskRunsDone } from "../services/taskService";
+import { generateThoughtGraph, getCachedThoughtGraph } from "../services/thoughtGraphService";
 
 export const runs = new Hono();
 
@@ -136,6 +137,48 @@ runs.get("/:id/artifacts", async (c) => {
 			.filter((artifact) => artifact.runId === id)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
 	);
+});
+
+runs.get("/:id/thought-graph", async (c) => {
+	const id = c.req.param("id");
+	const run = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!run) return c.json({ error: "missing run" }, 404);
+	const cached = await getCachedThoughtGraph(id);
+	if (!cached.graph || cached.stale)
+		return c.json({ error: "missing or stale thought graph", stale: true, sourceEventHash: cached.sourceEventHash, sourceEventSeqRange: cached.sourceEventSeqRange }, 404);
+	return c.json(cached.graph);
+});
+
+runs.post("/:id/thought-graph", async (c) => {
+	try {
+		const id = c.req.param("id");
+		return c.json(await generateThoughtGraph(id));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return c.json({ error: message }, message === "missing run" ? 404 : 400);
+	}
+});
+
+runs.get("/:id/thought-graph/stream", async (c) => {
+	const id = c.req.param("id");
+	const encoder = new TextEncoder();
+	const steps = ["collecting events", "segmenting turns", "extracting decisions", "building graph", "saved"];
+	const stream = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			try {
+				for (const step of steps.slice(0, -1))
+					controller.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify({ step })}\n\n`));
+				const graph = await generateThoughtGraph(id);
+				controller.enqueue(encoder.encode(`event: progress\ndata: ${JSON.stringify({ step: "saved" })}\n\n`));
+				controller.enqueue(encoder.encode(`event: graph\ndata: ${JSON.stringify(graph)}\n\n`));
+			} catch (error) {
+				controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n\n`));
+			} finally {
+				controller.close();
+			}
+		},
+	});
+	return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 });
 
 runs.get("/:id/stream", async (c) => {
