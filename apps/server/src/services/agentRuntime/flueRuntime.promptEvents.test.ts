@@ -101,6 +101,7 @@ describe("flue runtime prompt event shape", () => {
 	}];
 
 	beforeEach(() => {
+		vi.clearAllMocks();
 		state.events = [];
 		state.annotations = [];
 		state.runs = [];
@@ -116,5 +117,26 @@ describe("flue runtime prompt event shape", () => {
 		const expected = buildPrompt({ task, agents, annotations: state.annotations, upstreamArtifacts: "prior artifact", message: "User request" });
 		expect(state.events[0]).toMatchObject({ type: "user_message", payload: { text: expected } });
 		expect(state.events.map((event) => event.type)).not.toContain("prompt");
+	});
+
+	it("continues runs with only the typed user message", async () => {
+		state.runs = [{
+			id: "run-1",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-1",
+			startedAt: "",
+		}];
+		const runtime = new FlueRuntime();
+
+		await runtime.continueRun("run-1", "Follow up only");
+
+		expect(state.events[0]).toMatchObject({ type: "user_message", payload: { text: "Follow up only" } });
+		expect(JSON.stringify(state.events)).not.toContain("Upstream Artifactory");
+		expect(JSON.stringify(state.events)).not.toContain("Project id");
+		const runFlueMock = (FlueRuntime.prototype as unknown as { runFlue: { mock: { calls: unknown[][] } } }).runFlue;
+		expect(runFlueMock.mock.calls.at(-1)?.[2]).toBe("Follow up only");
 	});
 });

@@ -376,11 +376,7 @@ export class FlueRuntime {
 			: run.lane === "graph"
 				? await listGraphAgentsForRun()
 				: await listMainAgentsForRun();
-		const upstreamArtifacts = await buildUpstreamArtifactContext(run);
-		const promptMessage = upstreamArtifacts === "(none)"
-			? message
-			: `${message}\n\nUpstream Artifactory:\n${upstreamArtifacts}`;
-		this.log(run.id, "user_message", { text: promptMessage }, { immediate: true });
+		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		try {
 			if (affectsTaskStatus)
 				await db.update("tasks", task?.id ?? run.taskId, {
@@ -405,7 +401,7 @@ export class FlueRuntime {
 					worktreePath: worktree.path,
 					agents,
 				},
-				promptMessage,
+				message,
 			);
 			await this.flushLogs(run.id);
 			const guardMessage = await this.guardDefaultBranch(run.worktreeId);
