@@ -3,5 +3,3 @@
 ## Annotation request
 
 {{body}}
-
-{{instructions}}

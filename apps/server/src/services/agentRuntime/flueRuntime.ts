@@ -27,6 +27,7 @@ import {
 	agentProfileInstructionsBlockTemplate,
 	globalAgentInstructionsBlockTemplate,
 	renderPromptTemplate,
+	runInstructionsPrompt,
 } from "../../prompts";
 import { buildPrompt } from "./promptBuilder";
 import { runEventHub } from "./runEventHub";
@@ -511,7 +512,7 @@ export class FlueRuntime {
 			payload: {},
 			env: process.env,
 			agentConfig: {
-				systemPrompt: "",
+				systemPrompt: runInstructionsPrompt,
 				skills: {},
 				roles,
 				model: undefined,

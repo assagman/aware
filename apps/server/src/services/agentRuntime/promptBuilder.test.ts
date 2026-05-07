@@ -133,6 +133,7 @@ describe("prompt builder", () => {
 		expect(text).toContain("## Annotation request");
 		expect(text).toContain("## Selected annotations");
 		expect(text).toContain("- diff x.ts:1-2: revert");
-		expect(text).toContain("Instructions:");
+		expect(text).not.toContain("Work only in assigned worktree");
+		expect(text).not.toContain("artifactory_save_session_report");
 	});
 });
