@@ -1,4 +1,5 @@
 import type { AgentRun, Annotation } from "@aware/shared";
+import { useState } from "react";
 import { apiPost } from "../app/api";
 import { setSelectedRunId } from "../app/selection";
 import { RunLink } from "./RunLink";
@@ -14,7 +15,10 @@ export function AnnotationsPanel({
 	worktreeId: string;
 	onRefresh: () => void;
 }) {
-	const sendableAnnotations = annotations.filter(
+	const [archiving, setArchiving] = useState("");
+	const [archiveError, setArchiveError] = useState("");
+	const activeAnnotations = annotations.filter((annotation) => !annotation.archivedAt);
+	const sendableAnnotations = activeAnnotations.filter(
 		(annotation) => annotation.status !== "processing",
 	);
 	async function sendAnnotation(annotation: Annotation) {
@@ -41,6 +45,20 @@ export function AnnotationsPanel({
 		setSelectedRunId(run.id);
 		await onRefresh();
 	}
+	async function archiveAnnotation(annotation: Annotation) {
+		const targetProjectId = projectId || annotation.projectId;
+		if (!targetProjectId || archiving) return;
+		setArchiving(annotation.id);
+		setArchiveError("");
+		try {
+			await apiPost<Annotation>(`/projects/${encodeURIComponent(targetProjectId)}/annotations/${encodeURIComponent(annotation.id)}/archive`, {});
+			await onRefresh();
+		} catch (nextError) {
+			setArchiveError(nextError instanceof Error ? nextError.message : String(nextError));
+		} finally {
+			setArchiving("");
+		}
+	}
 	return (
 		<aside className="annotations-panel">
 			<div className="panel-head">
@@ -49,7 +67,7 @@ export function AnnotationsPanel({
 					refresh
 				</button>
 			</div>
-			{annotations.length ? (
+			{activeAnnotations.length ? (
 				<div className="annotation-bulk-actions">
 					<button
 						type="button"
@@ -62,8 +80,9 @@ export function AnnotationsPanel({
 			) : (
 				<p>None yet. Select lines/ranges.</p>
 			)}
+			{archiveError ? <p>Archive failed: {archiveError}</p> : null}
 			<ul>
-				{annotations.map((a) => (
+				{activeAnnotations.map((a) => (
 					<li
 						key={a.id}
 						className={a.status === "processing" ? "processing" : ""}
@@ -81,6 +100,13 @@ export function AnnotationsPanel({
 								onClick={() => void sendAnnotation(a)}
 							>
 								{a.status === "processing" ? "processing" : "send"}
+							</button>
+							<button
+								type="button"
+								disabled={Boolean(archiving)}
+								onClick={() => void archiveAnnotation(a)}
+							>
+								{archiving === a.id ? "archiving…" : "archive"}
 							</button>
 						</div>
 					</li>

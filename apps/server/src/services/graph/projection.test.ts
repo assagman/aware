@@ -85,6 +85,10 @@ function node(projection: Awaited<ReturnType<typeof buildGraphProjection>>, id: 
 	return found!;
 }
 
+function hasNode(projection: Awaited<ReturnType<typeof buildGraphProjection>>, id: string) {
+	return projection.nodes.some((item) => item.id === id);
+}
+
 const runCenterY = (item: { position: { y: number } }) => item.position.y + 84;
 const addRunCenterY = (item: { position: { y: number } }) => item.position.y + 29;
 const runCenterX = (item: { position: { x: number } }) => item.position.x + 120;
@@ -124,7 +128,7 @@ describe("graph projection layout", () => {
 		expect(addRunCenterX(addParallelNode)).toBe(runCenterX(runNodes[0]!));
 	});
 
-	it("excludes annotations from graph display", async () => {
+	it("includes active annotations in graph display", async () => {
 		rows.tasks = [];
 		rows.annotations = [{
 			id: "annotation-1",
@@ -149,10 +153,97 @@ describe("graph projection layout", () => {
 		const addTask = node(projection, `add-task:${project.id}`);
 		const addTaskEdge = projection.edges.find((edge) => edge.target === `add-task:${project.id}`);
 
-		expect(projection.nodes.some((item) => item.kind === "annotation" || item.kind === "annotation-tasks")).toBe(false);
-		expect(projection.edges.some((edge) => edge.kind === "annotation" || edge.kind === "annotation-run" || edge.kind === "annotation-tasks")).toBe(false);
+		expect(hasNode(projection, "annotation:annotation-1")).toBe(true);
+		expect(hasNode(projection, "annotation-run:annotation-1:annotation-run-a")).toBe(true);
+		expect(hasNode(projection, "annotation-run:annotation-1:annotation-run-b")).toBe(true);
+		expect(hasNode(projection, `annotation-tasks:${project.id}`)).toBe(true);
+		expect(projection.edges.some((edge) => edge.kind === "annotation" || edge.kind === "annotation-run" || edge.kind === "annotation-tasks")).toBe(true);
 		expect(addTask).toBeTruthy();
-		expect(addTaskEdge?.source).toBe(`project:${project.id}`);
+		expect(addTaskEdge?.source).toBe(`annotation-tasks:${project.id}`);
+	});
+
+	it("omits archived annotations while preserving sent and processing annotations", async () => {
+		rows.tasks = [];
+		rows.annotations = [
+			{
+				id: "annotation-processing",
+				projectId: project.id,
+				worktreeId: worktree.id,
+				kind: "line",
+				filePath: "active.ts",
+				startLine: 1,
+				text: "processing note",
+				sent: false,
+				status: "processing",
+				createdAt: startedAt(1),
+				updatedAt: startedAt(1),
+			},
+			{
+				id: "annotation-sent",
+				projectId: project.id,
+				worktreeId: worktree.id,
+				kind: "line",
+				filePath: "sent.ts",
+				startLine: 2,
+				text: "sent note",
+				sent: true,
+				status: "sent",
+				createdAt: startedAt(2),
+				updatedAt: startedAt(2),
+			},
+			{
+				id: "annotation-archived",
+				projectId: project.id,
+				worktreeId: worktree.id,
+				kind: "line",
+				filePath: "archived.ts",
+				startLine: 3,
+				text: "archived note",
+				sent: false,
+				status: "pending",
+				archivedAt: startedAt(3),
+				createdAt: startedAt(3),
+				updatedAt: startedAt(3),
+			},
+		];
+		rows.runs = [
+			run({ id: "run-active", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-processing"], startedAt: startedAt(1) }),
+			run({ id: "run-archived", projectId: project.id, taskId: "annotation-task", lane: "annotation", annotationIds: ["annotation-archived"], startedAt: startedAt(2) }),
+		];
+		rows.annotationTaskSuggestions = [
+			{
+				id: "suggestion-mixed",
+				projectId: project.id,
+				title: "Mixed",
+				body: "Body",
+				status: "draft",
+				annotationIds: ["annotation-processing", "annotation-archived"],
+				createdAt: startedAt(1),
+				updatedAt: startedAt(1),
+			},
+			{
+				id: "suggestion-archived",
+				projectId: project.id,
+				title: "Archived only",
+				body: "Body",
+				status: "draft",
+				annotationIds: ["annotation-archived"],
+				createdAt: startedAt(2),
+				updatedAt: startedAt(2),
+			},
+		];
+
+		const projection = await buildGraphProjection(project.id);
+		const annotationTasks = node(projection, `annotation-tasks:${project.id}`);
+
+		expect(projection.annotations.map((annotation) => annotation.id)).toEqual(["annotation-processing", "annotation-sent"]);
+		expect(hasNode(projection, "annotation:annotation-processing")).toBe(true);
+		expect(hasNode(projection, "annotation:annotation-sent")).toBe(true);
+		expect(hasNode(projection, "annotation:annotation-archived")).toBe(false);
+		expect(hasNode(projection, "annotation-run:annotation-archived:run-archived")).toBe(false);
+		expect(projection.annotationTaskSuggestions).toHaveLength(1);
+		expect(projection.annotationTaskSuggestions[0]?.annotationIds).toEqual(["annotation-processing"]);
+		expect(annotationTasks.meta?.[0]).toBe("1 suggestion");
 	});
 
 	it("places sequential candidates in their future depth before the gate", async () => {

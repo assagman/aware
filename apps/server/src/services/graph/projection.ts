@@ -14,7 +14,7 @@ import type {
 	Worktree,
 } from "@aware/shared";
 import { db } from "../../db/client";
-import { annotationLocation } from "../annotationService";
+import { annotationLocation, filterAnnotationTaskSuggestionsForActiveAnnotations, listAnnotations } from "../annotationService";
 import { listProjects, listStoredWorktrees, listWorktrees } from "../projectService";
 import { listTasks } from "../taskService";
 
@@ -263,14 +263,14 @@ export async function buildGraphProjection(
 	projectId?: string,
 	options: { history?: boolean } = {},
 ): Promise<GraphProjection> {
-	const [allProjects, allTasks, allRuns, allWorktrees] = await Promise.all([
+	const [allProjects, allTasks, allRuns, allWorktrees, allAnnotations, allAnnotationTaskSuggestions] = await Promise.all([
 		listProjects(),
 		listTasks(projectId ? { projectId } : {}, options.history ? { includeArchived: true, archivedOnly: true } : {}),
 		db.list<AgentRun>("runs"),
 		options.history ? listStoredWorktrees() : listWorktrees(),
+		listAnnotations(projectId ? { projectId } : {}),
+		db.list<AnnotationTaskSuggestion>("annotationTaskSuggestions"),
 	]);
-	const allAnnotations: Annotation[] = [];
-	const allAnnotationTaskSuggestions: AnnotationTaskSuggestion[] = [];
 	const projects = projectId
 		? allProjects.filter((project) => project.id === projectId)
 		: allProjects;
@@ -279,10 +279,13 @@ export async function buildGraphProjection(
 	const taskIds = new Set(tasks.map((task) => task.id));
 	const systemTasks: Task[] = [];
 	const systemTaskIds = new Set(systemTasks.map((task) => task.id));
-	const runs = allRuns.filter((run) => taskIds.has(run.taskId) || systemTaskIds.has(run.taskId));
+	const runs = allRuns.filter((run) => taskIds.has(run.taskId) || systemTaskIds.has(run.taskId) || (run.projectId && projectIds.has(run.projectId)));
 	const worktrees = allWorktrees.filter((worktree) => projectIds.has(worktree.projectId));
 	const annotations = allAnnotations.filter((annotation) => projectIds.has(annotation.projectId));
-	const annotationTaskSuggestions = allAnnotationTaskSuggestions.filter((suggestion) => projectIds.has(suggestion.projectId));
+	const annotationTaskSuggestions = filterAnnotationTaskSuggestionsForActiveAnnotations(
+		allAnnotationTaskSuggestions.filter((suggestion) => projectIds.has(suggestion.projectId)),
+		annotations,
+	);
 	const worktreeById = new Map(worktrees.map((worktree) => [worktree.id, worktree]));
 	const tasksByProject = new Map<string, Task[]>();
 	for (const task of tasks) {
@@ -311,6 +314,11 @@ export async function buildGraphProjection(
 	const annotationRunsByAnnotation = new Map<string, AgentRun[]>();
 	const annotationTaskRunsByProject = new Map<string, AgentRun[]>();
 	for (const run of runs) {
+		if (runLane(run) === "annotation-tasks" && run.projectId) {
+			const group = annotationTaskRunsByProject.get(run.projectId) ?? [];
+			group.push(run);
+			annotationTaskRunsByProject.set(run.projectId, group);
+		}
 		for (const annotationId of run.annotationIds ?? []) {
 			const group = annotationRunsByAnnotation.get(annotationId) ?? [];
 			group.push(run);
