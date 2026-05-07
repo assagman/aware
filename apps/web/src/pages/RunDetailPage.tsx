@@ -130,6 +130,31 @@ function isHiddenEvent(event: RunEvent) {
 	);
 }
 
+function mapPromptTextToUserEvents(events: RunEvent[]) {
+	const textByUserEventId = new Map<string, string>();
+	const consumedPromptEventIds = new Set<string>();
+	for (let index = 0; index < events.length; index += 1) {
+		const event = events[index];
+		if (!event || event.type !== "user_message") continue;
+		for (
+			let promptIndex = index + 1;
+			promptIndex < events.length;
+			promptIndex += 1
+		) {
+			const candidate = events[promptIndex];
+			if (!candidate || candidate.type === "user_message") break;
+			if (candidate.type !== "prompt") continue;
+			const promptText = textOf(candidate.payload);
+			if (promptText) {
+				textByUserEventId.set(event.id, promptText);
+				consumedPromptEventIds.add(candidate.id);
+			}
+			break;
+		}
+	}
+	return { textByUserEventId, consumedPromptEventIds };
+}
+
 function jsonText(value: unknown) {
 	return typeof value === "string"
 		? value
@@ -721,6 +746,8 @@ function ToolBlock({ start, end, forceOpen = false }: { start: RunEvent; end?: R
 
 const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
+	const { textByUserEventId, consumedPromptEventIds } =
+		mapPromptTextToUserEvents(ordered);
 	const toolEnds = new Map<string, RunEvent>();
 	for (const event of ordered) {
 		if (isToolEndEvent(event)) toolEnds.set(toolKey(event), event);
@@ -786,18 +813,22 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 					className="chat-bubble user-message message-user"
 				>
 					<strong>User</strong>
-					<MarkdownText text={textOf(event.payload)} />
+					<MarkdownText
+						text={textByUserEventId.get(event.id) || textOf(event.payload)}
+					/>
 				</section>,
 			);
 		} else if (event.type === "annotations") {
 			rendered.push(<AnnotationSummary key={event.id} event={event} />);
 		} else if (event.type === "prompt") {
-			rendered.push(
-				<details key={event.id} className="chat-bubble message-prompt">
-					<summary>Full prompt</summary>
-					<pre>{textOf(event.payload)}</pre>
-				</details>,
-			);
+			if (!consumedPromptEventIds.has(event.id)) {
+				rendered.push(
+					<section key={event.id} className="chat-bubble user-message message-user">
+						<strong>User</strong>
+						<MarkdownText text={textOf(event.payload)} />
+					</section>,
+				);
+			}
 		} else if (isToolStartEvent(event)) {
 			const end = toolEnds.get(toolKey(event));
 			rendered.push(

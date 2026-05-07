@@ -63,12 +63,17 @@ export async function ensureAnnotationWorktree(project: Project) {
 
 function annotationRunMessage(annotations: Annotation[], userPrompt?: string | undefined) {
 	return [
-		userPrompt?.trim() ? `User prompt:\n${userPrompt.trim()}` : "Handle these Aware annotations in isolation.",
+		"## User request",
+		"",
+		userPrompt?.trim() || "Handle these Aware annotations in isolation.",
+		"",
+		"## Instructions",
 		"",
 		"Use annotation context exactly; preserve file paths, line ranges, exact selections, and notes when editing.",
 		"If multiple annotations conflict, report tradeoffs before broad changes.",
 		"",
-		"Annotations:",
+		"## Annotations",
+		"",
 		serializeAnnotations(annotations),
 	].join("\n");
 }
@@ -149,8 +154,13 @@ export async function startAnnotationTaskGeneratorRun(projectId: string, input: 
 	);
 	const agents = await listGraphAgentsForRun();
 	const message = [
-		"Mode: annotation_suggestions",
-		`Project id: ${project.id}`,
+		"## Run context",
+		"",
+		"- **Mode:** annotation_suggestions",
+		`- **Project id:** ${project.id}`,
+		"",
+		"## Instructions",
+		"",
 		"Generate suggestions for Annotations page only. Do not create tasks or runs directly.",
 		"Call graph_save_annotation_task_suggestions with concise titles/bodies and relevant annotationIds.",
 		"Set targetKind='task' only when every source annotation is on the default worktree (project root/main/master).",
@@ -158,7 +168,8 @@ export async function startAnnotationTaskGeneratorRun(projectId: string, input: 
 		"Preserve invariant: 1 task : 1 worktree. Custom-worktree suggestions attach runs to existing task/worktree flow.",
 		"Use graph_get_projection only for current tasks/runs/worktrees; annotations are provided below.",
 		"",
-		"Active annotations:",
+		"## Active annotations",
+		"",
 		serializeAnnotations(annotations) || "(none)",
 	].join("\n");
 	return flueRuntime.startRun({

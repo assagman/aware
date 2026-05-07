@@ -26,15 +26,18 @@ function modeTitle(mode: GraphAgentMode) {
 
 function modePrompt(input: { mode: GraphAgentMode; projectId: string; task: Task }) {
 	const base = [
-		`Mode: ${input.mode}`,
-		`Project id: ${input.projectId}`,
-		`Task id: ${input.task.id}`,
-		`Task title: ${input.task.title}`,
+		"## Run context",
 		"",
-		"Task brief:",
+		`- **Mode:** ${input.mode}`,
+		`- **Project id:** ${input.projectId}`,
+		`- **Task id:** ${input.task.id}`,
+		`- **Task title:** ${input.task.title}`,
+		"",
+		"## Task brief",
+		"",
 		input.task.body || "(none)",
 		"",
-		"Instructions:",
+		"## Instructions",
 	];
 	if (input.mode === "task_runs")
 		return [
@@ -72,13 +75,15 @@ export async function startGraphAgentRunCommand(input: {
 			...task,
 			worktreeId: worktree.id,
 			body: [
-				"Graph Agent context:",
-				`Project: ${project.name}`,
-				`Project id: ${project.id}`,
-				`Task id: ${task.id}`,
-				`Mode: ${input.mode}`,
+				"## Graph agent context",
 				"",
-				"Task brief:",
+				`- **Project:** ${project.name}`,
+				`- **Project id:** ${project.id}`,
+				`- **Task id:** ${task.id}`,
+				`- **Mode:** ${input.mode}`,
+				"",
+				"## Task brief",
+				"",
 				task.body || "(none)",
 			].join("\n"),
 		},

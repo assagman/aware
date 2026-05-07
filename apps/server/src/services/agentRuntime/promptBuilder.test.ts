@@ -70,9 +70,11 @@ describe("prompt builder", () => {
 			],
 			annotations: [],
 		});
-		expect(text).toContain("Selected agent:");
+		expect(text).toContain("# User message");
+		expect(text).toContain("### Selected agent");
 		expect(text).toContain("- Primary: provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write");
-		expect(text).toContain("Available agents (delegate with task tool; use exact role value):");
+		expect(text).toContain("### Available agents");
+		expect(text).toContain("Delegate with the `task` tool using the exact role value.");
 		expect(text).toContain("- Secondary: role agent-secondary-a2; agent profile");
 		expect(text).not.toContain("Primary (selected)");
 	});
@@ -93,7 +95,7 @@ describe("prompt builder", () => {
 			annotations: [],
 			upstreamArtifacts: "prior report",
 		});
-		expect(text).toContain("Upstream Artifactory:");
+		expect(text).toContain("### Upstream Artifactory");
 		expect(text).toContain("prior report");
 	});
 
@@ -127,9 +129,9 @@ describe("prompt builder", () => {
 			],
 			message: "revert",
 		});
-		expect(text).not.toContain("Task:");
-		expect(text).not.toContain("User message:");
-		expect(text).not.toContain("Selected annotations:");
+		expect(text).toContain("# User message");
+		expect(text).toContain("## Annotation request");
+		expect(text).toContain("## Selected annotations");
 		expect(text).toContain("- diff x.ts:1-2: revert");
 		expect(text).toContain("Instructions:");
 	});

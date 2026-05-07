@@ -683,11 +683,6 @@ pre {
 	word-break: break-word;
 }
 
-.message-prompt {
-	background: #11221b;
-	border-color: #166534;
-}
-
 .message-annotations {
 	background: #2a1f08;
 	border-color: #92400e;
@@ -4211,7 +4206,6 @@ pre {
 	color: #f0a7ff;
 }
 
-.home-app-shell .message-prompt,
 .home-app-shell .message-annotations {
 	border-color: rgb(var(--home-blue-rgb) / 28%);
 	background: linear-gradient(
