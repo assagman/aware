@@ -170,7 +170,7 @@ export type RunEvent = {
 	payload: unknown;
 	createdAt: string;
 };
-export type RunArtifactKind = "session_report";
+export type RunArtifactKind = "session_report" | "thought_graph";
 export type RunArtifact = {
 	id: ID;
 	projectId: ID;

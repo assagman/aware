@@ -26,6 +26,7 @@ const RunPage = lazy(() => import("../pages/RunPage").then((module) => ({ defaul
 const SettingsPage = lazy(() => import("../pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const ShippingPage = lazy(() => import("../pages/ShippingPage").then((module) => ({ default: module.ShippingPage })));
 const TaskPage = lazy(() => import("../pages/TaskPage").then((module) => ({ default: module.TaskPage })));
+const ThoughtGraphPage = lazy(() => import("../pages/ThoughtGraphPage").then((module) => ({ default: module.ThoughtGraphPage })));
 
 function projectIdFromPath(pathname: string) {
 	const match = pathname.match(/^\/projects\/([^/]+)/);
@@ -174,6 +175,7 @@ export function AppRouter() {
 					<Route path="projects/:projectId/tasks/:taskId/checkpoint" element={lazyRoute(<CheckpointPage />)} />
 					<Route path="projects/:projectId/tasks/:taskId/ship" element={lazyRoute(<ShippingPage />)} />
 					<Route path="projects/:projectId/tasks/:taskId/runs/:runId" element={lazyRoute(<RunPage />)} />
+					<Route path="projects/:projectId/tasks/:taskId/runs/:runId/thoughts" element={lazyRoute(<ThoughtGraphPage />)} />
 					<Route path="projects/:projectId/annotations" element={lazyRoute(<AnnotationsPage />)} />
 					<Route path="projects/:projectId/annotations/archive" element={lazyRoute(<AnnotationsPage />)} />
 					<Route path="projects/:projectId/annotations/history" element={lazyRoute(<AnnotationsPage />)} />

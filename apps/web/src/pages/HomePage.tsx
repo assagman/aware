@@ -3849,6 +3849,7 @@ export function GraphRunChat({
 	const [sending, setSending] = useState(false);
 	const [working, setWorking] = useState(false);
 	const bottomRef = useRef<HTMLDivElement | null>(null);
+	const navigate = useNavigate();
 	const load = useCallback(async () => {
 		const runPath =
 			projectId && taskId
@@ -3990,6 +3991,10 @@ export function GraphRunChat({
 			setWorking(false);
 		}
 	}
+	function openThoughtGraph() {
+		if (!projectId || !taskId || !runId) return;
+		navigate(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/thoughts`);
+	}
 	const runStatus = run?.status;
 	const instructionLine = run
 		? firstInstructionLine(run.request)
@@ -4023,6 +4028,13 @@ export function GraphRunChat({
 						onClick={() => void markDone()}
 					>
 						Mark run done
+					</button>
+					<button
+						type="button"
+						disabled={!run || !projectId || !taskId}
+						onClick={openThoughtGraph}
+					>
+						Thought Graph
 					</button>
 				</div>
 			</header>
