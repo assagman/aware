@@ -4399,7 +4399,6 @@ pre {
 
 .home-app-shell .tool-load-skill:not(.tool-failed)::before {
 	inset: 0;
-	z-index: -1;
 	padding: 1px;
 	border-radius: inherit;
 	background: conic-gradient(
