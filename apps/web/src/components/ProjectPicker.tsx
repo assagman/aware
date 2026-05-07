@@ -1,11 +1,11 @@
 import type { Project } from "@aware/shared";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { apiPost } from "../app/api";
 import { collapseHomePath } from "../app/path";
 import { getPageState, setPageState } from "../app/pageState";
 import { BusyIndicator } from "./BusyIndicator";
 
-function fuzzyScore(value: string, query: string) {
+export function fuzzyScore(value: string, query: string) {
 	const text = value.toLowerCase();
 	const q = query.trim().toLowerCase();
 	if (!q) return 0;
@@ -20,7 +20,15 @@ function fuzzyScore(value: string, query: string) {
 	return score - text.length / 1000;
 }
 
-export function AddProjectButton({ onCreated }: { onCreated?: (project: Project) => void | Promise<void> }) {
+export function AddProjectButton({
+	onCreated,
+	className = "home-action-link add-project-button",
+	children = "Add Project",
+}: {
+	onCreated?: (project: Project) => void | Promise<void>;
+	className?: string;
+	children?: ReactNode;
+}) {
 	const initialState = getPageState("project-picker", { path: "" });
 	const [open, setOpen] = useState(false);
 	const [path, setPath] = useState(initialState.path);
@@ -44,7 +52,7 @@ export function AddProjectButton({ onCreated }: { onCreated?: (project: Project)
 	}
 	return (
 		<div className="add-project-control">
-			<button type="button" className="home-action-link add-project-button" onClick={() => setOpen(true)}>Add Project</button>
+			<button type="button" className={className} onClick={() => setOpen(true)}>{children}</button>
 			{open ? (
 				<div className="home-modal-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
 					<section className="home-modal add-project-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>

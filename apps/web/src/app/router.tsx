@@ -114,7 +114,7 @@ function AppShell() {
 					<span className="home-brand-mark">◎</span>
 					<div>
 						<h1>aware</h1>
-						<small>Global graph → scoped routes → agent tools</small>
+						<small>Projects → scoped graph → agent tools</small>
 					</div>
 				</Link>
 				<div className="home-header-actions">
@@ -157,7 +157,7 @@ function NotFoundPage() {
 			<div className="home-empty">
 				<h3>Route not found</h3>
 				<p>URL does not match Aware graph resources.</p>
-				<Link to="/">Back to graph</Link>
+				<Link to="/">Back to projects</Link>
 			</div>
 		</section>
 	);

@@ -50,10 +50,17 @@ import {
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
 import { parsePatchFiles } from "../app/parsePatchFiles";
+import { collapseHomePath } from "../app/path";
 import { getPageState, setPageState } from "../app/pageState";
-import { setSelectedRunId, setSelectedTaskId } from "../app/selection";
+import {
+	getSelection,
+	setSelectedProjectId,
+	setSelectedRunId,
+	setSelectedTaskId,
+} from "../app/selection";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { FileTreeView } from "../components/FileTreeView";
+import { AddProjectButton, fuzzyScore } from "../components/ProjectPicker";
 import { SimpleFileDiff as FileDiff } from "../components/SimpleFileDiff";
 import { WorktreePicker } from "../components/WorktreePicker";
 
@@ -2772,20 +2779,33 @@ function saveGraphViewport(
 function GraphViewportSync({
 	scopeKey,
 	signature,
+	nodes,
+	focusTaskId,
 }: {
 	scopeKey: string;
 	signature: string;
+	nodes: GraphNode[];
+	focusTaskId: string;
 }) {
 	const { fitView, setViewport } = useReactFlow();
 	useEffect(() => {
 		if (!signature) return;
-		const savedViewport = readGraphViewport(scopeKey, signature);
+		const focusNodes = focusTaskId
+			? nodes
+					.filter((node) => node.data.taskId === focusTaskId)
+					.map((node) => ({ id: node.id }))
+			: [];
+		const savedViewport = focusNodes.length
+			? undefined
+			: readGraphViewport(scopeKey, signature);
 		const frame = window.requestAnimationFrame(() => {
-			if (savedViewport) void setViewport(savedViewport, { duration: 0 });
+			if (focusNodes.length)
+				void fitView({ nodes: focusNodes, padding: 0.24, duration: 320 });
+			else if (savedViewport) void setViewport(savedViewport, { duration: 0 });
 			else void fitView({ padding: 0.14, duration: 220 });
 		});
 		return () => window.cancelAnimationFrame(frame);
-	}, [fitView, scopeKey, setViewport, signature]);
+	}, [fitView, focusTaskId, nodes, scopeKey, setViewport, signature]);
 	return null;
 }
 
@@ -4000,21 +4020,136 @@ export function GraphRunChat({
 	);
 }
 
-export function HomePage({
+type HomePageProps = {
+	projectId?: string;
+	projects: Project[];
+	projectsLoading: boolean;
+	projectsLoaded: boolean;
+	projectsError: string;
+	refreshProjects: (preferredId?: string) => Promise<void>;
+	history?: boolean;
+};
+
+function projectSearchText(project: Project) {
+	return `${project.name} ${project.rootPath}`;
+}
+
+function ProjectLandingPage({
+	projects,
+	projectsLoading,
+	projectsLoaded,
+	projectsError,
+	refreshProjects,
+}: HomePageProps) {
+	const navigate = useNavigate();
+	const [query, setQuery] = useState("");
+	const visibleProjects = useMemo(
+		() =>
+			projects
+				.map((project) => ({
+					project,
+					score: fuzzyScore(projectSearchText(project), query),
+				}))
+				.filter((row) => row.score >= 0)
+				.sort(
+					(a, b) =>
+						b.score - a.score || a.project.name.localeCompare(b.project.name),
+				)
+				.map((row) => row.project),
+		[projects, query],
+	);
+	const openProject = useCallback(
+		(project: Project) => {
+			setSelectedProjectId(project.id, "home");
+			navigate(`/projects/${encodeURIComponent(project.id)}`);
+		},
+		[navigate],
+	);
+	const handleProjectCreated = useCallback(
+		async (project: Project) => {
+			setSelectedProjectId(project.id, "home");
+			await refreshProjects(project.id);
+			navigate(`/projects/${encodeURIComponent(project.id)}`);
+		},
+		[navigate, refreshProjects],
+	);
+	return (
+		<section className="home-page project-landing-page">
+			{projectsError ? (
+				<div className="home-errors">
+					<p className="error home-error">{projectsError}</p>
+				</div>
+			) : null}
+			<header className="project-landing-hero">
+				<div>
+					<small>Landing</small>
+					<h2>Projects</h2>
+					<p>Open project graph, or add another git repo.</p>
+				</div>
+				{projectsLoading ? (
+					<BusyIndicator
+						label={projectsLoaded ? "Syncing projects" : "Loading projects"}
+					/>
+				) : (
+					<span className="project-count">
+						{projects.length} project{projects.length === 1 ? "" : "s"}
+					</span>
+				)}
+			</header>
+			<label className="project-search">
+				<span>fzf search</span>
+				<input
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					placeholder="Type project name or path..."
+					autoFocus
+				/>
+			</label>
+			<div className="project-card-grid">
+				{visibleProjects.map((project) => (
+					<button
+						type="button"
+						key={project.id}
+						className="project-card"
+						onClick={() => openProject(project)}
+					>
+						<small>Project</small>
+						<strong>{project.name}</strong>
+						<p>{collapseHomePath(project.rootPath)}</p>
+						<span className="project-card-foot">Open graph →</span>
+					</button>
+				))}
+				<AddProjectButton
+					className="project-card project-card-add"
+					onCreated={handleProjectCreated}
+				>
+					<span className="project-card-plus">+</span>
+					<strong>Add Project</strong>
+					<small>Attach git repo</small>
+				</AddProjectButton>
+			</div>
+			{!projectsLoading && projectsLoaded && !visibleProjects.length ? (
+				<p className="empty-state project-landing-empty">
+					{projects.length ? "No projects match search." : "No projects yet."}
+				</p>
+			) : null}
+		</section>
+	);
+}
+
+export function HomePage(props: HomePageProps) {
+	if (!props.projectId && !props.history) return <ProjectLandingPage {...props} />;
+	return <GraphHomePage {...props} />;
+}
+
+function GraphHomePage({
 	projectId = "",
 	projects,
 	projectsLoading,
 	projectsLoaded,
 	projectsError,
 	history = false,
-}: {
-	projectId?: string;
-	projects: Project[];
-	projectsLoading: boolean;
-	projectsLoaded: boolean;
-	projectsError: string;
-	history?: boolean;
-}) {
+}: HomePageProps) {
 	const navigate = useNavigate();
 	const scopeKey = `${projectId || "global"}:${history ? "history" : "active"}`;
 	const [projection, setProjection] = useState<GraphProjection | null>(null);
@@ -4027,6 +4162,9 @@ export function HomePage({
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [busyRunId, setBusyRunId] = useState("");
 	const [archivingTaskId, setArchivingTaskId] = useState("");
+	const [focusedTaskId, setFocusedTaskId] = useState(() =>
+		projectId ? getSelection().selectedTaskId : "",
+	);
 	const refreshSeq = useRef(0);
 	const selectedProject = projects.find((project) => project.id === projectId);
 	const worktreeById = useMemo(
@@ -4105,6 +4243,13 @@ export function HomePage({
 	useEffect(() => {
 		void refresh();
 	}, [refresh]);
+	useEffect(() => {
+		setFocusedTaskId(projectId ? getSelection().selectedTaskId : "");
+	}, [projectId]);
+	useEffect(() => {
+		if (loadedScope !== scopeKey || !focusedTaskId) return;
+		if (!tasks.some((task) => task.id === focusedTaskId)) setFocusedTaskId("");
+	}, [focusedTaskId, loadedScope, scopeKey, tasks]);
 	const hasActiveRuns =
 		loadedScope === scopeKey &&
 		runs.some((run) => run.status === "running" || run.status === "queued");
@@ -4393,9 +4538,10 @@ export function HomePage({
 	);
 	const handleGraphMoveEnd = useCallback(
 		(_: globalThis.MouseEvent | TouchEvent | null, viewport: Viewport) => {
+			if (focusedTaskId) return;
 			saveGraphViewport(scopeKey, viewport, graphLayoutSignature);
 		},
-		[graphLayoutSignature, scopeKey],
+		[focusedTaskId, graphLayoutSignature, scopeKey],
 	);
 	async function markTaskDone(taskId: string) {
 		const task = tasks.find((row) => row.id === taskId);
@@ -4415,6 +4561,19 @@ export function HomePage({
 		loadedScope !== scopeKey || Boolean(projectId && !selectedProject);
 	const graphBusy =
 		loading || projectsLoading || projectBootstrapping || graphHydrating;
+	const taskFilterOptions = useMemo(
+		() =>
+			[...tasks].sort(
+				(a, b) =>
+					taskStatusOrder[a.status] - taskStatusOrder[b.status] ||
+					b.updatedAt.localeCompare(a.updatedAt),
+			),
+		[tasks],
+	);
+	const handleTaskFilterChange = useCallback((nextTaskId: string) => {
+		setFocusedTaskId(nextTaskId);
+		setSelectedTaskId(nextTaskId);
+	}, []);
 	return (
 		<section className="home-page">
 			{projectsError || error ? (
@@ -4489,6 +4648,22 @@ export function HomePage({
 				</nav>
 			) : null}
 			<div className="home-graph-shell">
+				{projectId && taskFilterOptions.length ? (
+					<label className="home-graph-task-filter">
+						<span>Task filter</span>
+						<select
+							value={focusedTaskId}
+							onChange={(event) => handleTaskFilterChange(event.target.value)}
+						>
+							<option value="">All tasks</option>
+							{taskFilterOptions.map((task) => (
+								<option key={task.id} value={task.id}>
+									{task.title} · {labelStatus(task.status)}
+								</option>
+							))}
+						</select>
+					</label>
+				) : null}
 				<div className="home-graph-actions">
 					{graphBusy ? (
 						<BusyIndicator
@@ -4543,6 +4718,8 @@ export function HomePage({
 						<GraphViewportSync
 							scopeKey={scopeKey}
 							signature={graphLayoutSignature}
+							nodes={graph.nodes}
+							focusTaskId={focusedTaskId}
 						/>
 						<Background color="#164436" gap={24} />
 						<Controls />
