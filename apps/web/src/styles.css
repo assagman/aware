@@ -2373,6 +2373,186 @@ pre {
 	transform: translateY(-1px);
 }
 
+.project-landing-page {
+	overflow: auto;
+}
+
+.project-landing-hero {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 8px 2px 4px;
+}
+
+.project-landing-hero div {
+	display: grid;
+	gap: 6px;
+}
+
+.project-landing-hero small,
+.project-search span,
+.home-graph-task-filter span {
+	color: var(--home-accent);
+	font-size: 11px;
+	font-weight: 900;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.project-landing-hero h2,
+.project-landing-hero p {
+	margin: 0;
+}
+
+.project-landing-hero h2 {
+	font-size: clamp(32px, 7vw, 68px);
+	letter-spacing: -0.06em;
+	line-height: 0.92;
+}
+
+.project-landing-hero p,
+.project-count,
+.project-landing-empty {
+	color: var(--home-muted);
+}
+
+.project-count {
+	padding: 8px 12px;
+	border: 1px solid var(--home-border);
+	border-radius: 999px;
+	background: rgb(1 8 9 / 58%);
+	font-weight: 850;
+}
+
+.project-search {
+	display: grid;
+	max-width: min(760px, 100%);
+	gap: 7px;
+}
+
+.project-search input {
+	width: 100%;
+	padding: 12px 14px;
+	font-size: 16px;
+}
+
+.project-card-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 16px;
+	padding-bottom: 12px;
+}
+
+.project-card-grid > .add-project-control {
+	min-width: 0;
+}
+
+.home-app-shell .project-card {
+	display: flex;
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	min-width: 0;
+	padding: 20px;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	overflow: hidden;
+	border: 1px solid var(--home-border);
+	border-radius: 24px;
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-accent-rgb) / 12%),
+		rgb(3 13 14 / 98%)
+	);
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 4%),
+		0 22px 60px rgb(0 0 0 / 28%);
+	color: var(--home-text);
+	text-align: left;
+	white-space: normal;
+}
+
+.home-app-shell .project-card small {
+	color: var(--home-accent);
+	font-size: 11px;
+	font-weight: 900;
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+}
+
+.home-app-shell .project-card strong {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: clamp(22px, 3.2vw, 36px);
+	letter-spacing: -0.05em;
+	line-height: 0.98;
+	text-overflow: ellipsis;
+}
+
+.home-app-shell .project-card p {
+	display: -webkit-box;
+	max-width: 100%;
+	margin: 0;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	color: var(--home-muted);
+	font-size: 13px;
+	font-weight: 650;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.project-card-foot {
+	align-self: flex-end;
+	color: var(--home-green);
+	font-size: 13px;
+	font-weight: 900;
+}
+
+.home-app-shell .project-card-add {
+	align-items: center;
+	justify-content: center;
+	border-style: dashed;
+	background: linear-gradient(
+		145deg,
+		rgb(var(--home-green-rgb) / 14%),
+		rgb(4 18 14 / 92%)
+	);
+	text-align: center;
+}
+
+.project-card-plus {
+	color: var(--home-green);
+	font-size: 72px;
+	font-weight: 900;
+	line-height: 0.8;
+	text-shadow: 0 0 28px rgb(var(--home-green-rgb) / 34%);
+}
+
+.home-graph-task-filter {
+	position: absolute;
+	top: 14px;
+	left: 14px;
+	z-index: 8;
+	display: grid;
+	width: min(360px, calc(100% - 28px));
+	gap: 6px;
+	padding: 8px;
+	border: 1px solid var(--home-border);
+	border-radius: 16px;
+	background: rgb(1 8 9 / 74%);
+	box-shadow: 0 12px 34px rgb(0 0 0 / 28%);
+	backdrop-filter: blur(14px);
+}
+
+.home-graph-task-filter select {
+	width: 100%;
+	min-width: 0;
+}
+
 .home-graph-shell {
 	position: relative;
 	flex: 1 1 auto;
@@ -4287,6 +4467,22 @@ pre {
 
 	.home-page {
 		padding: 8px;
+	}
+
+	.project-landing-hero {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.project-card-grid {
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		gap: 10px;
+	}
+
+	.home-graph-actions {
+		top: 88px;
+		left: 14px;
+		right: auto;
 	}
 
 	.home-modal-backdrop {
