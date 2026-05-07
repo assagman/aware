@@ -79,13 +79,15 @@ PY`);
 		expect(await readFile(join(root, "out.txt"), "utf8")).toBe("ok\n");
 	});
 
-	it("runs host tea commands", async () => {
+	it("runs selected commands from the host PATH", async () => {
 		const root = await tempDir();
 		const binDir = join(root, "bin");
 		await mkdir(binDir, { recursive: true });
-		const teaBin = join(binDir, "tea");
-		await writeFile(teaBin, "#!/bin/sh\nprintf 'tea:%s\\n' \"$1\"\n");
-		await chmod(teaBin, 0o755);
+		for (const name of ["tea", "make", "gh"]) {
+			const bin = join(binDir, name);
+			await writeFile(bin, `#!/bin/sh\nprintf '${name}:%s\\n' \"$1\"\n`);
+			await chmod(bin, 0o755);
+		}
 		const previousPath = process.env.PATH;
 		process.env.PATH = `${binDir}:${previousPath ?? ""}`;
 		try {
@@ -93,10 +95,11 @@ PY`);
 				await createLocalWorktreeSandbox({ workspaceRoot: root, cwd: root }),
 			);
 
-			const result = await env.exec("tea ok");
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toBe("tea:ok\n");
+			for (const name of ["tea", "make", "gh"]) {
+				const result = await env.exec(`${name} ok`);
+				expect(result.exitCode).toBe(0);
+				expect(result.stdout).toBe(`${name}:ok\n`);
+			}
 		} finally {
 			process.env.PATH = previousPath;
 		}
