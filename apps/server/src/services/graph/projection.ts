@@ -14,7 +14,7 @@ import type {
 	Worktree,
 } from "@aware/shared";
 import { db } from "../../db/client";
-import { annotationLocation, listAnnotations } from "../annotationService";
+import { annotationLocation } from "../annotationService";
 import { listProjects, listStoredWorktrees, listWorktrees } from "../projectService";
 import { listTasks } from "../taskService";
 
@@ -263,24 +263,23 @@ export async function buildGraphProjection(
 	projectId?: string,
 	options: { history?: boolean } = {},
 ): Promise<GraphProjection> {
-	const [allProjects, allTasks, allSystemTasks, allRuns, allWorktrees, allAnnotations, allAnnotationTaskSuggestions] = await Promise.all([
+	const [allProjects, allTasks, allRuns, allWorktrees] = await Promise.all([
 		listProjects(),
 		listTasks(projectId ? { projectId } : {}, options.history ? { includeArchived: true, archivedOnly: true } : {}),
-		db.list<Task>("tasks"),
 		db.list<AgentRun>("runs"),
 		options.history ? listStoredWorktrees() : listWorktrees(),
-		listAnnotations(projectId ? { projectId } : {}),
-		db.list<AnnotationTaskSuggestion>("annotationTaskSuggestions"),
 	]);
+	const allAnnotations: Annotation[] = [];
+	const allAnnotationTaskSuggestions: AnnotationTaskSuggestion[] = [];
 	const projects = projectId
 		? allProjects.filter((project) => project.id === projectId)
 		: allProjects;
 	const projectIds = new Set(projects.map((project) => project.id));
 	const tasks = allTasks.filter((task) => projectIds.has(task.projectId));
 	const taskIds = new Set(tasks.map((task) => task.id));
-	const systemTasks = allSystemTasks.filter((task) => projectIds.has(task.projectId) && (task.source === "annotation-run" || task.source === "annotation-tasks"));
+	const systemTasks: Task[] = [];
 	const systemTaskIds = new Set(systemTasks.map((task) => task.id));
-	const runs = allRuns.filter((run) => taskIds.has(run.taskId) || systemTaskIds.has(run.taskId) || (run.projectId && projectIds.has(run.projectId)));
+	const runs = allRuns.filter((run) => taskIds.has(run.taskId) || systemTaskIds.has(run.taskId));
 	const worktrees = allWorktrees.filter((worktree) => projectIds.has(worktree.projectId));
 	const annotations = allAnnotations.filter((annotation) => projectIds.has(annotation.projectId));
 	const annotationTaskSuggestions = allAnnotationTaskSuggestions.filter((suggestion) => projectIds.has(suggestion.projectId));
@@ -312,11 +311,6 @@ export async function buildGraphProjection(
 	const annotationRunsByAnnotation = new Map<string, AgentRun[]>();
 	const annotationTaskRunsByProject = new Map<string, AgentRun[]>();
 	for (const run of runs) {
-		if (run.lane === "annotation-tasks" && run.projectId) {
-			const group = annotationTaskRunsByProject.get(run.projectId) ?? [];
-			group.push(run);
-			annotationTaskRunsByProject.set(run.projectId, group);
-		}
 		for (const annotationId of run.annotationIds ?? []) {
 			const group = annotationRunsByAnnotation.get(annotationId) ?? [];
 			group.push(run);
@@ -406,13 +400,6 @@ export async function buildGraphProjection(
 					inputSchema: "open_annotations",
 					payload: { projectId: project.id },
 					href: annotationsHref(project.id),
-				}),
-				action({
-					label: "Open annotation tasks",
-					command: "open_annotation_tasks",
-					inputSchema: "open_annotation_tasks",
-					payload: { projectId: project.id },
-					href: annotationTasksHref(project.id),
 				}),
 			);
 		if (!options.history && defaultWorktree)
@@ -597,16 +584,25 @@ export async function buildGraphProjection(
 						payload: { projectId: project.id, taskId: task.id, cleanup: true },
 					}),
 				);
-			if (!options.history && worktree)
-				taskActions.push(
-					action({
-						label: "Open diffs",
-						command: "open_diffs",
-						inputSchema: "open_diffs",
-						payload: { projectId: project.id, worktreeId: worktree.id },
-						href: diffsHref(project.id, worktree.id),
-					}),
-				);
+			if (!options.history) {
+				if (worktree)
+					taskActions.push(
+						action({
+							label: "Open diffs",
+							command: "open_diffs",
+							inputSchema: "open_diffs",
+							payload: { projectId: project.id, worktreeId: worktree.id },
+							href: diffsHref(project.id, worktree.id),
+						}),
+					);
+				taskActions.push(action({
+					label: "Open annotations",
+					command: "open_annotations",
+					inputSchema: "open_annotations",
+					payload: worktree ? { projectId: project.id, worktreeId: worktree.id } : { projectId: project.id },
+					href: annotationsHref(project.id, worktree?.id),
+				}));
+			}
 			nodes.push({
 				id: taskNodeId,
 				kind: "task",

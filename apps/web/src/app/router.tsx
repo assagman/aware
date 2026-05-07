@@ -15,8 +15,6 @@ import { AddProjectButton, ProjectPicker } from "../components/ProjectPicker";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { useShellContext, type ShellContext } from "./shellContext";
 
-const AnnotationRunPage = lazy(() => import("../pages/AnnotationRunPage").then((module) => ({ default: module.AnnotationRunPage })));
-const AnnotationTasksPage = lazy(() => import("../pages/AnnotationTasksPage").then((module) => ({ default: module.AnnotationTasksPage })));
 const AnnotationsPage = lazy(() => import("../pages/AnnotationsPage").then((module) => ({ default: module.AnnotationsPage })));
 const CheckpointPage = lazy(() => import("../pages/CheckpointPage").then((module) => ({ default: module.CheckpointPage })));
 const DiffsPage = lazy(() => import("../pages/DiffsPage").then((module) => ({ default: module.DiffsPage })));
@@ -177,8 +175,8 @@ export function AppRouter() {
 					<Route path="projects/:projectId/tasks/:taskId/ship" element={lazyRoute(<ShippingPage />)} />
 					<Route path="projects/:projectId/tasks/:taskId/runs/:runId" element={lazyRoute(<RunPage />)} />
 					<Route path="projects/:projectId/annotations" element={lazyRoute(<AnnotationsPage />)} />
-					<Route path="projects/:projectId/annotation-tasks" element={lazyRoute(<AnnotationTasksPage />)} />
-					<Route path="projects/:projectId/annotation-runs/:runId" element={lazyRoute(<AnnotationRunPage />)} />
+					<Route path="projects/:projectId/annotations/archive" element={lazyRoute(<AnnotationsPage />)} />
+					<Route path="projects/:projectId/annotations/history" element={lazyRoute(<AnnotationsPage />)} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/files" element={lazyRoute(<FilesPage />)} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/files/*" element={lazyRoute(<FilesPage />)} />
 					<Route path="projects/:projectId/worktrees/:worktreeId/diffs" element={lazyRoute(<DiffsPage />)} />

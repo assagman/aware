@@ -63,20 +63,25 @@ export type Annotation = {
 	context?: string;
 	selectedText?: string;
 	sent: boolean;
-	status?: "pending" | "processing" | "sent";
+	status?: "pending" | "processing" | "sent" | "archived";
 	runId?: ID;
+	archivedAt?: string;
 	createdAt: string;
 	updatedAt: string;
 };
+export type AnnotationSuggestionTargetKind = "task" | "run";
 export type AnnotationTaskSuggestion = {
 	id: ID;
 	projectId: ID;
 	title: string;
 	body: string;
-	status: "draft" | "approved" | "creating" | "created";
+	status: "draft" | "approved" | "creating" | "created" | "rejected";
+	targetKind?: AnnotationSuggestionTargetKind;
 	sourceRunId?: ID;
 	annotationIds?: ID[];
+	worktreeId?: ID;
 	taskId?: ID;
+	runId?: ID;
 	createdAt: string;
 	updatedAt: string;
 };

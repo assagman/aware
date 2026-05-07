@@ -4637,3 +4637,23 @@ pre {
 .annotation-utility-popover.compact .annotation-utility-row {
 	gap: 8px;
 }
+
+.annotation-command-panel {
+	display: grid;
+	gap: 10px;
+	margin-bottom: 14px;
+}
+
+.annotation-command-panel textarea {
+	min-height: 92px;
+}
+
+.annotation-select-label {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.annotation-select-label input {
+	margin-top: 8px;
+}

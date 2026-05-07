@@ -61,8 +61,9 @@ export const annotationSchema = z.object({
 	context: z.string().optional(),
 	selectedText: z.string().optional(),
 	sent: z.boolean(),
-	status: z.enum(["pending", "processing", "sent"]).optional(),
+	status: z.enum(["pending", "processing", "sent", "archived"]).optional(),
 	runId: idSchema.optional(),
+	archivedAt: z.string().optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -71,10 +72,13 @@ export const annotationTaskSuggestionSchema = z.object({
 	projectId: idSchema,
 	title: z.string(),
 	body: z.string(),
-	status: z.enum(["draft", "approved", "creating", "created"]),
+	status: z.enum(["draft", "approved", "creating", "created", "rejected"]),
+	targetKind: z.enum(["task", "run"]).optional(),
 	sourceRunId: idSchema.optional(),
 	annotationIds: z.array(idSchema).optional(),
+	worktreeId: idSchema.optional(),
 	taskId: idSchema.optional(),
+	runId: idSchema.optional(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -173,7 +177,10 @@ export const graphSaveAnnotationTaskSuggestionsInputSchema = z.object({
 	suggestions: z.array(z.object({
 		title: z.string().min(1),
 		body: z.string().default(""),
+		targetKind: z.enum(["task", "run"]).optional(),
 		annotationIds: z.array(idSchema).optional(),
+		worktreeId: idSchema.optional(),
+		taskId: idSchema.optional(),
 	})).min(1),
 });
 

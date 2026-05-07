@@ -1,25 +1,38 @@
 import { randomUUID } from "node:crypto";
-import type { Annotation, AnnotationTaskSuggestion } from "@aware/shared";
+import type { Annotation, AnnotationSuggestionTargetKind, AnnotationTaskSuggestion } from "@aware/shared";
 import { db } from "../db/client";
 
 const now = () => new Date().toISOString();
 
-export type AnnotationFilter = Partial<Pick<Annotation, "projectId" | "taskId" | "worktreeId">>;
+export type AnnotationListState = "active" | "archived" | "all";
+export type AnnotationFilter = Partial<Pick<Annotation, "projectId" | "taskId" | "worktreeId">> & {
+	state?: AnnotationListState;
+};
+
+function isDeleted(annotation: Annotation) {
+	return Boolean((annotation as Annotation & { deleted?: boolean }).deleted);
+}
+
+function isArchived(annotation: Annotation) {
+	return Boolean(annotation.archivedAt) || annotation.status === "archived";
+}
 
 export async function listAnnotations(filter: AnnotationFilter = {}) {
 	const rows = await db.list<Annotation>("annotations");
+	const state = filter.state ?? "active";
 	return rows.filter(
-		(a) =>
-			!(a as Annotation & { deleted?: boolean }).deleted &&
-			!(a as Annotation & { resolved?: boolean }).resolved &&
-			(!filter.projectId || a.projectId === filter.projectId) &&
-			(!filter.taskId || a.taskId === filter.taskId) &&
-			(!filter.worktreeId || a.worktreeId === filter.worktreeId),
+		(annotation) =>
+			!isDeleted(annotation) &&
+			!(annotation as Annotation & { resolved?: boolean }).resolved &&
+			(state === "all" || (state === "archived" ? isArchived(annotation) : !isArchived(annotation))) &&
+			(!filter.projectId || annotation.projectId === filter.projectId) &&
+			(!filter.taskId || annotation.taskId === filter.taskId) &&
+			(!filter.worktreeId || annotation.worktreeId === filter.worktreeId),
 	);
 }
 
-export async function getAnnotationInProject(projectId: string, annotationId: string) {
-	return (await listAnnotations({ projectId })).find((row) => row.id === annotationId);
+export async function getAnnotationInProject(projectId: string, annotationId: string, state: AnnotationListState = "all") {
+	return (await listAnnotations({ projectId, state })).find((row) => row.id === annotationId);
 }
 
 export async function createAnnotation(
@@ -37,6 +50,28 @@ export async function createAnnotation(
 		updatedAt: stamp,
 	};
 	return db.insert("annotations", row);
+}
+
+export async function updateAnnotation(annotationId: string, patch: Partial<Annotation>) {
+	return db.update<Annotation>("annotations", annotationId, { ...patch, updatedAt: now() });
+}
+
+export async function archiveAnnotation(projectId: string, annotationId: string) {
+	const annotation = await getAnnotationInProject(projectId, annotationId, "all");
+	if (!annotation) return null;
+	return updateAnnotation(annotation.id, { archivedAt: now(), status: "archived" });
+}
+
+export async function restoreAnnotation(projectId: string, annotationId: string) {
+	const annotation = await getAnnotationInProject(projectId, annotationId, "all");
+	if (!annotation) return null;
+	const { archivedAt: _archivedAt, ...restored } = {
+		...annotation,
+		status: annotation.sent ? "sent" as const : "pending" as const,
+		updatedAt: now(),
+	};
+	await db.insert("annotations", restored);
+	return restored;
 }
 
 export async function moveAnnotationsToWorktree(
@@ -92,6 +127,7 @@ export function serializeAnnotations(annotations: Annotation[]) {
 		.map((a) => {
 			const blocks = [
 				`- ${a.kind} ${annotationLocation(a)}${a.text ? `: ${a.text}` : ""}`,
+				a.worktreeId ? `  worktreeId: ${a.worktreeId}` : "",
 				a.side ? `  side: ${a.side}` : "",
 				a.selectedText ? `  exact text:\n${indent(a.selectedText)}` : "",
 				a.context ? `  context:\n${indent(a.context)}` : "",
@@ -111,10 +147,21 @@ export async function listAnnotationTaskSuggestions(projectId: string) {
 		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+export async function getAnnotationTaskSuggestion(projectId: string, suggestionId: string) {
+	return (await listAnnotationTaskSuggestions(projectId)).find((row) => row.id === suggestionId);
+}
+
 export async function saveAnnotationTaskSuggestions(input: {
 	projectId: string;
 	sourceRunId?: string | undefined;
-	suggestions: Array<{ title: string; body?: string | undefined; annotationIds?: string[] | undefined }>;
+	suggestions: Array<{
+		title: string;
+		body?: string | undefined;
+		targetKind?: AnnotationSuggestionTargetKind | undefined;
+		annotationIds?: string[] | undefined;
+		worktreeId?: string | undefined;
+		taskId?: string | undefined;
+	}>;
 }) {
 	const stamp = now();
 	const rows = input.suggestions.map<AnnotationTaskSuggestion>((suggestion) => ({
@@ -123,8 +170,11 @@ export async function saveAnnotationTaskSuggestions(input: {
 		title: suggestion.title.trim(),
 		body: suggestion.body ?? "",
 		status: "draft",
+		...(suggestion.targetKind ? { targetKind: suggestion.targetKind } : {}),
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
 		...(suggestion.annotationIds?.length ? { annotationIds: suggestion.annotationIds } : {}),
+		...(suggestion.worktreeId ? { worktreeId: suggestion.worktreeId } : {}),
+		...(suggestion.taskId ? { taskId: suggestion.taskId } : {}),
 		createdAt: stamp,
 		updatedAt: stamp,
 	}));
