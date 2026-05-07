@@ -10,6 +10,7 @@ coverage/
 *.db-wal
 .DS_Store
 .pi/
+.pi-lens/
 
 .aware/
 *.sqlite
