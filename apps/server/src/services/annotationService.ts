@@ -17,6 +17,22 @@ function isArchived(annotation: Annotation) {
 	return Boolean(annotation.archivedAt) || annotation.status === "archived";
 }
 
+export function isActiveAnnotation(annotation: Annotation) {
+	return !isDeleted(annotation) && !(annotation as Annotation & { resolved?: boolean }).resolved && !isArchived(annotation);
+}
+
+export function filterAnnotationTaskSuggestionsForActiveAnnotations(
+	suggestions: AnnotationTaskSuggestion[],
+	annotations: Annotation[],
+) {
+	const activeAnnotationIds = new Set(annotations.filter(isActiveAnnotation).map((annotation) => annotation.id));
+	return suggestions.flatMap((suggestion) => {
+		const annotationIds = suggestion.annotationIds?.filter((id) => activeAnnotationIds.has(id));
+		if (suggestion.annotationIds?.length && !annotationIds?.length) return [];
+		return [{ ...suggestion, ...(annotationIds?.length ? { annotationIds } : {}) }];
+	});
+}
+
 export async function listAnnotations(filter: AnnotationFilter = {}) {
 	const rows = await db.list<Annotation>("annotations");
 	const state = filter.state ?? "active";
@@ -142,9 +158,14 @@ function indent(value: string) {
 }
 
 export async function listAnnotationTaskSuggestions(projectId: string) {
-	return (await db.list<AnnotationTaskSuggestion>("annotationTaskSuggestions"))
-		.filter((row) => row.projectId === projectId)
-		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+	const [suggestions, annotations] = await Promise.all([
+		db.list<AnnotationTaskSuggestion>("annotationTaskSuggestions"),
+		db.list<Annotation>("annotations"),
+	]);
+	return filterAnnotationTaskSuggestionsForActiveAnnotations(
+		suggestions.filter((row) => row.projectId === projectId),
+		annotations.filter((row) => row.projectId === projectId),
+	).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function getAnnotationTaskSuggestion(projectId: string, suggestionId: string) {
@@ -164,20 +185,24 @@ export async function saveAnnotationTaskSuggestions(input: {
 	}>;
 }) {
 	const stamp = now();
-	const rows = input.suggestions.map<AnnotationTaskSuggestion>((suggestion) => ({
-		id: randomUUID(),
-		projectId: input.projectId,
-		title: suggestion.title.trim(),
-		body: suggestion.body ?? "",
-		status: "draft",
-		...(suggestion.targetKind ? { targetKind: suggestion.targetKind } : {}),
-		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
-		...(suggestion.annotationIds?.length ? { annotationIds: suggestion.annotationIds } : {}),
-		...(suggestion.worktreeId ? { worktreeId: suggestion.worktreeId } : {}),
-		...(suggestion.taskId ? { taskId: suggestion.taskId } : {}),
-		createdAt: stamp,
-		updatedAt: stamp,
-	}));
+	const activeAnnotationIds = new Set((await listAnnotations({ projectId: input.projectId })).map((annotation) => annotation.id));
+	const rows = input.suggestions.map<AnnotationTaskSuggestion>((suggestion) => {
+		const annotationIds = suggestion.annotationIds?.filter((id) => activeAnnotationIds.has(id));
+		return {
+			id: randomUUID(),
+			projectId: input.projectId,
+			title: suggestion.title.trim(),
+			body: suggestion.body ?? "",
+			status: "draft",
+			...(suggestion.targetKind ? { targetKind: suggestion.targetKind } : {}),
+			...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
+			...(annotationIds?.length ? { annotationIds } : {}),
+			...(suggestion.worktreeId ? { worktreeId: suggestion.worktreeId } : {}),
+			...(suggestion.taskId ? { taskId: suggestion.taskId } : {}),
+			createdAt: stamp,
+			updatedAt: stamp,
+		};
+	});
 	await Promise.all(rows.map((row) => db.insert("annotationTaskSuggestions", row)));
 	return rows;
 }

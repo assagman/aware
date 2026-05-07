@@ -260,7 +260,8 @@ export async function approveAnnotationSuggestion(input: {
 	const title = input.title ?? base?.title ?? "";
 	const body = input.body ?? base?.body ?? "";
 	const requestedTargetKind = input.targetKind ?? base?.targetKind;
-	const candidateAnnotationIds = input.annotationIds ?? base?.annotationIds;
+	const activeAnnotationIds = new Set((await listAnnotations({ projectId: project.id })).map((annotation) => annotation.id));
+	const candidateAnnotationIds = (input.annotationIds ?? base?.annotationIds)?.filter((id) => activeAnnotationIds.has(id));
 	const candidateWorktreeId = input.worktreeId ?? base?.worktreeId;
 	const candidateTaskId = input.taskId ?? base?.taskId;
 	const candidate: AnnotationTaskSuggestion = {
