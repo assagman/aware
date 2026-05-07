@@ -101,7 +101,7 @@ export function ThoughtGraphPageContent({
 					</section>
 					<section className="thought-page-controls" aria-label="Thought graph filters">
 						<label><input type="checkbox" checked={filters.showAssumptions} onChange={(event) => onFiltersChange({ ...filters, showAssumptions: event.currentTarget.checked })} /> assumptions</label>
-						<label><input type="checkbox" checked={filters.showToolEvidence} onChange={(event) => onFiltersChange({ ...filters, showToolEvidence: event.currentTarget.checked })} /> tool evidence</label>
+						<label><input type="checkbox" checked={filters.showToolEvidence} onChange={(event) => onFiltersChange({ ...filters, showToolEvidence: event.currentTarget.checked })} /> raw tool evidence</label>
 						<label><input type="checkbox" checked={filters.pivotsOnly} onChange={(event) => onFiltersChange({ ...filters, pivotsOnly: event.currentTarget.checked })} /> pivots only</label>
 						<label><input type="checkbox" checked={filters.showRisks} onChange={(event) => onFiltersChange({ ...filters, showRisks: event.currentTarget.checked })} /> risks</label>
 						<label>confidence <input type="range" min="0" max="1" step="0.05" value={filters.minConfidence} onChange={(event) => onFiltersChange({ ...filters, minConfidence: Number(event.currentTarget.value) })} /> {filters.minConfidence.toFixed(2)}</label>
@@ -119,7 +119,6 @@ export function ThoughtGraphPageContent({
 										<dl>
 											<dt>Phase</dt><dd>{selectedNode.phase}</dd>
 											<dt>Seq</dt><dd>{selectedNode.seq ?? "n/a"}</dd>
-											<dt>Turn</dt><dd>{selectedNode.turn ?? "n/a"}</dd>
 											<dt>Confidence</dt><dd>{selectedNode.confidence ?? "n/a"}</dd>
 											<dt>Tool</dt><dd>{selectedNode.toolName ?? "n/a"}</dd>
 										</dl>

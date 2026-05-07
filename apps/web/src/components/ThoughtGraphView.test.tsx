@@ -1,6 +1,7 @@
 import type { ThoughtGraph } from "@aware/shared";
 import { describe, expect, it } from "vitest";
 import {
+	connectedThoughtGraphElementIds,
 	defaultThoughtGraphFilters,
 	layoutThoughtGraph,
 	thoughtGraphIsEmpty,
@@ -15,13 +16,13 @@ const graph: ThoughtGraph = {
 	summary: "Decision followed evidence.",
 	nodes: [
 		{ id: "intent", kind: "intent", label: "User intent", detail: "Build graph", phase: "User intent", sourceEventIds: [] },
-		{ id: "evidence", kind: "evidence", label: "Read", detail: "Found API", phase: "Evidence/tool feedback", toolName: "read", confidence: 0.8, sourceEventIds: [] },
+		{ id: "action", kind: "action", label: "Read file", detail: "Read src/a.ts", phase: "Evidence/tool feedback", toolName: "read", confidence: 0.8, sourceEventIds: [] },
 		{ id: "decision", kind: "decision", label: "Use cache", detail: "Cache artifact", phase: "Decisions", sourceEventIds: [] },
 		{ id: "pivot", kind: "pivot", label: "Switch", detail: "Moved to page", phase: "Pivots", sourceEventIds: [] },
 	],
 	edges: [
-		{ id: "e1", source: "intent", target: "evidence", kind: "led_to" },
-		{ id: "e2", source: "evidence", target: "decision", kind: "supported_by" },
+		{ id: "e1", source: "intent", target: "action", kind: "led_to" },
+		{ id: "e2", source: "action", target: "decision", kind: "supported_by" },
 		{ id: "e3", source: "decision", target: "pivot", kind: "changed_mind" },
 	],
 	timeline: [],
@@ -45,6 +46,19 @@ describe("ThoughtGraphView helpers", () => {
 
 		expect(layout.nodes.map((node) => node.id)).toEqual(["pivot"]);
 		expect(layout.edges).toHaveLength(0);
+	});
+
+	it("marks connected nodes and edges for hover focus", () => {
+		const focus = connectedThoughtGraphElementIds(graph, "decision");
+		const layout = layoutThoughtGraph(graph, defaultThoughtGraphFilters, "", "decision");
+
+		expect(focus.nodeIds).toEqual(new Set(["action", "decision", "pivot"]));
+		expect(focus.edgeIds).toEqual(new Set(["e2", "e3"]));
+		expect(layout.nodes.find((node) => node.id === "decision")?.data.focusState).toBe("focused");
+		expect(layout.nodes.find((node) => node.id === "action")?.data.focusState).toBe("connected");
+		expect(layout.nodes.find((node) => node.id === "intent")?.data.focusState).toBe("dimmed");
+		expect(layout.edges.find((edge) => edge.id === "e2")?.className).toContain("thought-edge-connected");
+		expect(layout.edges.find((edge) => edge.id === "e1")?.className).toContain("thought-edge-dimmed");
 	});
 
 	it("reports empty and exports markdown", () => {

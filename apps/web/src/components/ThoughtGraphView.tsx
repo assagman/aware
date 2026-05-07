@@ -9,7 +9,7 @@ import {
 	type Node,
 	type NodeProps,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 export const thoughtGraphPhases = [
 	"User intent",
@@ -52,12 +52,15 @@ export const defaultThoughtGraphFilters: ThoughtGraphFilters = {
 	minConfidence: 0,
 };
 
+type FocusState = "normal" | "focused" | "connected" | "dimmed";
+
 type ThoughtNodeData = {
 	thoughtNode: ThoughtGraphNode;
 	selected: boolean;
+	focusState: FocusState;
 } & Record<string, unknown>;
 type ThoughtFlowNode = Node<ThoughtNodeData, "thought">;
-type ThoughtFlowEdge = Edge<{ kind: string }>;
+type ThoughtFlowEdge = Edge<{ kind: string; focusState: FocusState }>;
 
 export function thoughtGraphIsEmpty(graph: ThoughtGraph | undefined) {
 	return !graph || graph.nodes.length === 0;
@@ -66,7 +69,7 @@ export function thoughtGraphIsEmpty(graph: ThoughtGraph | undefined) {
 function visibleNode(node: ThoughtGraphNode, filters: ThoughtGraphFilters) {
 	if (filters.pivotsOnly && node.kind !== "pivot") return false;
 	if (!filters.showAssumptions && node.kind === "assumption") return false;
-	if (!filters.showToolEvidence && (node.kind === "evidence" || node.kind === "action") && node.toolName) return false;
+	if (!filters.showToolEvidence && node.kind === "evidence" && node.toolName) return false;
 	if (!filters.showRisks && node.kind === "risk") return false;
 	return (node.confidence ?? 1) >= filters.minConfidence;
 }
@@ -76,9 +79,38 @@ function phaseIndex(node: ThoughtGraphNode) {
 	return index >= 0 ? index : 2;
 }
 
-export function layoutThoughtGraph(graph: ThoughtGraph, filters: ThoughtGraphFilters, selectedNodeId = "") {
+export function connectedThoughtGraphElementIds(graph: ThoughtGraph, focusId = "") {
+	const nodeIds = new Set<string>();
+	const edgeIds = new Set<string>();
+	if (!focusId) return { nodeIds, edgeIds };
+	const focusedEdge = graph.edges.find((edge) => edge.id === focusId);
+	if (focusedEdge) {
+		edgeIds.add(focusedEdge.id);
+		nodeIds.add(focusedEdge.source);
+		nodeIds.add(focusedEdge.target);
+		return { nodeIds, edgeIds };
+	}
+	if (!graph.nodes.some((node) => node.id === focusId)) return { nodeIds, edgeIds };
+	nodeIds.add(focusId);
+	for (const edge of graph.edges) {
+		if (edge.source !== focusId && edge.target !== focusId) continue;
+		edgeIds.add(edge.id);
+		nodeIds.add(edge.source);
+		nodeIds.add(edge.target);
+	}
+	return { nodeIds, edgeIds };
+}
+
+function focusState(id: string, focusId: string, ids: Set<string>): FocusState {
+	if (!focusId) return "normal";
+	if (id === focusId) return "focused";
+	return ids.has(id) ? "connected" : "dimmed";
+}
+
+export function layoutThoughtGraph(graph: ThoughtGraph, filters: ThoughtGraphFilters, selectedNodeId = "", focusElementId = "") {
 	const visible = graph.nodes.filter((node) => visibleNode(node, filters));
 	const visibleIds = new Set(visible.map((node) => node.id));
+	const focus = connectedThoughtGraphElementIds(graph, focusElementId);
 	const yByPhase = new Map<number, number>();
 	const nodes: ThoughtFlowNode[] = visible
 		.sort((a, b) => (phaseIndex(a) - phaseIndex(b)) || ((a.seq ?? 0) - (b.seq ?? 0)) || a.id.localeCompare(b.id))
@@ -89,31 +121,34 @@ export function layoutThoughtGraph(graph: ThoughtGraph, filters: ThoughtGraphFil
 			return {
 				id: node.id,
 				type: "thought",
-				position: { x: phase * 300, y: y * 170 },
-				data: { thoughtNode: node, selected: node.id === selectedNodeId },
+				position: { x: phase * 320, y: y * 190 },
+				data: { thoughtNode: node, selected: node.id === selectedNodeId, focusState: focusState(node.id, focusElementId, focus.nodeIds) },
 				sourcePosition: Position.Right,
 				targetPosition: Position.Left,
 			};
 		});
 	const edges: ThoughtFlowEdge[] = graph.edges
 		.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
-		.map((edge) => ({
-			id: edge.id,
-			source: edge.source,
-			target: edge.target,
-			type: "smoothstep",
-			label: edge.label ?? edge.kind.replace(/_/g, " "),
-			animated: edge.kind === "changed_mind" || edge.kind === "left_open",
-			className: `thought-edge thought-edge-${edge.kind}`,
-			data: { kind: edge.kind },
-		}));
+		.map((edge) => {
+			const edgeFocusState = focusState(edge.id, focusElementId, focus.edgeIds);
+			return {
+				id: edge.id,
+				source: edge.source,
+				target: edge.target,
+				type: "smoothstep",
+				label: edge.label ?? edge.kind.replace(/_/g, " "),
+				animated: edge.kind === "changed_mind" || edge.kind === "left_open" || edgeFocusState === "focused",
+				className: `thought-edge thought-edge-${edge.kind} thought-edge-${edgeFocusState}`,
+				data: { kind: edge.kind, focusState: edgeFocusState },
+			};
+		});
 	return { nodes, edges };
 }
 
 function ThoughtNodeCard({ data, isConnectable }: NodeProps<ThoughtFlowNode>) {
 	const node = data.thoughtNode;
 	return (
-		<article className={`thought-flow-node thought-flow-node-${node.kind} ${data.selected ? "selected" : ""}`}>
+		<article className={`thought-flow-node thought-flow-node-${node.kind} thought-flow-node-${data.focusState} ${data.selected ? "selected" : ""}`}>
 			<Handle type="target" position={Position.Left} isConnectable={isConnectable} />
 			<div className="thought-node-topline">
 				<span>{kindLabels[node.kind]}</span>
@@ -163,9 +198,10 @@ export function ThoughtGraphView({
 	selectedNodeId: string;
 	onSelectNode: (nodeId: string) => void;
 }) {
-	const { nodes, edges } = useMemo(() => layoutThoughtGraph(graph, filters, selectedNodeId), [filters, graph, selectedNodeId]);
+	const [focusElementId, setFocusElementId] = useState("");
+	const { nodes, edges } = useMemo(() => layoutThoughtGraph(graph, filters, selectedNodeId, focusElementId), [filters, focusElementId, graph, selectedNodeId]);
 	return (
-		<section className="thought-page-graph" aria-label="Thought graph canvas">
+		<section className="thought-page-graph" aria-label="Thought graph canvas" onMouseLeave={() => setFocusElementId("")}>
 			<div className="thought-phase-ruler" aria-hidden="true">
 				{thoughtGraphPhases.map((phase) => <span key={phase}>{phase}</span>)}
 			</div>
@@ -175,6 +211,10 @@ export function ThoughtGraphView({
 				nodeTypes={nodeTypes}
 				fitView
 				onNodeClick={(_, node) => onSelectNode(node.id)}
+				onNodeMouseEnter={(_, node) => setFocusElementId(node.id)}
+				onNodeMouseLeave={() => setFocusElementId("")}
+				onEdgeMouseEnter={(_, edge) => setFocusElementId(edge.id)}
+				onEdgeMouseLeave={() => setFocusElementId("")}
 				minZoom={0.25}
 				maxZoom={1.4}
 			>

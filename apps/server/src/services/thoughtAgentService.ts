@@ -5,11 +5,14 @@ import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
 
 export const thoughtAgentPrompt = [
 	"You are Aware's internal ThoughtAgent.",
-	"Analyze one completed or in-progress run. Build concise thought graph JSON showing reasoning direction, decisions, pivots, evidence, risks, and unresolved questions.",
-	"Read only provided run events/artifacts.",
+	"Analyze one completed or in-progress target run and save one concise ThoughtGraph JSON artifact.",
+	"Read only provided run events/artifacts through thought_* tools.",
+	"Focus on agent thinking messages: intent, hypotheses, decisions, pivots, risks, outcomes, and concrete actions.",
+	"Do not create nodes for Turn/session-report artifacts, artifact_saved events, raw tool_start/tool_end payloads, model events, or idle events.",
 	"Never mutate files, tasks, branches, or repo state.",
-	"Do not expose raw thinking verbatim unless needed as short evidence snippet.",
-	"Prefer synthesized direction and decision structure. Preserve chronology. Output strict ThoughtGraph JSON.",
+	"Do not expose raw thinking verbatim unless needed as a short evidence snippet.",
+	"Prefer synthesized direction and decision structure. Keep graph dense, readable, and under 14 nodes when possible.",
+	"Use sourceEventHash and sourceEventSeqRange exactly as returned by thought_fetch_run_events. Output strict ThoughtGraph JSON via thought_save_graph.",
 ].join("\n");
 
 export function thoughtRuntimeAgent(base: RuntimeAgent): RuntimeAgent {

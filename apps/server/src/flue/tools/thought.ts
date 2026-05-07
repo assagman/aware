@@ -2,7 +2,7 @@ import { Type, type ToolDef } from "@flue/sdk/client";
 import { thoughtGraphSchema } from "@aware/shared";
 import { db } from "../../db/client";
 import {
-	currentThoughtGraphSource,
+	currentThoughtGraphAnalyzerInput,
 	saveThoughtGraphArtifact,
 } from "../../services/thoughtGraphService";
 
@@ -35,22 +35,28 @@ export function createThoughtTools(context: ThoughtToolContext): ToolDef[] {
 	return [
 		{
 			name: "thought_fetch_run_events",
-			description: "Read sanitized events for the current run only. Excludes Thought Graph artifact self-events from graph source.",
+			description: "Read distilled analyzer input for the current run only. Includes thinking/message timeline, concrete actions, source hash/range, and omitted noise counts; excludes raw turn/tool/artifact noise.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
-				const source = await currentThoughtGraphSource(runId);
-				return stringifyResult(source);
+				return stringifyResult(await currentThoughtGraphAnalyzerInput(runId));
 			},
 		},
 		{
 			name: "thought_fetch_artifacts",
-			description: "Read artifacts for the current run only. Use as evidence; do not mutate or export unrelated runs.",
+			description: "Read non-ThoughtGraph, non-session-report artifacts for the current run only. Session reports/Turn artifacts are intentionally omitted as graph noise.",
 			parameters: Type.Object({ runId: optionalRunId }),
 			execute: async (args) => {
 				const runId = scopedRunId(context, args.runId);
-				const artifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId);
-				return stringifyResult({ artifacts });
+				const allArtifacts = (await db.list("runArtifacts")).filter((artifact) => artifact.runId === runId);
+				const artifacts = allArtifacts.filter((artifact) => artifact.kind !== "thought_graph" && artifact.kind !== "session_report");
+				return stringifyResult({
+					artifacts,
+					omitted: {
+						sessionReports: allArtifacts.filter((artifact) => artifact.kind === "session_report").length,
+						thoughtGraphs: allArtifacts.filter((artifact) => artifact.kind === "thought_graph").length,
+					},
+				});
 			},
 		},
 		{
