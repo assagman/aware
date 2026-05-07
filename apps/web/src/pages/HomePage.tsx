@@ -30,6 +30,7 @@ import {
 	type Viewport,
 } from "@xyflow/react";
 import {
+	memo,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -1940,7 +1941,7 @@ const markdownComponents: Components = {
 	},
 };
 
-export function MarkdownText({
+export const MarkdownText = memo(function MarkdownText({
 	text,
 	className = "",
 }: {
@@ -1958,7 +1959,7 @@ export function MarkdownText({
 			</ReactMarkdown>
 		</div>
 	);
-}
+});
 
 function worktreeName(worktree: Worktree | undefined) {
 	if (!worktree) return "?";
@@ -3710,7 +3711,7 @@ function ToolBlock({
 	);
 }
 
-function ChatTimeline({ events }: { events: RunEvent[] }) {
+export const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
 	const { textByUserEventId, consumedPromptEventIds } =
 		mapPromptTextToUserEvents(ordered);
@@ -3821,7 +3822,7 @@ function ChatTimeline({ events }: { events: RunEvent[] }) {
 	flushAssistant();
 	flushThinking();
 	return <div className="run-chat-timeline">{rendered}</div>;
-}
+});
 
 export function GraphRunChat({
 	projectId,
