@@ -26,6 +26,7 @@ export const runInstructionsPrompt = readPrompt("run-instructions.md");
 export const taskPromptTemplate = readPrompt("task-prompt-template.md");
 export const shippingAgentPrompt = readPrompt("shipping-agent.md");
 export const graphAgentPrompt = readPrompt("graph-agent.md");
+export const planAgentPrompt = readPrompt("plan-agent.md");
 export const annotationSentPromptTemplate = readPrompt(
 	"annotation-sent-prompt-template.md",
 );

@@ -2,6 +2,7 @@ import { Type, type ToolDef } from "@flue/sdk/client";
 import {
 	graphCreateTaskInputSchema,
 	graphRetryRunInputSchema,
+	graphStartExecutionPlanInputSchema,
 	graphSaveAnnotationTaskSuggestionsInputSchema,
 	graphRunIdentityInputSchema,
 	graphSendRunMessageInputSchema,
@@ -15,6 +16,7 @@ const graphToolNames = [
 	"graph_create_task",
 	"graph_update_task",
 	"graph_start_run",
+	"graph_start_execution_plan",
 	"graph_send_run_message",
 	"graph_retry_run",
 	"graph_delete_run",
@@ -83,7 +85,7 @@ export function createGraphTools(): ToolDef[] {
 		},
 		{
 			name: "graph_start_run",
-			description: "Start a task-lane or gate-lane agent run. Use lane 'task' for implementation splits, 'gate' for validation/ship-prep evidence. Never use this for final shipping.",
+			description: "Start a task-lane or gate-lane agent run from an execution plan. Use lane 'task' for implementation splits, 'gate' for validation/ship-prep evidence. For sequential planned runs, pass relation 'sequential' and the concrete parentRunId returned by the parent run creation or found in projection; sequential runs without parentRunId are rejected. Never use this for final shipping.",
 			parameters: Type.Object({
 				projectId,
 				taskId,
@@ -96,6 +98,29 @@ export function createGraphTools(): ToolDef[] {
 			execute: async (args) => {
 				const { startRunCommand } = await import("../../services/graph/commands");
 				return stringifyResult(await startRunCommand(graphStartRunInputSchema.parse(args)));
+			},
+		},
+		{
+			name: "graph_start_execution_plan",
+			description: "Validate one complete Main-authored Auto Create Runs execution plan before mutation, avoid exact duplicate active/completed task runs, then create missing task-lane runs. Use this instead of multiple graph_start_run calls for Auto Create Runs plans.",
+			parameters: Type.Object({
+				version: Type.Number({ description: "Execution plan schema version. Must be 1." }),
+				projectId,
+				taskId,
+				duplicateAvoidance: Type.Optional(Type.Array(Type.String({ description: "Duplicate-avoidance rule." }))),
+				runs: Type.Array(Type.Object({
+					planId: Type.String({ description: "Stable short id unique within this plan." }),
+					title: Type.String({ description: "Concise purpose." }),
+					lane: Type.String({ description: "Must be task." }),
+					relation: Type.String({ description: "parallel or sequential." }),
+					dependsOn: Type.Optional(Type.Array(Type.String({ description: "Human-readable dependency context or plan ids." }))),
+					parentPlanId: optionalText("Immediate predecessor planId for sequential runs. Omit for parallel runs."),
+					prompt: Type.String({ description: "Concrete scoped run prompt." }),
+				})),
+			}),
+			execute: async (args) => {
+				const { startExecutionPlanCommand } = await import("../../services/graph/commands");
+				return stringifyResult(await startExecutionPlanCommand(graphStartExecutionPlanInputSchema.parse(args)));
 			},
 		},
 		{

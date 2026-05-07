@@ -11,8 +11,30 @@ import { generateThoughtGraph, getCachedThoughtGraph } from "../services/thought
 
 export const runs = new Hono();
 
+async function reconcileReadyQueuedSequentialRuns(rows: AgentRun[]) {
+	const doneParentIds = new Set(
+		rows
+			.filter((run) => !run.deletedAt && run.status === "done")
+			.map((run) => run.id),
+	);
+	const readyParentIds = new Set(
+		rows
+			.filter(
+				(run) =>
+					!run.deletedAt &&
+					run.status === "queued" &&
+					run.relation === "sequential" &&
+					run.parentRunId &&
+					doneParentIds.has(run.parentRunId),
+			)
+			.map((run) => run.parentRunId!),
+	);
+	await Promise.all([...readyParentIds].map((id) => flueRuntime.activateQueuedSequentialChildren(id)));
+}
+
 async function reconcileStaleRunningRuns() {
 	const rows = await db.list<AgentRun>("runs");
+	await reconcileReadyQueuedSequentialRuns(rows);
 	const events = await db.list("runEvents");
 	const cutoff = Date.now() - runInactivityTimeoutMs();
 	await Promise.all(
@@ -102,10 +124,7 @@ runs.post("/:id/done", async (c) => {
 	if (!run) return c.json({ error: "missing run" }, 404);
 	if (run.status === "running" || run.status === "queued")
 		return c.json({ error: `run is ${run.status}` }, 409);
-	const updated = await db.update<AgentRun>("runs", id, {
-		status: "done",
-		endedAt: run.endedAt ?? new Date().toISOString(),
-	});
+	const updated = await flueRuntime.markRunDoneAndActivateChildren(id);
 	if (await allTaskRunsDone(run.taskId)) {
 		const task = (await db.list<Task>("tasks")).find((row) => row.id === run.taskId);
 		if (task?.status !== "done")

@@ -1,4 +1,6 @@
+import { graphStartExecutionPlanInputSchema } from "@aware/shared";
 import type { AgentRun, AnnotationTaskSuggestion, RunLane, RunRelation, Task } from "@aware/shared";
+import type { z } from "zod";
 import { db } from "../../db/client";
 import { flueRuntime } from "../agentRuntime/flueRuntime";
 import { assertAllowedWorktree, addProject } from "../projectService";
@@ -142,6 +144,8 @@ export async function startRunCommand(input: {
 			400,
 		);
 	const relation = input.relation === "sequential" ? "sequential" : "parallel";
+	if (relation === "sequential" && !input.parentRunId)
+		throw new RouteValidationError("sequential run requires parentRunId", 400);
 	const parentRun = await assertParentRun({
 		taskId: task.id,
 		relation,
@@ -175,6 +179,153 @@ export async function startRunCommand(input: {
 		lane,
 		...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
 	});
+}
+
+type ExecutionPlan = z.infer<typeof graphStartExecutionPlanInputSchema>;
+type ExecutionPlanRun = ExecutionPlan["runs"][number];
+
+function normalizedText(value: string | undefined) {
+	return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function activeOrCompletedRun(run: AgentRun) {
+	return !run.deletedAt && ["queued", "running", "need_review", "done"].includes(run.status);
+}
+
+function validateExecutionPlan(plan: ExecutionPlan) {
+	const seen = new Set<string>();
+	const prompts = new Set<string>();
+	for (const run of plan.runs) {
+		if (seen.has(run.planId))
+			throw new RouteValidationError(`duplicate planId: ${run.planId}`, 400);
+		seen.add(run.planId);
+		const promptKey = normalizedText(run.prompt);
+		if (prompts.has(promptKey))
+			throw new RouteValidationError(`duplicate run prompt in plan: ${run.planId}`, 400);
+		prompts.add(promptKey);
+		if (run.relation === "sequential" && !run.parentPlanId)
+			throw new RouteValidationError(`sequential plan run ${run.planId} requires parentPlanId`, 400);
+		if (run.relation === "parallel" && run.parentPlanId)
+			throw new RouteValidationError(`parallel plan run ${run.planId} must not set parentPlanId`, 400);
+	}
+	for (const run of plan.runs) {
+		if (!run.parentPlanId) continue;
+		if (run.parentPlanId === run.planId)
+			throw new RouteValidationError(`plan run ${run.planId} cannot depend on itself`, 400);
+		if (!seen.has(run.parentPlanId))
+			throw new RouteValidationError(`missing parentPlanId for ${run.planId}: ${run.parentPlanId}`, 400);
+	}
+	const sequentialParentPlanIds = new Set<string>();
+	for (const run of plan.runs) {
+		if (run.relation !== "sequential" || !run.parentPlanId) continue;
+		if (sequentialParentPlanIds.has(run.parentPlanId))
+			throw new RouteValidationError(`multiple sequential children for parentPlanId: ${run.parentPlanId}`, 400);
+		sequentialParentPlanIds.add(run.parentPlanId);
+	}
+	const visiting = new Set<string>();
+	const visited = new Set<string>();
+	const byPlanId = new Map(plan.runs.map((run) => [run.planId, run]));
+	const visit = (run: ExecutionPlanRun) => {
+		if (visited.has(run.planId)) return;
+		if (visiting.has(run.planId))
+			throw new RouteValidationError(`cycle in execution plan at ${run.planId}`, 400);
+		visiting.add(run.planId);
+		const parent = run.parentPlanId ? byPlanId.get(run.parentPlanId) : undefined;
+		if (parent) visit(parent);
+		visiting.delete(run.planId);
+		visited.add(run.planId);
+	};
+	for (const run of plan.runs) visit(run);
+}
+
+function orderedExecutionPlanRuns(plan: ExecutionPlan) {
+	const byPlanId = new Map(plan.runs.map((run) => [run.planId, run]));
+	const ordered: ExecutionPlanRun[] = [];
+	const visited = new Set<string>();
+	const visit = (run: ExecutionPlanRun) => {
+		if (visited.has(run.planId)) return;
+		const parent = run.parentPlanId ? byPlanId.get(run.parentPlanId) : undefined;
+		if (parent) visit(parent);
+		visited.add(run.planId);
+		ordered.push(run);
+	};
+	for (const run of plan.runs) visit(run);
+	return ordered;
+}
+
+function equivalentRunForPlanRun(runs: AgentRun[], taskId: string, planRun: ExecutionPlanRun) {
+	const promptKey = normalizedText(planRun.prompt);
+	return runs.find(
+		(run) =>
+			run.taskId === taskId &&
+			activeOrCompletedRun(run) &&
+			runLane(run) === "task" &&
+			normalizedText(run.request) === promptKey,
+	);
+}
+
+function sequentialChildConflictForPlanRun(runs: AgentRun[], taskId: string, parentRunId: string, planRun: ExecutionPlanRun) {
+	const equivalent = equivalentRunForPlanRun(runs, taskId, planRun);
+	return runs.find(
+		(run) =>
+			run.taskId === taskId &&
+			activeOrCompletedRun(run) &&
+			run.relation === "sequential" &&
+			run.parentRunId === parentRunId &&
+			run.id !== equivalent?.id,
+	);
+}
+
+export async function startExecutionPlanCommand(rawInput: unknown) {
+	const parsed = graphStartExecutionPlanInputSchema.safeParse(rawInput);
+	if (!parsed.success)
+		throw new RouteValidationError(parsed.error.issues[0]?.message ?? "invalid execution plan", 400);
+	const plan = parsed.data;
+	await getTaskInProjectOrThrow(plan.projectId, plan.taskId);
+	validateExecutionPlan(plan);
+	const existingRuns = await db.list<AgentRun>("runs");
+	const equivalentRunsByPlanId = new Map(
+		plan.runs
+			.map((planRun) => [planRun.planId, equivalentRunForPlanRun(existingRuns, plan.taskId, planRun)] as const)
+			.filter((entry): entry is readonly [string, AgentRun] => Boolean(entry[1])),
+	);
+	for (const planRun of plan.runs) {
+		const parentRunId = planRun.parentPlanId ? equivalentRunsByPlanId.get(planRun.parentPlanId)?.id : undefined;
+		if (!parentRunId) continue;
+		const conflict = sequentialChildConflictForPlanRun(existingRuns, plan.taskId, parentRunId, planRun);
+		if (conflict)
+			throw new RouteValidationError(`sequential child already exists for parent plan ${planRun.parentPlanId}`, 409);
+	}
+	const created: Array<{ planId: string; run: AgentRun }> = [];
+	const existing: Array<{ planId: string; run: AgentRun }> = [];
+	const runIdsByPlanId = new Map<string, string>();
+	for (const planRun of orderedExecutionPlanRuns(plan)) {
+		const equivalent = equivalentRunForPlanRun(existingRuns, plan.taskId, planRun);
+		if (equivalent) {
+			runIdsByPlanId.set(planRun.planId, equivalent.id);
+			existing.push({ planId: planRun.planId, run: equivalent });
+			continue;
+		}
+		const parentRunId = planRun.parentPlanId ? runIdsByPlanId.get(planRun.parentPlanId) : undefined;
+		if (planRun.relation === "sequential" && !parentRunId)
+			throw new RouteValidationError(`missing parent run for ${planRun.planId}`, 400);
+		const run = await startRunCommand({
+			projectId: plan.projectId,
+			taskId: plan.taskId,
+			message: planRun.prompt,
+			relation: planRun.relation,
+			lane: "task",
+			...(parentRunId ? { parentRunId } : {}),
+		});
+		runIdsByPlanId.set(planRun.planId, run.id);
+		created.push({ planId: planRun.planId, run });
+		existingRuns.push(run);
+	}
+	return {
+		ok: true,
+		created,
+		existing,
+	};
 }
 
 export async function sendRunMessageCommand(input: {

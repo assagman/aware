@@ -92,6 +92,8 @@ async function startTaskRun(c: Context) {
 		typeof body.parentRunId === "string" && body.parentRunId
 			? body.parentRunId
 			: undefined;
+	if (relation === "sequential" && !parentRunId)
+		return c.json({ error: "sequential run requires parentRunId" }, 400);
 	if (parentRunId) {
 		const activeRuns = (await db.list<AgentRun>("runs")).filter(
 			(run) => run.taskId === task.id && !run.deletedAt,

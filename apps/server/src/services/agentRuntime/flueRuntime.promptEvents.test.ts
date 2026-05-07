@@ -45,7 +45,13 @@ vi.mock("../../db/client", () => ({
 			if (table === "tasks") return state.tasks;
 			return [];
 		}),
-		update: vi.fn(async () => ({})),
+		update: vi.fn(async (table: string, id: string, patch: Partial<AgentRun & Task>) => {
+			const rows = table === "runs" ? state.runs : table === "tasks" ? state.tasks : [];
+			const index = rows.findIndex((row) => row.id === id);
+			if (index === -1) return null;
+			rows[index] = { ...rows[index]!, ...patch } as never;
+			return rows[index];
+		}),
 	},
 }));
 
@@ -58,6 +64,16 @@ vi.mock("../artifactoryService", () => ({
 	buildUpstreamArtifactContext: vi.fn(async () => "prior artifact"),
 	ensureSessionReportForTurn: vi.fn(),
 	nextSessionReportTurnSeq: vi.fn(async () => 1),
+}));
+
+vi.mock("../skillCatalogService", () => ({
+	skillSandboxPolicy: vi.fn(async () => ({})),
+}));
+
+vi.mock("../../flue/sandbox/localWorktreeSandbox", () => ({
+	createDefaultEnv: vi.fn(),
+	createLocalEnv: vi.fn(),
+	createLocalWorktreeSandbox: vi.fn(async () => ({})),
 }));
 
 vi.mock("../defaultBranchGuard", () => ({
@@ -212,7 +228,7 @@ describe("flue runtime prompt event shape", () => {
 		expect(instructions).toContain("Global prompt");
 	});
 
-	it("keeps load_skill available for allow-listed internal agents", () => {
+	it("keeps load_skill available for allow-listed internal agents unless skills are disabled", () => {
 		type TestRuntimeTool = {
 			name: string;
 			execute: () => Promise<unknown>;
@@ -227,10 +243,11 @@ describe("flue runtime prompt event shape", () => {
 		const tools: TestRuntimeTool[] = [
 			{ name: "graph_create_task", execute: async () => undefined },
 			{ name: "load_skill", execute: async () => undefined },
+			{ name: "delegate_agent", execute: async () => undefined },
 			{ name: "bash", execute: async () => undefined },
 		];
 
-		const filtered = runtime.applyRuntimeToolPolicy(
+		expect(runtime.applyRuntimeToolPolicy(
 			tools,
 			{
 				...agents[0]!,
@@ -238,12 +255,171 @@ describe("flue runtime prompt event shape", () => {
 				allowedToolNames: ["graph_create_task"],
 			},
 			[],
-		);
-
-		expect(filtered?.map((tool) => tool.name)).toEqual([
+		)?.map((tool) => tool.name)).toEqual([
 			"graph_create_task",
 			"load_skill",
 		]);
+		expect(runtime.applyRuntimeToolPolicy(
+			tools,
+			{
+				...agents[0]!,
+				internal: true,
+				skillsEnabled: false,
+				allowedToolNames: ["delegate_agent"],
+			},
+			[],
+		)?.map((tool) => tool.name)).toEqual(["delegate_agent"]);
+	});
+
+	it("uses delegate_agent as an opt-in scoped delegation tool", async () => {
+		type DelegateTool = {
+			name: string;
+			execute: (args: Record<string, unknown>) => Promise<string>;
+		};
+		const selected = {
+			...agents[0]!,
+			id: "planner",
+			tools: ["delegate_agent"],
+			allowedToolNames: ["delegate_agent"],
+			skillsEnabled: false,
+			delegationPolicy: { requiredRole: "graph-agent", minCalls: 1, maxCalls: 1 },
+		} as RuntimeAgent;
+		const graphAgent: RuntimeAgent = {
+			...agents[0]!,
+			id: "graph",
+			name: "Graph Agent",
+			roleName: "graph-agent",
+			tools: ["graph_start_run"],
+			allowedToolNames: ["graph_start_run"],
+			skillsEnabled: false,
+		};
+		const runtime = new FlueRuntime() as unknown as {
+			createScopedDelegationTools: (run: AgentRun, input: unknown, agents: RuntimeAgent[]) => DelegateTool[];
+			runDelegatedAgent: ReturnType<typeof vi.fn>;
+		};
+		runtime.runDelegatedAgent = vi.fn(async () => ({ text: "delegated" }));
+		const run: AgentRun = {
+			id: "run-1",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-1",
+			startedAt: "",
+		};
+
+		const tools = runtime.createScopedDelegationTools(run, {
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents: [selected, graphAgent],
+		}, [graphAgent]);
+
+		expect(tools.map((tool) => tool.name)).toEqual(["delegate_agent"]);
+		await expect(tools[0]!.execute({ role: "graph-agent", prompt: "plan" })).resolves.toBe("delegated");
+		await expect(tools[0]!.execute({ role: "graph-agent", prompt: "plan again" })).rejects.toThrow(/exactly once/i);
+		expect(runtime.runDelegatedAgent).toHaveBeenCalledWith(expect.objectContaining({ id: run.id }), expect.objectContaining({ agents: [selected, graphAgent] }), graphAgent, "plan");
+		expect(runtime.runDelegatedAgent).toHaveBeenCalledOnce();
+		expect(runtime.createScopedDelegationTools(run, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents }, [graphAgent])).toEqual([]);
+	});
+
+	it("fails scoped planner runs that return without required delegation", async () => {
+		(
+			FlueRuntime.prototype as unknown as {
+				runFlue: { mockRestore: () => void };
+			}
+		).runFlue.mockRestore();
+		const { createFlueContext } = await import("@flue/sdk/internal");
+		vi.mocked(createFlueContext).mockReturnValue({
+			setEventCallback: vi.fn(),
+			init: vi.fn(async () => ({
+				session: vi.fn(async () => ({
+					harness: { state: { tools: [] } },
+					prompt: vi.fn(async () => "finished without delegating"),
+				})),
+			})),
+		} as never);
+		const runtime = new FlueRuntime() as unknown as {
+			runFlue: (run: AgentRun, input: unknown, prompt: string) => Promise<unknown>;
+		};
+		const selected = {
+			...agents[0]!,
+			id: "planner",
+			tools: ["delegate_agent"],
+			allowedToolNames: ["delegate_agent"],
+			skillsEnabled: false,
+			delegationPolicy: { requiredRole: "graph-agent", minCalls: 1, maxCalls: 1 },
+		} as RuntimeAgent;
+		const graphAgent: RuntimeAgent = {
+			...agents[0]!,
+			id: "graph",
+			name: "Graph Agent",
+			roleName: "graph-agent",
+			tools: ["graph_start_execution_plan"],
+			allowedToolNames: ["graph_start_execution_plan"],
+			skillsEnabled: false,
+		};
+		const run: AgentRun = {
+			id: "run-1",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-1",
+			startedAt: "",
+		};
+
+		await expect(runtime.runFlue(run, {
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents: [selected, graphAgent],
+		}, "plan prompt")).rejects.toThrow(/exactly once/i);
+	});
+
+	it("queues sequential children until the parent run is marked done", async () => {
+		state.runs = [
+			{
+				id: "parent-run",
+				taskId: task.id,
+				projectId: task.projectId,
+				worktreeId: "worktree-1",
+				status: "need_review",
+				sessionId: "session-parent",
+				startedAt: "",
+			},
+		];
+		const runtime = new FlueRuntime();
+		const queueRuntime = runtime as unknown as {
+			activateQueuedSequentialChildren: (parentRunId: string) => Promise<void>;
+			markRunDoneAndActivateChildren: (runId: string) => Promise<AgentRun | null>;
+		};
+		const runFlueMock = (
+			FlueRuntime.prototype as unknown as {
+				runFlue: { mock: { calls: unknown[][] } };
+			}
+		).runFlue;
+
+		const child = await runtime.startRun({
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents,
+			message: "Run after parent.",
+			relation: "sequential",
+			parentRunId: "parent-run",
+		});
+
+		expect(child.status).toBe("queued");
+		expect(runFlueMock.mock.calls).toHaveLength(0);
+
+		await queueRuntime.activateQueuedSequentialChildren("parent-run");
+		expect(runFlueMock.mock.calls).toHaveLength(0);
+
+		await queueRuntime.markRunDoneAndActivateChildren("parent-run");
+		expect(state.runs.find((run) => run.id === child.id)?.status).toBe("running");
+		expect(runFlueMock.mock.calls).toHaveLength(1);
+		expect(runFlueMock.mock.calls[0]![0]).toMatchObject({ id: child.id });
 	});
 
 	it("continues runs with only the typed user message", async () => {

@@ -22,7 +22,7 @@
 
 ### Available agents
 
-Delegate with the `task` tool using the exact role value.
+{{delegationInstructions}}
 
 {{agents}}
 

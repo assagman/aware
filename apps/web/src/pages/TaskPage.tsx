@@ -221,7 +221,7 @@ export function TaskPage() {
 						</div>
 						<div className="task-route-head-actions">
 							{loading ? <BusyIndicator label="Syncing" /> : null}
-							<button type="button" disabled={isArchived || graphing || activeGraphRun} onClick={() => void startGraphAgent("task_runs")}>{graphing ? "Starting…" : activeGraphRun ? "Graph Agent running" : "Auto Create Runs"}</button>
+							<button type="button" disabled={isArchived || graphing || activeGraphRun} onClick={() => void startGraphAgent("task_runs")}>{graphing ? "Starting…" : activeGraphRun ? "Automation running" : "Auto Create Runs"}</button>
 						</div>
 					</div>
 					{graphError ? <p className="error graph-agent-error">{graphError}</p> : null}
@@ -253,7 +253,7 @@ export function TaskPage() {
 							<div className="task-route-lane-head">
 								<div>
 									<h3>Graph automation</h3>
-									<small>Internal Graph Agent orchestration runs.</small>
+									<small>Internal automation orchestration runs.</small>
 								</div>
 							</div>
 							<div className="task-route-run-list">

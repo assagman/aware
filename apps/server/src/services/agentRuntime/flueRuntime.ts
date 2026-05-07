@@ -10,6 +10,7 @@ import type {
 	RunStatus,
 	Task,
 } from "@aware/shared";
+import { Type, type ToolDef } from "@flue/sdk/client";
 import { createFlueContext, resolveModel } from "@flue/sdk/internal";
 import { db } from "../../db/client";
 import {
@@ -27,6 +28,7 @@ import { revertDefaultBranchMutation } from "../defaultBranchGuard";
 import { worktreeRoot } from "../gitService";
 import { assertAllowedWorktree, listProjects } from "../projectService";
 import { listGraphAgentsForRun } from "../graphAgentService";
+import { listGraphAutomationAgentsForRun } from "../graphAutomationAgentService";
 import {
 	listMainAgentsForRun,
 	listShippingAgentsForRun,
@@ -207,6 +209,9 @@ export type StartChatInput = {
 };
 
 export class FlueRuntime {
+	private readonly activityListeners = new Map<string, Set<() => void>>();
+	private readonly delegationUsage = new Map<string, number>();
+
 	async startChat(input: StartChatInput): Promise<AgentRun> {
 		const task: Task = {
 			id: randomUUID(),
@@ -290,8 +295,9 @@ export class FlueRuntime {
 			await this.flushLogs(run.id);
 			if (input.annotationIds?.length)
 				await markAnnotationsSent(input.annotationIds);
+			const finalStatus = input.completedStatus ?? "need_review";
 			await db.update("runs", run.id, {
-				status: input.completedStatus ?? "need_review",
+				status: finalStatus,
 				endedAt: now(),
 			});
 			if (affectsTaskStatus)
@@ -299,6 +305,7 @@ export class FlueRuntime {
 					status: "need_review",
 					updatedAt: now(),
 				});
+			if (finalStatus === "done") await this.activateQueuedSequentialChildren(run.id);
 		} catch (error) {
 			await this.log(run.id, "error", {
 				message: error instanceof Error ? error.message : String(error),
@@ -312,14 +319,61 @@ export class FlueRuntime {
 		}
 	}
 
+	private async shouldQueueSequential(input: StartRunInput) {
+		if ((input.relation ?? "parallel") !== "sequential" || !input.parentRunId)
+			return false;
+		const parent = (await db.list<AgentRun>("runs")).find(
+			(run) => run.id === input.parentRunId && !run.deletedAt,
+		);
+		if (!parent) throw new Error("missing parent run");
+		return parent.status !== "done";
+	}
+
+	private async startRunExecution(run: AgentRun, input: StartRunInput) {
+		let activeRun = run;
+		if (run.status !== "running") {
+			const updatedRun = await db.update<AgentRun>("runs", run.id, {
+				status: "running",
+				startedAt: now(),
+			});
+			if (!updatedRun) throw new Error("missing run");
+			activeRun = updatedRun;
+		}
+		const annotations = await listAnnotations({ taskId: input.task.id });
+		const upstreamArtifacts = input.suppressUpstreamArtifacts
+			? "(none)"
+			: await buildUpstreamArtifactContext(activeRun);
+		const prompt = buildPrompt({
+			task: input.task,
+			agents: input.agents,
+			annotations,
+			upstreamArtifacts,
+			...(input.message ? { message: input.message } : {}),
+		});
+		await this.log(activeRun.id, "user_message", { text: prompt });
+		if (input.affectsTaskStatus !== false)
+			await db.update("tasks", input.task.id, {
+				status: "running",
+				updatedAt: now(),
+			});
+		const execution = this.executeRun(activeRun, {
+			...input,
+			prompt,
+			annotationIds: annotations.map((annotation) => annotation.id),
+		});
+		if (input.waitForCompletion) await execution;
+		else void execution;
+	}
+
 	async startRun(input: StartRunInput): Promise<AgentRun> {
 		const mainAgent = input.agents[0];
+		const queued = await this.shouldQueueSequential(input);
 		const run: AgentRun = {
 			id: randomUUID(),
 			taskId: input.task.id,
 			projectId: input.task.projectId,
 			worktreeId: input.worktreeId,
-			status: "running",
+			status: queued ? "queued" : "running",
 			sessionId: randomUUID(),
 			relation: input.relation ?? "parallel",
 			...(input.lane ? { lane: input.lane } : {}),
@@ -335,31 +389,68 @@ export class FlueRuntime {
 			startedAt: now(),
 		};
 		await db.insert("runs", run);
-		const annotations = await listAnnotations({ taskId: input.task.id });
-		const upstreamArtifacts = input.suppressUpstreamArtifacts
-			? "(none)"
-			: await buildUpstreamArtifactContext(run);
-		const prompt = buildPrompt({
-			task: input.task,
-			agents: input.agents,
-			annotations,
-			upstreamArtifacts,
-			...(input.message ? { message: input.message } : {}),
-		});
-		await this.log(run.id, "user_message", { text: prompt });
 		if (input.affectsTaskStatus !== false)
 			await db.update("tasks", input.task.id, {
 				status: "running",
 				updatedAt: now(),
 			});
-		const execution = this.executeRun(run, {
-			...input,
-			prompt,
-			annotationIds: annotations.map((annotation) => annotation.id),
-		});
-		if (input.waitForCompletion) await execution;
-		else void execution;
+		if (queued) {
+			await this.log(run.id, "queued", {
+				parentRunId: input.parentRunId,
+				reason: "waiting for parent run to be marked done",
+			});
+			return run;
+		}
+		await this.startRunExecution(run, input);
 		return run;
+	}
+
+	private async agentsForRun(run: AgentRun) {
+		if (run.lane === "ship") return listShippingAgentsForRun();
+		if (run.lane === "graph")
+			return run.mainAgentProfileId && run.mainAgentProfileId !== "internal:graph-agent"
+				? listGraphAutomationAgentsForRun()
+				: listGraphAgentsForRun();
+		return listMainAgentsForRun();
+	}
+
+	async activateQueuedSequentialChildren(parentRunId: string) {
+		const runs = await db.list<AgentRun>("runs");
+		const parent = runs.find((run) => run.id === parentRunId && !run.deletedAt);
+		if (parent?.status !== "done") return;
+		const queuedChildren = runs.filter(
+			(run) =>
+				!run.deletedAt &&
+				run.status === "queued" &&
+				run.relation === "sequential" &&
+				run.parentRunId === parentRunId,
+		);
+		for (const child of queuedChildren) {
+			const task = (await db.list<Task>("tasks")).find((row) => row.id === child.taskId);
+			if (!task) continue;
+			const worktree = await assertAllowedWorktree(child.worktreeId);
+			await this.startRunExecution(child, {
+				task,
+				worktreeId: child.worktreeId,
+				worktreePath: worktree.path,
+				agents: await this.agentsForRun(child),
+				...(child.request ? { message: child.request } : {}),
+				relation: child.relation ?? "sequential",
+				...(child.lane ? { lane: child.lane } : {}),
+				...(child.parentRunId ? { parentRunId: child.parentRunId } : {}),
+			});
+		}
+	}
+
+	async markRunDoneAndActivateChildren(runId: string) {
+		const run = (await db.list<AgentRun>("runs")).find((row) => row.id === runId);
+		if (!run) return null;
+		const updated = await db.update<AgentRun>("runs", runId, {
+			status: "done",
+			endedAt: run.endedAt ?? now(),
+		});
+		await this.activateQueuedSequentialChildren(runId);
+		return updated;
 	}
 
 	async continueRun(runId: string, message: string) {
@@ -412,12 +503,7 @@ export class FlueRuntime {
 				{ immediate: true },
 			);
 		}
-		const agents =
-			run.lane === "ship"
-				? await listShippingAgentsForRun()
-				: run.lane === "graph"
-					? await listGraphAgentsForRun()
-					: await listMainAgentsForRun();
+		const agents = await this.agentsForRun(run);
 		this.log(run.id, "user_message", { text: message }, { immediate: true });
 		try {
 			if (affectsTaskStatus)
@@ -456,8 +542,9 @@ export class FlueRuntime {
 				);
 			this.log(run.id, "result", result, { immediate: true });
 			await this.flushLogs(run.id);
+			const finalStatus = run.lane === "graph" ? "done" : "need_review";
 			await db.update("runs", run.id, {
-				status: run.lane === "graph" ? "done" : "need_review",
+				status: finalStatus,
 				endedAt: now(),
 			});
 			if (affectsTaskStatus)
@@ -466,6 +553,7 @@ export class FlueRuntime {
 					updatedAt: now(),
 					...(reviewInvalidatedAt ? { reviewInvalidatedAt } : {}),
 				});
+			if (finalStatus === "done") await this.activateQueuedSequentialChildren(run.id);
 		} catch (error) {
 			await this.log(run.id, "error", {
 				message: error instanceof Error ? error.message : String(error),
@@ -512,6 +600,13 @@ export class FlueRuntime {
 		const workspaceRoot = await worktreeRoot(
 			project?.rootPath ?? input.worktreePath,
 		);
+		const skillsContext = agent.skillsEnabled === false
+			? undefined
+			: {
+					projectId: input.task.projectId,
+					workspacePath: input.worktreePath,
+					agent,
+				};
 		const skillPolicy = await skillSandboxPolicy({
 			projectId: input.task.projectId,
 			workspacePath: input.worktreePath,
@@ -609,23 +704,23 @@ export class FlueRuntime {
 			: process.env.ZAI_API_KEY
 				? "zai/glm-5.1"
 				: agent.model;
+		const agentTools = [
+			...resolveAgentTools(agent.tools, {
+				...(isThoughtAgent
+					? { thought: { runId: input.thoughtTargetRunId ?? run.id } }
+					: {
+							artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
+							...(skillsContext ? { skills: skillsContext } : {}),
+						}),
+			}),
+			...this.createScopedDelegationTools(run, input, availableAgents),
+		];
 		const flueAgent = await ctx.init({
 			sandbox,
 			model,
 			persist: flueSessionStore,
 			role: profileRole,
-			tools: resolveAgentTools(agent.tools, {
-				...(isThoughtAgent
-					? { thought: { runId: input.thoughtTargetRunId ?? run.id } }
-					: {
-						artifactory: { run, task: input.task, turnSeq: () => currentTurnSeq },
-						skills: {
-							projectId: input.task.projectId,
-							workspacePath: input.worktreePath,
-							agent,
-						},
-					}),
-			}),
+			tools: agentTools,
 		});
 		const session = (await flueAgent.session(
 			run.sessionId,
@@ -639,19 +734,148 @@ export class FlueRuntime {
 			agent,
 			availableAgentRoles,
 		);
-		const result = await this.withInactivityTimeout(
-			run.id,
-			() => session.prompt(prompt),
-			(listener) => {
-				onRuntimeActivity = listener;
-			},
+		const delegationKey = this.delegationUsageKey(run, agent);
+		try {
+			const result = await this.withInactivityTimeout(
+				run.id,
+				() => session.prompt(prompt),
+				(listener) => {
+					onRuntimeActivity = listener;
+				},
+			);
+			await turnEndQueue;
+			this.assertDelegationPolicy(run, agent);
+			return result;
+		} finally {
+			this.delegationUsage.delete(delegationKey);
+		}
+	}
+
+	private delegationUsageKey(run: AgentRun, agent: RuntimeAgent) {
+		return `${run.id}:${run.sessionId}:${agent.id}:delegate_agent`;
+	}
+
+	private exactDelegationMessage(agent: RuntimeAgent) {
+		const role = agent.delegationPolicy?.requiredRole;
+		return role
+			? `delegate_agent must be called exactly once with role \`${role}\`.`
+			: "delegate_agent must be called exactly once.";
+	}
+
+	private assertDelegationPolicy(run: AgentRun, agent: RuntimeAgent) {
+		const policy = agent.delegationPolicy;
+		if (!policy?.minCalls) return;
+		const count = this.delegationUsage.get(this.delegationUsageKey(run, agent)) ?? 0;
+		if (count < policy.minCalls) throw new Error(this.exactDelegationMessage(agent));
+	}
+
+	private createScopedDelegationTools(
+		run: AgentRun,
+		input: StartRunInput,
+		availableAgents: RuntimeAgent[],
+	): ToolDef[] {
+		const selectedAgent = input.agents[0];
+		if (!selectedAgent?.tools.includes("delegate_agent")) return [];
+		const policy = selectedAgent.delegationPolicy;
+		const usageKey = this.delegationUsageKey(run, selectedAgent);
+		if (policy) this.delegationUsage.set(usageKey, this.delegationUsage.get(usageKey) ?? 0);
+		const agentsByRole = new Map(
+			availableAgents.map((agent) => [runtimeAgentRoleName(agent), agent]),
 		);
-		await turnEndQueue;
-		return result;
+		const availableRoles = Array.from(agentsByRole.keys());
+		const availableText = availableRoles.length ? availableRoles.join(", ") : "(none)";
+		return [
+			{
+				name: "delegate_agent",
+				description: [
+					"Delegate to one explicitly available scoped Aware agent with that agent's own prompt, tool allow-list, and skill policy.",
+					`Available agents: ${availableText}.`,
+					"Use this instead of built-in task delegation when strict agent/tool separation is required.",
+				].join(" "),
+				parameters: Type.Object({
+					description: Type.Optional(Type.String({ description: "Short human-readable label for the delegated work." })),
+					prompt: Type.String({ description: "Complete instructions for the delegated agent." }),
+					role: Type.String({ description: "Exact available role to delegate to." }),
+				}),
+				execute: async (args) => {
+					const role = typeof args.role === "string" ? args.role.trim() : "";
+					const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+					if (!role) throw new Error(`delegate_agent requires role. Available agents: ${availableText}.`);
+					if (!prompt) throw new Error("delegate_agent requires prompt.");
+					if (policy?.requiredRole && role !== policy.requiredRole)
+						throw new Error(`delegate_agent must use role \`${policy.requiredRole}\`.`);
+					const count = this.delegationUsage.get(usageKey) ?? 0;
+					if (policy?.maxCalls !== undefined && count >= policy.maxCalls)
+						throw new Error(this.exactDelegationMessage(selectedAgent));
+					const agent = agentsByRole.get(role);
+					if (!agent) throw new Error(`Agent role "${role}" is not available. Available agents: ${availableText}.`);
+					this.delegationUsage.set(usageKey, count + 1);
+					const result = await this.runDelegatedAgent(run, input, agent, prompt);
+					return this.delegatedAgentResultText(result);
+				},
+			},
+		];
+	}
+
+	private async runDelegatedAgent(
+		parentRun: AgentRun,
+		input: StartRunInput,
+		agent: RuntimeAgent,
+		prompt: string,
+	) {
+		const taskId = randomUUID();
+		const role = runtimeAgentRoleName(agent);
+		this.log(parentRun.id, "task_start", {
+			taskId,
+			prompt,
+			role,
+			parentSessionId: parentRun.sessionId,
+		}, { immediate: true });
+		const delegatedRun: AgentRun = {
+			...parentRun,
+			sessionId: `${parentRun.sessionId}-delegate-${taskId}`,
+			mainAgentProfileId: agent.id,
+			mainAgentName: agent.name,
+			mainAgentModel: agent.model,
+		};
+		try {
+			const result = await this.runFlue(
+				delegatedRun,
+				{
+					...input,
+					agents: [agent],
+				},
+				prompt,
+			);
+			this.log(parentRun.id, "task_end", {
+				taskId,
+				isError: false,
+				result: this.delegatedAgentResultText(result),
+				parentSessionId: parentRun.sessionId,
+			}, { immediate: true });
+			return result;
+		} catch (error) {
+			this.log(parentRun.id, "task_end", {
+				taskId,
+				isError: true,
+				result: error instanceof Error ? error.message : String(error),
+				parentSessionId: parentRun.sessionId,
+			}, { immediate: true });
+			throw error;
+		}
+	}
+
+	private delegatedAgentResultText(result: unknown) {
+		if (typeof result === "string") return result;
+		if (result && typeof result === "object" && "text" in result) {
+			const text = (result as { text?: unknown }).text;
+			if (typeof text === "string" && text.trim()) return text;
+		}
+		return JSON.stringify(result, null, 2);
 	}
 
 	private async withInactivityTimeout<T>(
-		_runId: string,
+		runId: string,
 		operation: () => Promise<T>,
 		setActivityListener: (listener: () => void) => void,
 	) {
@@ -666,6 +890,9 @@ export class FlueRuntime {
 			);
 		};
 		setActivityListener(reset);
+		const listeners = this.activityListeners.get(runId) ?? new Set<() => void>();
+		listeners.add(reset);
+		this.activityListeners.set(runId, listeners);
 		reset();
 		try {
 			return await Promise.race([
@@ -675,6 +902,8 @@ export class FlueRuntime {
 				}),
 			]);
 		} finally {
+			listeners.delete(reset);
+			if (!listeners.size) this.activityListeners.delete(runId);
 			if (timer) clearTimeout(timer);
 			setActivityListener(() => undefined);
 		}
@@ -717,7 +946,7 @@ export class FlueRuntime {
 	) {
 		const alwaysAllowed = new Set<string>([
 			...ARTIFACTORY_TOOL_NAMES,
-			...SKILL_TOOL_NAMES,
+			...(agent.skillsEnabled === false ? [] : SKILL_TOOL_NAMES),
 		]);
 		const filtered = agent.allowedToolNames
 			? tools?.filter(
@@ -797,6 +1026,7 @@ export class FlueRuntime {
 		payload: unknown,
 		options?: { immediate?: boolean },
 	) {
+		for (const listener of this.activityListeners.get(runId) ?? []) listener();
 		return runEventHub.emit(runId, type, payload, options);
 	}
 

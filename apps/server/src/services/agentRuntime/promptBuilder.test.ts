@@ -72,11 +72,52 @@ describe("prompt builder", () => {
 		});
 		expect(text).toContain("# User message");
 		expect(text).toContain("### Selected agent");
-		expect(text).toContain("- Primary: provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write");
+		expect(text).toContain("- Primary: provider openai-codex; model openai-codex/gpt-5.5; thinking medium; tools read, write; skills per profile policy");
 		expect(text).toContain("### Available agents");
 		expect(text).toContain("Delegate with the `task` tool using the exact role value.");
 		expect(text).toContain("- Secondary: role agent-secondary-a2; agent profile");
 		expect(text).not.toContain("Primary (selected)");
+	});
+
+	it("uses delegate_agent instructions for scoped delegation agents", () => {
+		const text = buildPrompt({
+			task: {
+				id: "t",
+				projectId: "p",
+				worktreeId: "w",
+				title: "Plan graph",
+				body: "Plan only",
+				status: "draft",
+				createdAt: "",
+				updatedAt: "",
+			},
+			agents: [
+				{
+					id: "planner",
+					name: "Plan Agent",
+					provider: "openai-codex",
+					model: "openai-codex/gpt-5.5",
+					systemPrompt: "planner",
+					tools: ["read", "delegate_agent"],
+					allowedToolNames: ["read", "delegate_agent"],
+					skillsEnabled: false,
+				},
+				{
+					id: "graph",
+					name: "Graph Agent",
+					provider: "openai-codex",
+					model: "openai-codex/gpt-5.5",
+					systemPrompt: "graph",
+					tools: ["graph_start_run"],
+					roleName: "graph-agent",
+					skillsEnabled: false,
+				},
+			],
+			annotations: [],
+		});
+
+		expect(text).toContain("Delegate with the `delegate_agent` tool using the exact role value.");
+		expect(text).not.toContain("Delegate with the `task` tool using the exact role value.");
 	});
 
 	it("includes upstream artifactory context", () => {

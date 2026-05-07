@@ -259,31 +259,35 @@ class WorkspaceSkillsFs implements IFileSystem {
 	private async readRoute(path: string): Promise<RoutedFs> {
 		const skillPath = this.skillPath(path);
 		if (skillPath) {
-			if (
-				!this.isBlocked(skillPath, "workspace") &&
-				(await this.workspaceExists(skillPath.workspacePath))
-			)
+			const workspaceExists = await this.workspaceExists(skillPath.workspacePath);
+			if (!this.isBlocked(skillPath, "workspace") && workspaceExists)
 				return { fs: this.workspaceFs, path: skillPath.workspacePath };
-			if (
-				this.skillsFs &&
-				!this.isBlocked(skillPath, "global") &&
-				(await this.globalExists(skillPath.globalPath))
-			)
+			const globalExists = this.skillsFs ? await this.globalExists(skillPath.globalPath) : false;
+			if (this.skillsFs && !this.isBlocked(skillPath, "global") && globalExists)
 				return { fs: this.skillsFs, path: skillPath.globalPath };
+			if (
+				skillPath.skillDir &&
+				((workspaceExists && this.isBlocked(skillPath, "workspace")) ||
+					(globalExists && this.isBlocked(skillPath, "global")))
+			)
+				throw new Error(`Skill disabled by policy: ${skillPath.skillDir}`);
 		}
 		return { fs: this.workspaceFs, path };
 	}
 
 	private async writeRoute(path: string): Promise<RoutedFs> {
 		const skillPath = this.skillPath(path);
-		if (
-			skillPath &&
-			this.skillsFs &&
-			!this.isBlocked(skillPath, "global") &&
-			(await this.globalExists(skillPath.globalPath)) &&
-			!(await this.workspaceExists(skillPath.workspacePath))
-		)
-			return { fs: this.skillsFs, path: skillPath.globalPath };
+		if (skillPath?.skillDir) {
+			const workspaceExists = await this.workspaceExists(skillPath.workspacePath);
+			const globalExists = this.skillsFs ? await this.globalExists(skillPath.globalPath) : false;
+			if (
+				(workspaceExists && this.isBlocked(skillPath, "workspace")) ||
+				(globalExists && this.isBlocked(skillPath, "global"))
+			)
+				throw new Error(`Skill disabled by policy: ${skillPath.skillDir}`);
+			if (this.skillsFs && !this.isBlocked(skillPath, "global") && globalExists && !workspaceExists)
+				return { fs: this.skillsFs, path: skillPath.globalPath };
+		}
 		return { fs: this.workspaceFs, path };
 	}
 
