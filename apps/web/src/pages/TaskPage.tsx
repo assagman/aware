@@ -2,6 +2,7 @@ import type { AgentRun, GraphProjection, RunLane, Task, Worktree } from "@aware/
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiGet, apiPatch, apiPost } from "../app/api";
+import { runAfterMarkDoneSuccess } from "../app/markDoneGraphFocus";
 import { BusyIndicator } from "../components/BusyIndicator";
 import { MarkdownText } from "./HomePage";
 
@@ -111,8 +112,18 @@ export function TaskPage() {
 		if (!task || isArchived || checkpointing) return;
 		setCheckpointing(true);
 		try {
-			await apiPost(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`, {});
-			await load();
+			await runAfterMarkDoneSuccess({
+				mutation: () =>
+					apiPost(
+						`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`,
+						{},
+					),
+				navigate: (href) => navigate(href, { replace: true }),
+				projectId,
+				taskId: task.id,
+				task,
+				afterSuccess: load,
+			});
 		} finally {
 			setCheckpointing(false);
 		}

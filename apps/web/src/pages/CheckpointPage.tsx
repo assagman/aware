@@ -2,6 +2,7 @@ import type { AgentRun, GraphProjection, Task, Worktree } from "@aware/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { API_BASE, apiGet, apiPost } from "../app/api";
+import { runAfterMarkDoneSuccess } from "../app/markDoneGraphFocus";
 import { BusyIndicator } from "../components/BusyIndicator";
 
 const ANALYSIS_PROMPTS = [
@@ -146,8 +147,14 @@ export function CheckpointPage() {
 		if (!task || checkpointing) return;
 		setCheckpointing(true);
 		try {
-			await apiPost(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`, {});
-			await load();
+			await runAfterMarkDoneSuccess({
+				mutation: () => apiPost(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`, {}),
+				navigate: (href) => navigate(href, { replace: true }),
+				projectId,
+				taskId: task.id,
+				task,
+				afterSuccess: load,
+			});
 		} finally {
 			setCheckpointing(false);
 		}

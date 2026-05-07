@@ -39,7 +39,7 @@ import {
 	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -49,6 +49,10 @@ import {
 } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from "../app/api";
+import {
+	focusedGraphNodeIds,
+	runAfterMarkDoneSuccess,
+} from "../app/markDoneGraphFocus";
 import { parsePatchFiles } from "../app/parsePatchFiles";
 import { collapseHomePath } from "../app/path";
 import { getPageState, setPageState } from "../app/pageState";
@@ -2809,20 +2813,22 @@ function GraphViewportSync({
 	signature,
 	nodes,
 	focusTaskId,
+	focusNodeId,
 }: {
 	scopeKey: string;
 	signature: string;
 	nodes: GraphNode[];
 	focusTaskId: string;
+	focusNodeId: string;
 }) {
 	const { fitView, setViewport } = useReactFlow();
 	useEffect(() => {
 		if (!signature) return;
-		const focusNodes = focusTaskId
+		const focusNodes = focusNodeId
 			? nodes
-					.filter((node) => node.data.taskId === focusTaskId)
+					.filter((node) => node.id === focusNodeId)
 					.map((node) => ({ id: node.id }))
-			: [];
+			: focusedGraphNodeIds(nodes, focusTaskId);
 		const savedViewport = focusNodes.length
 			? undefined
 			: readGraphViewport(scopeKey, signature);
@@ -2833,7 +2839,7 @@ function GraphViewportSync({
 			else void fitView({ padding: 0.14, duration: 220 });
 		});
 		return () => window.cancelAnimationFrame(frame);
-	}, [fitView, focusTaskId, nodes, scopeKey, setViewport, signature]);
+	}, [fitView, focusNodeId, focusTaskId, nodes, scopeKey, setViewport, signature]);
 	return null;
 }
 
@@ -3831,6 +3837,7 @@ export function GraphRunChat({
 	initialTask,
 	onBack,
 	onChanged,
+	onMarkDoneGraph,
 }: {
 	projectId?: string;
 	taskId?: string;
@@ -3839,6 +3846,7 @@ export function GraphRunChat({
 	initialTask?: Task | undefined;
 	onBack: () => void;
 	onChanged: () => void;
+	onMarkDoneGraph?: ((href: string) => void) | undefined;
 }) {
 	const [run, setRun] = useState<AgentRun | undefined>(initialRun);
 	const [task, setTask] = useState<Task | undefined>(initialTask);
@@ -3984,9 +3992,18 @@ export function GraphRunChat({
 		if (working || run?.status !== "need_review") return;
 		setWorking(true);
 		try {
-			await apiPost(`/runs/${runId}/done`, {});
-			await load();
-			onChanged();
+			const navigated = await runAfterMarkDoneSuccess({
+				mutation: () => apiPost(`/runs/${runId}/done`, {}),
+				navigate: (href) => onMarkDoneGraph?.(href),
+				projectId,
+				taskId,
+				run,
+				task,
+			});
+			if (!navigated) {
+				await load();
+				onChanged();
+			}
 		} finally {
 			setWorking(false);
 		}
@@ -4197,6 +4214,9 @@ function GraphHomePage({
 	history = false,
 }: HomePageProps) {
 	const navigate = useNavigate();
+	const [searchParams] = useSearchParams();
+	const focusNodeId = searchParams.get("focus") ?? "";
+	const requestedFocusTaskId = searchParams.get("focusTaskId") ?? "";
 	const scopeKey = `${projectId || "global"}:${history ? "history" : "active"}`;
 	const [projection, setProjection] = useState<GraphProjection | null>(null);
 	const [tasks, setTasks] = useState<Task[]>([]);
@@ -4209,7 +4229,7 @@ function GraphHomePage({
 	const [busyRunId, setBusyRunId] = useState("");
 	const [archivingTaskId, setArchivingTaskId] = useState("");
 	const [focusedTaskId, setFocusedTaskId] = useState(() =>
-		projectId ? getSelection().selectedTaskId : "",
+		projectId ? requestedFocusTaskId || getSelection().selectedTaskId : "",
 	);
 	const refreshSeq = useRef(0);
 	const selectedProject = projects.find((project) => project.id === projectId);
@@ -4290,8 +4310,10 @@ function GraphHomePage({
 		void refresh();
 	}, [refresh]);
 	useEffect(() => {
-		setFocusedTaskId(projectId ? getSelection().selectedTaskId : "");
-	}, [projectId]);
+		setFocusedTaskId(
+			projectId ? requestedFocusTaskId || getSelection().selectedTaskId : "",
+		);
+	}, [projectId, requestedFocusTaskId]);
 	useEffect(() => {
 		if (loadedScope !== scopeKey || !focusedTaskId) return;
 		if (!tasks.some((task) => task.id === focusedTaskId)) setFocusedTaskId("");
@@ -4587,11 +4609,22 @@ function GraphHomePage({
 	async function markTaskDone(taskId: string) {
 		const task = tasks.find((row) => row.id === taskId);
 		if (!task) return;
-		await apiPost(
-			`/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`,
-			{},
-		);
-		await refresh(true);
+		await runAfterMarkDoneSuccess({
+			mutation: () =>
+				apiPost(
+					`/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/checkpoints`,
+					{},
+				),
+			navigate: (href) => navigate(href, { replace: true }),
+			projectId: task.projectId,
+			taskId: task.id,
+			task,
+			afterSuccess: async () => {
+				setSelectedTaskId(task.id);
+				setFocusedTaskId(task.id);
+				await refresh(true);
+			},
+		});
 	}
 	const newRunTask =
 		dialog?.type === "new-run"
@@ -4753,6 +4786,7 @@ function GraphHomePage({
 							signature={graphLayoutSignature}
 							nodes={graph.nodes}
 							focusTaskId={focusedTaskId}
+							focusNodeId={focusNodeId}
 						/>
 						<Background color="#164436" gap={24} />
 						<Controls />
