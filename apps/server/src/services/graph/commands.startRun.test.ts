@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 	runs: [] as AgentRun[],
 	updates: [] as Array<{ table: string; id: string; patch: unknown }>,
 	startRun: vi.fn(),
+	continueRun: vi.fn(),
 }));
 
 vi.mock("../../db/client", () => ({
@@ -22,7 +23,7 @@ vi.mock("../../db/client", () => ({
 }));
 
 vi.mock("../agentRuntime/flueRuntime", () => ({
-	flueRuntime: { startRun: state.startRun },
+	flueRuntime: { startRun: state.startRun, continueRun: state.continueRun },
 }));
 
 vi.mock("../projectService", () => ({
@@ -45,7 +46,7 @@ vi.mock("../shippingAgentService", () => ({
 	listMainAgentsForRun: vi.fn(async () => [{ id: "main", name: "Main", provider: "openai", model: "gpt", systemPrompt: "", tools: [] } satisfies RuntimeAgent]),
 }));
 
-const { startExecutionPlanCommand, startRunCommand } = await import("./commands");
+const { deleteRunCommand, retryRunCommand, sendRunMessageCommand, startExecutionPlanCommand, startRunCommand } = await import("./commands");
 
 const stamp = "2026-01-01T00:00:00.000Z";
 const project: Project = { id: "project-1", name: "Project", rootPath: "/workspace/project", createdAt: stamp, updatedAt: stamp };
@@ -74,6 +75,7 @@ describe("graph_start_run sequential dependency handling", () => {
 		state.runs = [];
 		state.updates = [];
 		state.startRun.mockReset();
+		state.continueRun.mockReset();
 		state.startRun.mockResolvedValue(run({ id: "child" }));
 	});
 
@@ -119,6 +121,17 @@ describe("graph_start_run sequential dependency handling", () => {
 		await startRunCommand({ projectId: project.id, taskId: task.id, relation: "sequential", parentRunId: "parent" });
 		expect(state.startRun).toHaveBeenCalledOnce();
 		expect(state.startRun.mock.calls[0]![0]).toMatchObject({ relation: "sequential", parentRunId: "parent" });
+	});
+
+	it("rejects steering, retry, and delete for read-only delegated runs", async () => {
+		state.runs = [run({ id: "delegated", readOnly: true, origin: "delegate_agent", affectsTaskStatus: false })];
+
+		await expect(sendRunMessageCommand({ projectId: project.id, taskId: task.id, runId: "delegated", message: "steer" })).rejects.toMatchObject({ status: 409 });
+		await expect(retryRunCommand({ projectId: project.id, taskId: task.id, runId: "delegated" })).rejects.toMatchObject({ status: 409 });
+		await expect(deleteRunCommand({ projectId: project.id, taskId: task.id, runId: "delegated" })).rejects.toMatchObject({ status: 409 });
+		expect(state.continueRun).not.toHaveBeenCalled();
+		expect(state.startRun).not.toHaveBeenCalled();
+		expect(state.updates).toEqual([]);
 	});
 
 	it("validates a complete execution plan before mutating graph state", async () => {

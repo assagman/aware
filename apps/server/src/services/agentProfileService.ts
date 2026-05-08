@@ -13,7 +13,7 @@ type DefaultAgentProfile = Pick<
 > &
 	Partial<Pick<AgentProfile, "thinking">>;
 
-const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "task"];
+const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "task", "delegate_agent"];
 const mainTools = [...writeTools, ...EXA_TOOL_NAMES];
 
 const retiredDefaultAgentSignatures = retiredDefaultAgentPromptPrefixes
@@ -113,6 +113,22 @@ function ensureMainShippingBoundary(prompt: string) {
 				.join("\n\n");
 }
 
+
+const mainDelegationBoundary = [
+	"Delegation boundary:",
+	"- Decompose non-trivial work early and use delegate_agent aggressively for independent Explore, Review, Test, Shipping, and custom-agent slices.",
+	"- You may run up to 20 delegated child agents in parallel when work is isolated.",
+	"- Never delegate to yourself. Never delegate to Worktree Agent or Graph Agent in normal runs.",
+	"- Keep delegated prompts scoped, standalone, and non-overlapping; synthesize child results before editing or reporting.",
+	"- Plan, Review, Test, and custom agents may delegate only to Explore Agent by default; Explore, Shipping, Thought, Graph, and Worktree agents may not delegate.",
+].join("\n");
+
+function ensureMainDelegationBoundary(prompt: string) {
+	return prompt.includes("Delegation boundary:")
+		? prompt
+		: [prompt, mainDelegationBoundary].filter(Boolean).join("\n\n");
+}
+
 function isRetiredDefaultAgent(agent: AgentProfile) {
 	const signature = retiredDefaultAgentSignatures.find(
 		(item) => normalizeName(item.name) === normalizeName(agent.name),
@@ -158,7 +174,7 @@ async function ensureDefaultAgentProfiles() {
 		if (nextTools.length !== existing.tools.length || missingTools.length)
 			patch.tools = nextTools;
 		if (normalizeName(existing.name) === "main") {
-			const systemPrompt = ensureMainShippingBoundary(existing.systemPrompt);
+			const systemPrompt = ensureMainDelegationBoundary(ensureMainShippingBoundary(existing.systemPrompt));
 			if (systemPrompt !== existing.systemPrompt)
 				patch.systemPrompt = systemPrompt;
 		}

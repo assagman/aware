@@ -5148,3 +5148,15 @@ pre {
 .thought-page-error {
 	color: #fecaca;
 }
+
+.run-readonly-badge {
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.35));
+	border-radius: 999px;
+	padding: 0.25rem 0.55rem;
+	font-size: 0.75rem;
+	font-weight: 700;
+	color: var(--text-muted, #94a3b8);
+	background: var(--surface-muted, rgba(148, 163, 184, 0.08));
+}

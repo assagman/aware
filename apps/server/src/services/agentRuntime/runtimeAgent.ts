@@ -21,6 +21,7 @@ export type RuntimeAgent = Pick<
 		toolExecution?: "parallel" | "sequential";
 		delegationPolicy?: {
 			requiredRole?: string;
+			allowedRoles?: string[];
 			minCalls?: number;
 			maxCalls?: number;
 		};

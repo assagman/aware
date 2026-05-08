@@ -78,7 +78,7 @@ function worktreeName(worktree: Worktree | undefined) {
 }
 
 function activeRuns(runs: AgentRun[]) {
-	return runs.filter((run) => !run.deletedAt);
+	return runs.filter((run) => !run.deletedAt && run.affectsTaskStatus !== false && run.origin !== "delegate_agent");
 }
 
 function runLane(run: AgentRun): RunLane {

@@ -3950,6 +3950,8 @@ export function GraphRunChat({
 			"thinking_delta_batch",
 			"tool_start",
 			"tool_end",
+			"task_start",
+			"task_end",
 			"user_message",
 			"annotations",
 			"prompt",
@@ -4053,6 +4055,7 @@ export function GraphRunChat({
 							{labelStatus(runStatus)}
 						</span>
 					) : null}
+					{run?.readOnly ? <span className="run-readonly-badge">Delegated read-only run</span> : null}
 					<button
 						type="button"
 						disabled={runStatus !== "running" || working}
@@ -4060,13 +4063,15 @@ export function GraphRunChat({
 					>
 						Cancel
 					</button>
-					<button
-						type="button"
-						disabled={runStatus !== "need_review" || working}
-						onClick={() => void markDone()}
-					>
-						Mark run done
-					</button>
+					{run?.readOnly ? null : (
+						<button
+							type="button"
+							disabled={runStatus !== "need_review" || working}
+							onClick={() => void markDone()}
+						>
+							Mark run done
+						</button>
+					)}
 					<button
 						type="button"
 						disabled={!run || !projectId || !taskId}
@@ -4080,6 +4085,7 @@ export function GraphRunChat({
 				<ChatTimeline events={events} />
 				<div ref={bottomRef} />
 			</div>
+			{run?.readOnly ? null : (
 			<footer className="home-run-input">
 				<textarea
 					value={draft}
@@ -4100,6 +4106,7 @@ export function GraphRunChat({
 					{sending ? "Sending…" : "Send"}
 				</button>
 			</footer>
+			)}
 		</section>
 	);
 }

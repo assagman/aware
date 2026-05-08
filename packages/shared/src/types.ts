@@ -158,6 +158,12 @@ export type AgentRun = {
 	mainAgentProfileId?: ID;
 	mainAgentName?: string;
 	mainAgentModel?: string;
+	readOnly?: boolean;
+	affectsTaskStatus?: boolean;
+	origin?: "delegate_agent";
+	delegateRole?: string;
+	delegateDescription?: string;
+	delegateToolCallId?: string;
 	startedAt: string;
 	endedAt?: string;
 	deletedAt?: string;

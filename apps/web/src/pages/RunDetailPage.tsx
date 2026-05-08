@@ -1163,6 +1163,8 @@ export function RunDetailPage() {
 			"thinking_delta_batch",
 			"tool_start",
 			"tool_end",
+			"task_start",
+			"task_end",
 			"user_message",
 			"annotations",
 			"prompt",
@@ -1291,6 +1293,7 @@ export function RunDetailPage() {
 						</>
 					) : null}
 					{loadingEvents ? <BusyIndicator label="Loading events" /> : null}
+					{selectedRun?.readOnly ? <span className="run-readonly-badge">Delegated read-only run</span> : null}
 					<button
 						type="button"
 						onClick={cancelRun}
@@ -1329,18 +1332,20 @@ export function RunDetailPage() {
 					<ChatTimeline events={selectedEvents} />
 					<div ref={bottomRef} />
 				</div>
-				<RunInputBar
-					initialMessage={initialRunsState.message}
-					runId={runId}
-					canMarkDone={
-						selectedRun?.status === "done" &&
-						selectedTask?.status === "need_review"
-					}
-					markingDone={markingDone}
-					sendingMessage={sendingMessage}
-					onMarkDone={markSelectedRunDone}
-					onSend={sendMessage}
-				/>
+				{selectedRun?.readOnly ? null : (
+					<RunInputBar
+						initialMessage={initialRunsState.message}
+						runId={runId}
+						canMarkDone={
+							selectedRun?.status === "done" &&
+							selectedTask?.status === "need_review"
+						}
+						markingDone={markingDone}
+						sendingMessage={sendingMessage}
+						onMarkDone={markSelectedRunDone}
+						onSend={sendMessage}
+					/>
+				)}
 			</div>
 			</div>
 		</section>
