@@ -274,6 +274,28 @@ describe("graph projection layout", () => {
 		expect(annotationTasks.meta?.[0]).toBe("1 suggestion");
 	});
 
+	it("excludes delegated child runs from graph layout and actions", async () => {
+		rows.runs = [
+			run({ id: "normal-run", startedAt: startedAt(1) }),
+			run({
+				id: "delegated-run",
+				startedAt: startedAt(2),
+				parentRunId: "normal-run",
+				origin: "delegate_agent",
+				readOnly: true,
+				affectsTaskStatus: false,
+			}),
+		];
+
+		const projection = await buildGraphProjection(project.id);
+		const taskNode = node(projection, `task:${task.id}`);
+
+		expect(hasNode(projection, "run:normal-run")).toBe(true);
+		expect(hasNode(projection, "run:delegated-run")).toBe(false);
+		expect(taskNode.meta).toContain("task lane: 1");
+		expect(projection.actions.some((action) => action.payload && typeof action.payload === "object" && "runId" in action.payload && action.payload.runId === "delegated-run")).toBe(false);
+	});
+
 	it("places sequential candidates in their future depth before the gate", async () => {
 		rows.runs = [
 			run({ id: "run-root", startedAt: startedAt(1) }),

@@ -11,6 +11,7 @@ import type { RuntimeAgent } from "./runtimeAgent";
 
 const state = vi.hoisted(() => ({
 	events: [] as Array<{
+		runId: string;
 		type: string;
 		payload: unknown;
 		options?: { immediate?: boolean };
@@ -121,7 +122,7 @@ vi.mock("./runEventHub", () => ({
 				options?: { immediate?: boolean },
 			) => {
 				state.events.push(
-					options ? { type, payload, options } : { type, payload },
+					options ? { runId, type, payload, options } : { runId, type, payload },
 				);
 				return {
 					id: `${type}-1`,
@@ -209,6 +210,7 @@ describe("flue runtime prompt event shape", () => {
 			message: "User request",
 		});
 		expect(state.events[0]).toMatchObject({
+			runId: expect.any(String),
 			type: "user_message",
 			payload: { text: expected },
 		});
@@ -321,6 +323,185 @@ describe("flue runtime prompt event shape", () => {
 		expect(runtime.runDelegatedAgent).toHaveBeenCalledWith(expect.objectContaining({ id: run.id }), expect.objectContaining({ agents: [selected, graphAgent] }), graphAgent, "plan");
 		expect(runtime.runDelegatedAgent).toHaveBeenCalledOnce();
 		expect(runtime.createScopedDelegationTools(run, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents }, [graphAgent])).toEqual([]);
+	});
+
+	it("creates a read-only delegated child run with isolated child events and parent link", async () => {
+		const runtime = new FlueRuntime() as unknown as {
+			runDelegatedAgent: (parentRun: AgentRun, input: unknown, agent: RuntimeAgent, prompt: string, description?: string) => Promise<unknown>;
+		};
+		const parentRun: AgentRun = {
+			id: "parent-run",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-parent",
+			startedAt: "",
+		};
+		state.runs = [parentRun];
+		const exploreAgent: RuntimeAgent = {
+			...agents[0]!,
+			id: "explore",
+			name: "Explore Agent",
+			roleName: "explore-agent",
+			tools: ["read"],
+			allowedToolNames: ["read"],
+			skillsEnabled: false,
+		};
+
+		const result = await runtime.runDelegatedAgent(parentRun, {
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents: [agents[0]!, exploreAgent],
+		}, exploreAgent, "inspect code", "Discovery");
+
+		const child = state.runs.find((run) => run.id !== parentRun.id)!;
+		expect(child).toMatchObject({
+			parentRunId: parentRun.id,
+			origin: "delegate_agent",
+			readOnly: true,
+			affectsTaskStatus: false,
+			delegateRole: "explore-agent",
+			delegateDescription: "Discovery",
+			delegateToolCallId: expect.any(String),
+			mainAgentName: "Explore Agent",
+			status: "done",
+		});
+		expect(state.events.filter((event) => event.runId === parentRun.id).map((event) => event.type)).toEqual(["task_start", "task_end"]);
+		expect(state.events.filter((event) => event.runId === child.id).map((event) => event.type)).toEqual(["user_message", "result"]);
+		expect(result).toMatchObject({
+			childRunId: child.id,
+			childRunHref: `/projects/${task.projectId}/tasks/${task.id}/runs/${child.id}`,
+			role: "explore-agent",
+			status: "done",
+		});
+	});
+
+	it("returns delegated child metadata when a child run fails", async () => {
+		const runtime = new FlueRuntime() as unknown as {
+			runDelegatedAgent: (parentRun: AgentRun, input: unknown, agent: RuntimeAgent, prompt: string, description?: string) => Promise<unknown>;
+		};
+		vi.spyOn(
+			FlueRuntime.prototype as unknown as { runFlue: () => Promise<unknown> },
+			"runFlue",
+		).mockRejectedValueOnce(new Error("child failed"));
+		const parentRun: AgentRun = {
+			id: "parent-failed",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-parent-failed",
+			startedAt: "",
+		};
+		state.runs = [parentRun];
+		const exploreAgent: RuntimeAgent = {
+			...agents[0]!,
+			id: "explore",
+			name: "Explore Agent",
+			roleName: "explore-agent",
+			tools: ["read"],
+			allowedToolNames: ["read"],
+			skillsEnabled: false,
+		};
+
+		const result = await runtime.runDelegatedAgent(parentRun, {
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents: [agents[0]!, exploreAgent],
+		}, exploreAgent, "inspect code", "Discovery");
+		const child = state.runs.find((run) => run.id !== parentRun.id)!;
+
+		expect(child.status).toBe("failed");
+		expect(result).toMatchObject({
+			childRunId: child.id,
+			childRunHref: `/projects/${task.projectId}/tasks/${task.id}/runs/${child.id}`,
+			role: "explore-agent",
+			status: "failed",
+			result: "child failed",
+		});
+		expect(state.events.filter((event) => event.runId === parentRun.id).at(-1)).toMatchObject({
+			type: "task_end",
+			payload: expect.objectContaining({ childRunId: child.id, status: "failed", result: "child failed" }),
+		});
+	});
+
+	it("enforces delegation matrix, self-delegation block, and max-call limits", async () => {
+		type DelegateTool = { name: string; execute: (args: Record<string, unknown>) => Promise<string> };
+		const runtime = new FlueRuntime() as unknown as {
+			createScopedDelegationTools: (run: AgentRun, input: unknown, agents: RuntimeAgent[]) => DelegateTool[];
+			runDelegatedAgent: ReturnType<typeof vi.fn>;
+		};
+		runtime.runDelegatedAgent = vi.fn(async () => ({ text: "ok" }));
+		const run: AgentRun = {
+			id: "run-1", taskId: task.id, projectId: task.projectId, worktreeId: "worktree-1", status: "running", sessionId: "session-1", startedAt: "",
+		};
+		const explore: RuntimeAgent = { ...agents[0]!, id: "explore", name: "Explore Agent", roleName: "explore-agent", tools: [], systemPrompt: "" };
+		const review: RuntimeAgent = { ...agents[0]!, id: "review", name: "Review Agent", roleName: "review-agent", tools: ["delegate_agent"], delegationPolicy: { allowedRoles: ["explore-agent"] } };
+		const test: RuntimeAgent = { ...agents[0]!, id: "test", name: "Test Agent", roleName: "test-agent", tools: ["delegate_agent"], delegationPolicy: { allowedRoles: ["explore-agent"] } };
+		const custom: RuntimeAgent = { ...agents[0]!, id: "custom", name: "Custom", roleName: "agent-custom-123", tools: ["delegate_agent"], delegationPolicy: { allowedRoles: ["explore-agent"] } };
+		const main: RuntimeAgent = { ...agents[0]!, id: "main", name: "Main", roleName: "main", tools: ["delegate_agent"], delegationPolicy: { maxCalls: 1 } };
+
+		for (const selected of [review, test, custom]) {
+			const tools = runtime.createScopedDelegationTools(run, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents: [selected, explore, main] }, [explore, main]);
+			await expect(tools[0]!.execute({ role: "explore-agent", prompt: "x" })).resolves.toBe("ok");
+			await expect(tools[0]!.execute({ role: "main", prompt: "x" })).rejects.toThrow(/not allowed|not available/);
+		}
+		const mainTools = runtime.createScopedDelegationTools({ ...run, id: "run-2" }, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents: [main, explore] }, [explore]);
+		await expect(mainTools[0]!.execute({ role: "main", prompt: "x" })).rejects.toThrow(/not available|current agent/);
+		await expect(mainTools[0]!.execute({ role: "explore-agent", prompt: "x" })).resolves.toBe("ok");
+		await expect(mainTools[0]!.execute({ role: "explore-agent", prompt: "x" })).rejects.toThrow(/limit reached/);
+	});
+
+	it("does not expose the legacy task tool in runtime sessions", async () => {
+		(
+			FlueRuntime.prototype as unknown as {
+				runFlue: { mockRestore: () => void };
+			}
+		).runFlue.mockRestore();
+		const { createFlueContext } = await import("@flue/sdk/internal");
+		const { resolveAgentTools } = await import("../../flue/tools");
+		vi.mocked(resolveAgentTools).mockReturnValue([
+			{ name: "task", description: "legacy task", parameters: {}, execute: vi.fn() },
+			{ name: "read", description: "read", parameters: {}, execute: vi.fn() },
+		] as never);
+		let initTools: Array<{ name: string }> = [];
+		vi.mocked(createFlueContext).mockReturnValue({
+			setEventCallback: vi.fn(),
+			init: vi.fn(async (options: { tools: Array<{ name: string }> }) => {
+				initTools = options.tools;
+				return {
+					session: vi.fn(async () => ({
+						harness: { state: { tools: initTools } },
+						prompt: vi.fn(async () => "ok"),
+					})),
+				};
+			}),
+		} as never);
+		const runtime = new FlueRuntime() as unknown as {
+			runFlue: (run: AgentRun, input: unknown, prompt: string) => Promise<unknown>;
+		};
+		const selected: RuntimeAgent = {
+			...agents[0]!,
+			tools: ["task", "read", "delegate_agent"],
+		};
+		const explore: RuntimeAgent = {
+			...agents[0]!,
+			id: "explore",
+			name: "Explore Agent",
+			roleName: "explore-agent",
+			tools: ["read"],
+		};
+		const run: AgentRun = {
+			id: "run-task-filter", taskId: task.id, projectId: task.projectId, worktreeId: "worktree-1", status: "running", sessionId: "session-task-filter", startedAt: "",
+		};
+
+		await runtime.runFlue(run, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents: [selected, explore] }, "prompt");
+
+		expect(initTools.map((tool) => tool.name)).not.toContain("task");
+		expect(initTools.map((tool) => tool.name)).toContain("delegate_agent");
 	});
 
 	it("fails scoped planner runs that return without required delegation", async () => {
@@ -439,6 +620,7 @@ describe("flue runtime prompt event shape", () => {
 		await runtime.continueRun("run-1", "Follow up only");
 
 		expect(state.events[0]).toMatchObject({
+			runId: expect.any(String),
 			type: "user_message",
 			payload: { text: "Follow up only" },
 		});

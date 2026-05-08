@@ -49,6 +49,11 @@ import { runtimeAgentRoleName, type RuntimeAgent } from "./runtimeAgent";
 
 const now = () => new Date().toISOString();
 const DEFAULT_RUN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const LEGACY_TASK_TOOL = "task";
+
+function runtimeToolNames(agent: RuntimeAgent) {
+	return agent.tools.filter((tool) => tool !== LEGACY_TASK_TOOL);
+}
 
 function formatDuration(ms: number) {
 	const seconds = Math.round(ms / 1000);
@@ -210,6 +215,7 @@ export type StartChatInput = {
 
 export class FlueRuntime {
 	private readonly activityListeners = new Map<string, Set<() => void>>();
+	private readonly childActivityParents = new Map<string, string>();
 	private readonly delegationUsage = new Map<string, number>();
 
 	async startChat(input: StartChatInput): Promise<AgentRun> {
@@ -235,6 +241,7 @@ export class FlueRuntime {
 			worktreeId: input.worktreeId,
 			status: "running",
 			sessionId: randomUUID(),
+			...(input.affectsTaskStatus === false ? { affectsTaskStatus: false } : {}),
 			...(input.lane ? { lane: input.lane } : {}),
 			...(input.annotationIds?.length
 				? { annotationIds: input.annotationIds }
@@ -375,6 +382,7 @@ export class FlueRuntime {
 			worktreeId: input.worktreeId,
 			status: queued ? "queued" : "running",
 			sessionId: randomUUID(),
+			...(input.affectsTaskStatus === false ? { affectsTaskStatus: false } : {}),
 			relation: input.relation ?? "parallel",
 			...(input.lane ? { lane: input.lane } : {}),
 			...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
@@ -438,6 +446,7 @@ export class FlueRuntime {
 				relation: child.relation ?? "sequential",
 				...(child.lane ? { lane: child.lane } : {}),
 				...(child.parentRunId ? { parentRunId: child.parentRunId } : {}),
+				...(child.affectsTaskStatus === false ? { affectsTaskStatus: false } : {}),
 			});
 		}
 	}
@@ -458,6 +467,7 @@ export class FlueRuntime {
 			(r) => r.id === runId,
 		);
 		if (!foundRun) throw new Error("missing run");
+		if (foundRun.readOnly) throw new Error("run is read-only");
 		let run: AgentRun = foundRun;
 		if (run.status !== "running") {
 			const updatedRun = await db.update<AgentRun>("runs", run.id, {
@@ -474,7 +484,7 @@ export class FlueRuntime {
 			(p) => p.id === (task?.projectId ?? worktree.projectId),
 		);
 		if (!project) throw new Error("missing project");
-		const affectsTaskStatus = run.lane !== "graph";
+		const affectsTaskStatus = run.lane !== "graph" && run.affectsTaskStatus !== false;
 		const reviewInvalidatedAt =
 			affectsTaskStatus && task?.status === "done" ? now() : undefined;
 		const mutableWorktree = affectsTaskStatus
@@ -705,7 +715,7 @@ export class FlueRuntime {
 				? "zai/glm-5.1"
 				: agent.model;
 		const agentTools = [
-			...resolveAgentTools(agent.tools, {
+			...resolveAgentTools(runtimeToolNames(agent), {
 				...(isThoughtAgent
 					? { thought: { runId: input.thoughtTargetRunId ?? run.id } }
 					: {
@@ -714,7 +724,7 @@ export class FlueRuntime {
 						}),
 			}),
 			...this.createScopedDelegationTools(run, input, availableAgents),
-		];
+		].filter((tool) => tool.name !== LEGACY_TASK_TOOL);
 		const flueAgent = await ctx.init({
 			sandbox,
 			model,
@@ -779,8 +789,12 @@ export class FlueRuntime {
 		const policy = selectedAgent.delegationPolicy;
 		const usageKey = this.delegationUsageKey(run, selectedAgent);
 		if (policy) this.delegationUsage.set(usageKey, this.delegationUsage.get(usageKey) ?? 0);
+		const selectedRole = runtimeAgentRoleName(selectedAgent);
+		const allowed = new Set(policy?.allowedRoles);
 		const agentsByRole = new Map(
-			availableAgents.map((agent) => [runtimeAgentRoleName(agent), agent]),
+			availableAgents
+				.map((agent) => [runtimeAgentRoleName(agent), agent] as const)
+				.filter(([role]) => role !== selectedRole && (!allowed.size || allowed.has(role))),
 		);
 		const availableRoles = Array.from(agentsByRole.keys());
 		const availableText = availableRoles.length ? availableRoles.join(", ") : "(none)";
@@ -790,7 +804,7 @@ export class FlueRuntime {
 				description: [
 					"Delegate to one explicitly available scoped Aware agent with that agent's own prompt, tool allow-list, and skill policy.",
 					`Available agents: ${availableText}.`,
-					"Use this instead of built-in task delegation when strict agent/tool separation is required.",
+					"Self-delegation is forbidden. If no agent is listed, delegation is disabled for this role.",
 				].join(" "),
 				parameters: Type.Object({
 					description: Type.Optional(Type.String({ description: "Short human-readable label for the delegated work." })),
@@ -800,21 +814,35 @@ export class FlueRuntime {
 				execute: async (args) => {
 					const role = typeof args.role === "string" ? args.role.trim() : "";
 					const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+					const description = typeof args.description === "string" ? args.description.trim() : undefined;
 					if (!role) throw new Error(`delegate_agent requires role. Available agents: ${availableText}.`);
 					if (!prompt) throw new Error("delegate_agent requires prompt.");
+					if (role === selectedRole) throw new Error("delegate_agent cannot delegate to the current agent role.");
 					if (policy?.requiredRole && role !== policy.requiredRole)
 						throw new Error(`delegate_agent must use role \`${policy.requiredRole}\`.`);
+					if (allowed.size && !allowed.has(role))
+						throw new Error(`Agent role "${role}" is not allowed for ${selectedRole}. Available agents: ${availableText}.`);
 					const count = this.delegationUsage.get(usageKey) ?? 0;
 					if (policy?.maxCalls !== undefined && count >= policy.maxCalls)
-						throw new Error(this.exactDelegationMessage(selectedAgent));
+						throw new Error(policy.requiredRole && policy.maxCalls === 1
+							? this.exactDelegationMessage(selectedAgent)
+							: `delegate_agent call limit reached for ${selectedRole}: max ${policy.maxCalls}.`);
 					const agent = agentsByRole.get(role);
 					if (!agent) throw new Error(`Agent role "${role}" is not available. Available agents: ${availableText}.`);
 					this.delegationUsage.set(usageKey, count + 1);
-					const result = await this.runDelegatedAgent(run, input, agent, prompt);
+					const result = description
+						? await this.runDelegatedAgent(run, input, agent, prompt, description)
+						: await this.runDelegatedAgent(run, input, agent, prompt);
 					return this.delegatedAgentResultText(result);
 				},
 			},
 		];
+	}
+
+	private childRunHref(run: AgentRun) {
+		return run.projectId && run.taskId
+			? `/projects/${run.projectId}/tasks/${run.taskId}/runs/${run.id}`
+			: `/runs/${run.id}`;
 	}
 
 	private async runDelegatedAgent(
@@ -822,54 +850,105 @@ export class FlueRuntime {
 		input: StartRunInput,
 		agent: RuntimeAgent,
 		prompt: string,
+		description?: string,
 	) {
 		const taskId = randomUUID();
+		const childRunId = randomUUID();
 		const role = runtimeAgentRoleName(agent);
-		this.log(parentRun.id, "task_start", {
-			taskId,
-			prompt,
-			role,
-			parentSessionId: parentRun.sessionId,
-		}, { immediate: true });
-		const delegatedRun: AgentRun = {
-			...parentRun,
+		const childRun: AgentRun = {
+			id: childRunId,
+			taskId: parentRun.taskId,
+			...(parentRun.projectId ? { projectId: parentRun.projectId } : {}),
+			worktreeId: parentRun.worktreeId,
+			status: "running",
 			sessionId: `${parentRun.sessionId}-delegate-${taskId}`,
+			relation: "parallel",
+			...(parentRun.lane ? { lane: parentRun.lane } : {}),
+			parentRunId: parentRun.id,
+			request: prompt,
 			mainAgentProfileId: agent.id,
 			mainAgentName: agent.name,
 			mainAgentModel: agent.model,
+			readOnly: true,
+			affectsTaskStatus: false,
+			origin: "delegate_agent",
+			delegateRole: role,
+			...(description ? { delegateDescription: description } : {}),
+			delegateToolCallId: taskId,
+			startedAt: now(),
 		};
+		await db.insert("runs", childRun);
+		await this.log(childRun.id, "user_message", { text: prompt });
+		const childRunHref = this.childRunHref(childRun);
+		this.log(parentRun.id, "task_start", {
+			taskId,
+			childRunId: childRun.id,
+			childRunHref,
+			prompt,
+			role,
+			agentName: agent.name,
+			description,
+			parentSessionId: parentRun.sessionId,
+		}, { immediate: true });
+		this.childActivityParents.set(childRun.id, parentRun.id);
 		try {
 			const result = await this.runFlue(
-				delegatedRun,
+				childRun,
 				{
 					...input,
-					agents: [agent],
+					agents: [agent, ...input.agents.filter((candidate) => runtimeAgentRoleName(candidate) === "explore-agent")],
+					affectsTaskStatus: false,
 				},
 				prompt,
 			);
+			this.log(childRun.id, "result", result, { immediate: true });
+			await this.flushLogs(childRun.id);
+			await db.update("runs", childRun.id, { status: "done", endedAt: now() });
+			const summary = this.delegatedAgentResultText(result);
 			this.log(parentRun.id, "task_end", {
 				taskId,
+				childRunId: childRun.id,
+				childRunHref,
+				role,
+				agentName: agent.name,
+				description,
+				status: "done",
 				isError: false,
-				result: this.delegatedAgentResultText(result),
+				result: summary,
 				parentSessionId: parentRun.sessionId,
 			}, { immediate: true });
-			return result;
+			return { childRunId: childRun.id, childRunHref, role, agentName: agent.name, status: "done", result: summary };
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.log(childRun.id, "error", { message }, { immediate: true });
+			await db.update("runs", childRun.id, { status: "failed", endedAt: now() });
 			this.log(parentRun.id, "task_end", {
 				taskId,
+				childRunId: childRun.id,
+				childRunHref,
+				role,
+				agentName: agent.name,
+				description,
+				status: "failed",
 				isError: true,
-				result: error instanceof Error ? error.message : String(error),
+				result: message,
 				parentSessionId: parentRun.sessionId,
 			}, { immediate: true });
-			throw error;
+			return { childRunId: childRun.id, childRunHref, role, agentName: agent.name, status: "failed", isError: true, result: message };
+		} finally {
+			this.childActivityParents.delete(childRun.id);
 		}
 	}
 
 	private delegatedAgentResultText(result: unknown) {
 		if (typeof result === "string") return result;
-		if (result && typeof result === "object" && "text" in result) {
-			const text = (result as { text?: unknown }).text;
-			if (typeof text === "string" && text.trim()) return text;
+		if (result && typeof result === "object") {
+			const payload = result as { text?: unknown; childRunHref?: unknown; result?: unknown; status?: unknown };
+			if (typeof payload.childRunHref === "string") {
+				const summary = typeof payload.result === "string" && payload.result.trim() ? `\n\n${payload.result}` : "";
+				return `[Open delegated run](${payload.childRunHref})${summary}`;
+			}
+			if (typeof payload.text === "string" && payload.text.trim()) return payload.text;
 		}
 		return JSON.stringify(result, null, 2);
 	}
@@ -948,13 +1027,14 @@ export class FlueRuntime {
 			...ARTIFACTORY_TOOL_NAMES,
 			...(agent.skillsEnabled === false ? [] : SKILL_TOOL_NAMES),
 		]);
+		const nonLegacyTools = tools?.filter((tool) => tool.name !== LEGACY_TASK_TOOL);
 		const filtered = agent.allowedToolNames
-			? tools?.filter(
+			? nonLegacyTools?.filter(
 					(tool) =>
 						agent.allowedToolNames?.includes(tool.name) ||
 						alwaysAllowed.has(tool.name),
 				)
-			: tools;
+			: nonLegacyTools;
 		this.guardAgentDelegationTool(filtered, availableAgentRoles);
 		return filtered;
 	}
@@ -1027,6 +1107,10 @@ export class FlueRuntime {
 		options?: { immediate?: boolean },
 	) {
 		for (const listener of this.activityListeners.get(runId) ?? []) listener();
+		const parentRunId = this.childActivityParents.get(runId);
+		if (parentRunId) {
+			for (const listener of this.activityListeners.get(parentRunId) ?? []) listener();
+		}
 		return runEventHub.emit(runId, type, payload, options);
 	}
 

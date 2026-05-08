@@ -5148,3 +5148,44 @@ pre {
 .thought-page-error {
 	color: #fecaca;
 }
+
+.run-readonly-badge {
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.35));
+	border-radius: 999px;
+	padding: 0.25rem 0.55rem;
+	font-size: 0.75rem;
+	font-weight: 700;
+	color: var(--text-muted, #94a3b8);
+	background: var(--surface-muted, rgba(148, 163, 184, 0.08));
+}
+
+.delegated-run-card {
+	display: grid;
+	gap: 0.55rem;
+	border: 1px solid rgba(56, 189, 248, 0.35);
+	background: rgba(8, 47, 73, 0.34);
+}
+
+.delegated-run-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.delegated-run-card p {
+	display: grid;
+	gap: 0.2rem;
+	margin: 0;
+}
+
+.delegated-run-card small {
+	color: var(--text-muted, #94a3b8);
+}
+
+.delegated-run-card a {
+	color: #7dd3fc;
+	font-weight: 700;
+}

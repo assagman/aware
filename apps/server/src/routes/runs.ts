@@ -41,8 +41,14 @@ async function reconcileStaleRunningRuns() {
 		rows
 			.filter((run) => {
 				if (run.status !== "running") return false;
+				const activeRunIds = new Set([
+					run.id,
+					...rows
+						.filter((child) => child.parentRunId === run.id && child.origin === "delegate_agent" && child.status === "running")
+						.map((child) => child.id),
+				]);
 				const latestEventAt = events
-					.filter((event) => event.runId === run.id)
+					.filter((event) => activeRunIds.has(String(event.runId)))
 					.map((event) => new Date(String(event.createdAt)).getTime())
 					.filter(Number.isFinite)
 					.sort((a, b) => b - a)[0];
@@ -54,10 +60,11 @@ async function reconcileStaleRunningRuns() {
 					status: "failed",
 					endedAt,
 				});
-				await db.update("tasks", run.taskId, {
-					status: "failed",
-					updatedAt: endedAt,
-				});
+				if (run.affectsTaskStatus !== false && run.origin !== "delegate_agent")
+					await db.update("tasks", run.taskId, {
+						status: "failed",
+						updatedAt: endedAt,
+					});
 				await runEventHub.emit(
 					run.id,
 					"error",
@@ -98,11 +105,14 @@ runs.get("/:id/task", async (c) => {
 
 runs.post("/:id/cancel", async (c) => {
 	const id = c.req.param("id");
+	const existing = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!existing) return c.json({ error: "missing run" }, 404);
+	if (existing.readOnly) return c.json({ error: "run is read-only" }, 409);
 	const run = await db.update<AgentRun>("runs", id, {
 		status: "cancelled",
 		endedAt: new Date().toISOString(),
 	});
-	if (run)
+	if (run && run.affectsTaskStatus !== false && run.origin !== "delegate_agent")
 		await db.update<Task>("tasks", run.taskId, {
 			status: "failed",
 			updatedAt: new Date().toISOString(),
@@ -112,6 +122,9 @@ runs.post("/:id/cancel", async (c) => {
 
 runs.delete("/:id", async (c) => {
 	const id = c.req.param("id");
+	const existing = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!existing) return c.json({ error: "missing run" }, 404);
+	if (existing.readOnly) return c.json({ error: "run is read-only" }, 409);
 	const run = await db.update<AgentRun>("runs", id, {
 		deletedAt: new Date().toISOString(),
 	});
@@ -122,6 +135,7 @@ runs.post("/:id/done", async (c) => {
 	const id = c.req.param("id");
 	const run = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
 	if (!run) return c.json({ error: "missing run" }, 404);
+	if (run.readOnly) return c.json({ error: "run is read-only" }, 409);
 	if (run.status === "running" || run.status === "queued")
 		return c.json({ error: `run is ${run.status}` }, 409);
 	const updated = await flueRuntime.markRunDoneAndActivateChildren(id);
@@ -138,6 +152,9 @@ runs.post("/:id/done", async (c) => {
 
 runs.post("/:id/messages", async (c) => {
 	const id = c.req.param("id");
+	const run = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!run) return c.json({ error: "missing run" }, 404);
+	if (run.readOnly) return c.json({ error: "run is read-only" }, 409);
 	const body = await c.req.json();
 	void flueRuntime.continueRun(id, body.message);
 	return c.json({ ok: true });

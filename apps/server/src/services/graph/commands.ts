@@ -29,8 +29,12 @@ function runLane(run: AgentRun): RunLane {
 	return ["gate", "ship", "graph", "annotation", "annotation-tasks"].includes(run.lane ?? "") ? run.lane! : "task";
 }
 
+function affectsTaskStatus(run: AgentRun) {
+	return run.affectsTaskStatus !== false && run.origin !== "delegate_agent";
+}
+
 function activeRuns(runs: AgentRun[]) {
-	return runs.filter((run) => !run.deletedAt);
+	return runs.filter((run) => !run.deletedAt && affectsTaskStatus(run));
 }
 
 export async function createProjectCommand(input: { path: string }) {
@@ -189,7 +193,7 @@ function normalizedText(value: string | undefined) {
 }
 
 function activeOrCompletedRun(run: AgentRun) {
-	return !run.deletedAt && ["queued", "running", "need_review", "done"].includes(run.status);
+	return affectsTaskStatus(run) && !run.deletedAt && ["queued", "running", "need_review", "done"].includes(run.status);
 }
 
 function validateExecutionPlan(plan: ExecutionPlan) {
@@ -334,7 +338,8 @@ export async function sendRunMessageCommand(input: {
 	runId: string;
 	message: string;
 }) {
-	await getRunInTaskOrThrow(input.projectId, input.taskId, input.runId);
+	const run = await getRunInTaskOrThrow(input.projectId, input.taskId, input.runId);
+	if (run.readOnly) throw new RouteValidationError("run is read-only", 409);
 	void flueRuntime.continueRun(input.runId, input.message);
 	return { ok: true };
 }
@@ -346,6 +351,7 @@ export async function retryRunCommand(input: {
 	message?: string | undefined;
 }) {
 	const source = await getRunInTaskOrThrow(input.projectId, input.taskId, input.runId);
+	if (source.readOnly) throw new RouteValidationError("run is read-only", 409);
 	if (runLane(source) === "ship") return startShippingRunCommand(input);
 	return startRunCommand({
 		projectId: input.projectId,
@@ -362,7 +368,8 @@ export async function deleteRunCommand(input: {
 	taskId: string;
 	runId: string;
 }) {
-	await getRunInTaskOrThrow(input.projectId, input.taskId, input.runId);
+	const run = await getRunInTaskOrThrow(input.projectId, input.taskId, input.runId);
+	if (run.readOnly) throw new RouteValidationError("run is read-only", 409);
 	return db.update<AgentRun>("runs", input.runId, {
 		deletedAt: new Date().toISOString(),
 	});
@@ -375,7 +382,7 @@ export async function markTaskDoneCommand(input: {
 	const task = await getTaskInProjectOrThrow(input.projectId, input.taskId);
 	if (task.status === "done") return task;
 	const taskLaneRuns = (await db.list<AgentRun>("runs")).filter(
-		(run) => run.taskId === task.id && !run.deletedAt && runLane(run) === "task",
+		(run) => run.taskId === task.id && !run.deletedAt && affectsTaskStatus(run) && runLane(run) === "task",
 	);
 	if (!taskLaneRuns.length || taskLaneRuns.some((run) => run.status !== "done"))
 		throw new RouteValidationError("all task-lane runs must be marked done first", 409);

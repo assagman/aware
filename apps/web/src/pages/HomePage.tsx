@@ -1972,8 +1972,16 @@ function worktreeName(worktree: Worktree | undefined) {
 	return worktree.path.split("/").filter(Boolean).at(-1) || worktree.path;
 }
 
+function affectsTaskStatus(run: AgentRun) {
+	return run.affectsTaskStatus !== false && run.origin !== "delegate_agent";
+}
+
+function graphVisibleRuns(runs: AgentRun[]) {
+	return runs.filter(affectsTaskStatus);
+}
+
 function activeRuns(runs: AgentRun[]) {
-	return runs.filter((run) => !run.deletedAt);
+	return graphVisibleRuns(runs).filter((run) => !run.deletedAt);
 }
 
 function reviewState(task: Task, runs: AgentRun[]): ReviewState {
@@ -2243,12 +2251,13 @@ function RunNodeActions({
 	onDeleteRun?: ((runId: string) => void) | undefined;
 }) {
 	const isDeleted = Boolean(run.deletedAt);
+	const isReadOnly = Boolean(run.readOnly);
 	const canContinue =
-		!isDeleted && (run.status === "failed" || run.status === "cancelled");
+		!isReadOnly && !isDeleted && (run.status === "failed" || run.status === "cancelled");
 	const canRetry =
-		!isDeleted && run.status !== "running" && run.status !== "queued";
+		!isReadOnly && !isDeleted && run.status !== "running" && run.status !== "queued";
 	const canDelete =
-		!isDeleted && run.status !== "running" && run.status !== "queued";
+		!isReadOnly && !isDeleted && run.status !== "running" && run.status !== "queued";
 	return (
 		<span
 			className="run-node-action-group"
@@ -2898,7 +2907,7 @@ function buildGraph({
 	const projectId = project ? `project:${project.id}` : "project:none";
 	let cursorY = GRAPH_ROW_START_Y;
 	const rows = orderedTasks.map((task) => {
-		const taskRuns = runsByTask.get(task.id) ?? [];
+		const taskRuns = graphVisibleRuns(runsByTask.get(task.id) ?? []);
 		const layout = buildRunLayout(taskRuns);
 		const height = Math.max(
 			360,
@@ -3733,13 +3742,72 @@ function ToolBlock({
 	);
 }
 
+type DelegatedRunPayload = {
+	childRunId: string;
+	childRunHref?: string;
+	role?: string;
+	agentName?: string;
+	description?: string;
+	status?: string;
+	result?: string;
+	isError?: boolean;
+	taskId?: string;
+};
+
+function delegatedRunPayload(event: RunEvent): DelegatedRunPayload | undefined {
+	const payload = asPayload(event.payload);
+	const childRunId = typeof payload.childRunId === "string" ? payload.childRunId : "";
+	if (!childRunId) return undefined;
+	return {
+		childRunId,
+		...(typeof payload.childRunHref === "string" ? { childRunHref: payload.childRunHref } : {}),
+		...(typeof payload.role === "string" ? { role: payload.role } : {}),
+		...(typeof payload.agentName === "string" ? { agentName: payload.agentName } : {}),
+		...(typeof payload.description === "string" ? { description: payload.description } : {}),
+		...(typeof payload.status === "string" ? { status: payload.status } : {}),
+		...(typeof payload.result === "string" ? { result: payload.result } : {}),
+		...(typeof payload.isError === "boolean" ? { isError: payload.isError } : {}),
+		...(typeof payload.taskId === "string" ? { taskId: payload.taskId } : {}),
+	};
+}
+
+function delegatedRunKey(event: RunEvent) {
+	const payload = delegatedRunPayload(event);
+	return payload?.childRunId || payload?.taskId || event.id;
+}
+
+function DelegatedRunCard({ start, end }: { start: RunEvent; end?: RunEvent | undefined }) {
+	const payload = delegatedRunPayload(end ?? start);
+	if (!payload) return null;
+	const status = payload.status ?? (end ? "done" : "running");
+	const title = payload.agentName || payload.role || "Delegated agent";
+	const subtitle = [payload.role, payload.description].filter(Boolean).join(" · ");
+	return (
+		<section className={`chat-bubble delegated-run-card message-assistant ${payload.isError ? "tool-failed" : ""}`}>
+			<div className="delegated-run-card-head">
+				<strong>Delegated run</strong>
+				<span className={`task-status status-${status}`}>{labelStatus(status)}</span>
+			</div>
+			<p>
+				<span>{title}</span>
+				{subtitle ? <small>{subtitle}</small> : null}
+			</p>
+			{payload.childRunHref ? <a href={payload.childRunHref}>Open delegated run</a> : <code>{payload.childRunId}</code>}
+			{payload.result ? <MarkdownText text={payload.result} className="tool-detail-markdown" /> : null}
+		</section>
+	);
+}
+
 export const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
 	const { textByUserEventId, consumedPromptEventIds } =
 		mapPromptTextToUserEvents(ordered);
 	const toolEnds = new Map<string, RunEvent>();
-	for (const event of ordered)
+	const delegatedEnds = new Map<string, RunEvent>();
+	for (const event of ordered) {
 		if (isToolEndEvent(event)) toolEnds.set(toolKey(event), event);
+		if (event.type === "task_end" && delegatedRunPayload(event)) delegatedEnds.set(delegatedRunKey(event), event);
+	}
 	const latestVisibleSeq = [...ordered]
 		.reverse()
 		.find((event) => !isHiddenEvent(event) && !isToolEndEvent(event))?.seq;
@@ -3797,7 +3865,10 @@ export const ChatTimeline = memo(function ChatTimeline({ events }: { events: Run
 		flushAssistant();
 		flushThinking();
 		if (isToolEndEvent(event)) continue;
-		if (event.type === "user_message") {
+		if (event.type === "task_end" && delegatedRunPayload(event)) continue;
+		if (event.type === "task_start" && delegatedRunPayload(event)) {
+			rendered.push(<DelegatedRunCard key={event.id} start={event} end={delegatedEnds.get(delegatedRunKey(event))} />);
+		} else if (event.type === "user_message") {
 			rendered.push(
 				<section
 					key={event.id}
@@ -3950,6 +4021,8 @@ export function GraphRunChat({
 			"thinking_delta_batch",
 			"tool_start",
 			"tool_end",
+			"task_start",
+			"task_end",
 			"user_message",
 			"annotations",
 			"prompt",
@@ -3978,7 +4051,7 @@ export function GraphRunChat({
 			bottomRef.current?.scrollIntoView({ block: "end" });
 	}, [events.length, run?.status]);
 	async function send() {
-		if (!draft.trim() || sending) return;
+		if (!run || run.readOnly || !draft.trim() || sending) return;
 		setSending(true);
 		try {
 			await apiPost(
@@ -3995,7 +4068,7 @@ export function GraphRunChat({
 		}
 	}
 	async function cancel() {
-		if (working) return;
+		if (!run || run.readOnly || working) return;
 		setWorking(true);
 		try {
 			await apiPost(`/runs/${runId}/cancel`, {});
@@ -4006,7 +4079,7 @@ export function GraphRunChat({
 		}
 	}
 	async function markDone() {
-		if (working || run?.status !== "need_review") return;
+		if (!run || run.readOnly || working || run.status !== "need_review") return;
 		setWorking(true);
 		try {
 			const navigated = await runAfterMarkDoneSuccess({
@@ -4053,20 +4126,25 @@ export function GraphRunChat({
 							{labelStatus(runStatus)}
 						</span>
 					) : null}
-					<button
-						type="button"
-						disabled={runStatus !== "running" || working}
-						onClick={() => void cancel()}
-					>
-						Cancel
-					</button>
-					<button
-						type="button"
-						disabled={runStatus !== "need_review" || working}
-						onClick={() => void markDone()}
-					>
-						Mark run done
-					</button>
+					{run?.readOnly ? <span className="run-readonly-badge">Delegated read-only run</span> : null}
+					{run?.readOnly ? null : (
+						<button
+							type="button"
+							disabled={runStatus !== "running" || working}
+							onClick={() => void cancel()}
+						>
+							Cancel
+						</button>
+					)}
+					{run?.readOnly ? null : (
+						<button
+							type="button"
+							disabled={runStatus !== "need_review" || working}
+							onClick={() => void markDone()}
+						>
+							Mark run done
+						</button>
+					)}
 					<button
 						type="button"
 						disabled={!run || !projectId || !taskId}
@@ -4080,6 +4158,7 @@ export function GraphRunChat({
 				<ChatTimeline events={events} />
 				<div ref={bottomRef} />
 			</div>
+			{run && !run.readOnly ? (
 			<footer className="home-run-input">
 				<textarea
 					value={draft}
@@ -4100,6 +4179,7 @@ export function GraphRunChat({
 					{sending ? "Sending…" : "Send"}
 				</button>
 			</footer>
+			) : null}
 		</section>
 	);
 }

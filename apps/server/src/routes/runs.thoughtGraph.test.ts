@@ -28,13 +28,14 @@ const graph: ThoughtGraph = {
 };
 
 const dbList = vi.fn();
+const dbUpdate = vi.fn();
 const getCachedThoughtGraph = vi.fn();
 const generateThoughtGraph = vi.fn();
 
 vi.mock("../db/client", () => ({
 	db: {
 		list: dbList,
-		update: vi.fn(),
+		update: dbUpdate,
 	},
 }));
 
@@ -72,6 +73,7 @@ describe("runs thought graph routes", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		dbList.mockImplementation(async (table: string) => table === "runs" ? [run] : []);
+		dbUpdate.mockResolvedValue(run);
 		getCachedThoughtGraph.mockResolvedValue({ graph, stale: false, sourceEventHash: graph.sourceEventHash, sourceEventSeqRange: graph.sourceEventSeqRange });
 		generateThoughtGraph.mockResolvedValue(graph);
 	});
@@ -107,5 +109,26 @@ describe("runs thought graph routes", () => {
 		generateThoughtGraph.mockRejectedValue(new Error("missing run"));
 		response = await app().request(`/api/runs/${run.id}/thought-graph`, { method: "POST" });
 		expect(response.status).toBe(404);
+	});
+
+
+	it("rejects cancelling read-only delegated runs", async () => {
+		dbList.mockImplementation(async (table: string) => table === "runs" ? [{ ...run, readOnly: true, origin: "delegate_agent", affectsTaskStatus: false, status: "running" }] : []);
+
+		const response = await app().request(`/api/runs/${run.id}/cancel`, { method: "POST" });
+
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({ error: "run is read-only" });
+		expect(dbUpdate).not.toHaveBeenCalled();
+	});
+
+	it("rejects deleting read-only delegated runs", async () => {
+		dbList.mockImplementation(async (table: string) => table === "runs" ? [{ ...run, readOnly: true, origin: "delegate_agent", affectsTaskStatus: false }] : []);
+
+		const response = await app().request(`/api/runs/${run.id}`, { method: "DELETE" });
+
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({ error: "run is read-only" });
+		expect(dbUpdate).not.toHaveBeenCalled();
 	});
 });

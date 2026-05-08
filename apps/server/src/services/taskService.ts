@@ -4,8 +4,12 @@ import { db } from "../db/client";
 
 const now = () => new Date().toISOString();
 
+function affectsTaskStatus(run: AgentRun) {
+	return run.affectsTaskStatus !== false && run.origin !== "delegate_agent";
+}
+
 function activeRuns(runs: AgentRun[]) {
-	return runs.filter((run) => !run.deletedAt);
+	return runs.filter((run) => !run.deletedAt && affectsTaskStatus(run));
 }
 
 function taskStatusFromRuns(task: Task, runs: AgentRun[]): TaskStatus {
@@ -37,7 +41,7 @@ export async function listTasks(
 	);
 	const runs = await db.list<AgentRun>("runs");
 	return tasks.map((task) => {
-		const taskRuns = runs.filter((run) => run.taskId === task.id);
+		const taskRuns = runs.filter((run) => run.taskId === task.id && affectsTaskStatus(run));
 		return {
 			...task,
 			title: task.title === "Direct chat" ? "task" : task.title,
