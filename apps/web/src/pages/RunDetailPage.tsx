@@ -26,6 +26,10 @@ import { TaskLink } from "../components/TaskLink";
 
 type Payload = Record<string, unknown>;
 
+function labelStatus(status: string) {
+	return status.replace(/_/g, " ");
+}
+
 function textOf(payload: unknown) {
 	if (!payload || typeof payload !== "object") return "";
 	const p = payload as Payload;
@@ -744,13 +748,71 @@ function ToolBlock({ start, end, forceOpen = false }: { start: RunEvent; end?: R
 	);
 }
 
+type DelegatedRunPayload = {
+	childRunId: string;
+	childRunHref?: string;
+	role?: string;
+	agentName?: string;
+	description?: string;
+	status?: string;
+	result?: string;
+	isError?: boolean;
+	taskId?: string;
+};
+
+function delegatedRunPayload(event: RunEvent): DelegatedRunPayload | undefined {
+	const payload = asPayload(event.payload);
+	const childRunId = typeof payload.childRunId === "string" ? payload.childRunId : "";
+	if (!childRunId) return undefined;
+	return {
+		childRunId,
+		...(typeof payload.childRunHref === "string" ? { childRunHref: payload.childRunHref } : {}),
+		...(typeof payload.role === "string" ? { role: payload.role } : {}),
+		...(typeof payload.agentName === "string" ? { agentName: payload.agentName } : {}),
+		...(typeof payload.description === "string" ? { description: payload.description } : {}),
+		...(typeof payload.status === "string" ? { status: payload.status } : {}),
+		...(typeof payload.result === "string" ? { result: payload.result } : {}),
+		...(typeof payload.isError === "boolean" ? { isError: payload.isError } : {}),
+		...(typeof payload.taskId === "string" ? { taskId: payload.taskId } : {}),
+	};
+}
+
+function delegatedRunKey(event: RunEvent) {
+	const payload = delegatedRunPayload(event);
+	return payload?.childRunId || payload?.taskId || event.id;
+}
+
+function DelegatedRunCard({ start, end }: { start: RunEvent; end?: RunEvent | undefined }) {
+	const payload = delegatedRunPayload(end ?? start);
+	if (!payload) return null;
+	const status = payload.status ?? (end ? "done" : "running");
+	const title = payload.agentName || payload.role || "Delegated agent";
+	const subtitle = [payload.role, payload.description].filter(Boolean).join(" · ");
+	return (
+		<section className={`chat-bubble delegated-run-card message-assistant ${payload.isError ? "tool-failed" : ""}`}>
+			<div className="delegated-run-card-head">
+				<strong>Delegated run</strong>
+				<span className={`task-status status-${status}`}>{labelStatus(status)}</span>
+			</div>
+			<p>
+				<span>{title}</span>
+				{subtitle ? <small>{subtitle}</small> : null}
+			</p>
+			{payload.childRunHref ? <a href={payload.childRunHref}>Open delegated run</a> : <code>{payload.childRunId}</code>}
+			{payload.result ? <MarkdownText text={payload.result} className="tool-detail-markdown" /> : null}
+		</section>
+	);
+}
+
 const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[] }) {
 	const ordered = [...events].sort((a, b) => a.seq - b.seq);
 	const { textByUserEventId, consumedPromptEventIds } =
 		mapPromptTextToUserEvents(ordered);
 	const toolEnds = new Map<string, RunEvent>();
+	const delegatedEnds = new Map<string, RunEvent>();
 	for (const event of ordered) {
 		if (isToolEndEvent(event)) toolEnds.set(toolKey(event), event);
+		if (event.type === "task_end" && delegatedRunPayload(event)) delegatedEnds.set(delegatedRunKey(event), event);
 	}
 	const latestVisibleSeq = [...ordered].reverse().find((event) => !isHiddenEvent(event) && !isToolEndEvent(event))?.seq;
 	const rendered: ReactNode[] = [];
@@ -806,7 +868,10 @@ const ChatTimeline = memo(function ChatTimeline({ events }: { events: RunEvent[]
 		flushAssistant();
 		flushThinking();
 		if (isToolEndEvent(event)) continue;
-		if (event.type === "user_message") {
+		if (event.type === "task_end" && delegatedRunPayload(event)) continue;
+		if (event.type === "task_start" && delegatedRunPayload(event)) {
+			rendered.push(<DelegatedRunCard key={event.id} start={event} end={delegatedEnds.get(delegatedRunKey(event))} />);
+		} else if (event.type === "user_message") {
 			rendered.push(
 				<section
 					key={event.id}
@@ -1190,7 +1255,7 @@ export function RunDetailPage() {
 			bottomRef.current?.scrollIntoView({ block: "end" });
 	}, [selectedEvents.length, selectedRun?.status]);
 	async function cancelRun() {
-		if (!runId || cancellingRun) return;
+		if (!runId || !selectedRun || selectedRun.readOnly || cancellingRun) return;
 		setCancellingRun(true);
 		try {
 		await apiPost(`/runs/${runId}/cancel`, {});
@@ -1294,13 +1359,15 @@ export function RunDetailPage() {
 					) : null}
 					{loadingEvents ? <BusyIndicator label="Loading events" /> : null}
 					{selectedRun?.readOnly ? <span className="run-readonly-badge">Delegated read-only run</span> : null}
-					<button
-						type="button"
-						onClick={cancelRun}
-						disabled={selectedRun?.status !== "running" || cancellingRun}
-					>
-						{cancellingRun ? "Cancelling…" : "Cancel"}
-					</button>
+					{selectedRun?.readOnly ? null : (
+						<button
+							type="button"
+							onClick={cancelRun}
+							disabled={selectedRun?.status !== "running" || cancellingRun}
+						>
+							{cancellingRun ? "Cancelling…" : "Cancel"}
+						</button>
+					)}
 					<ProcessIndicator state={processState} />
 				</div>
 				{selectedTask ? (
@@ -1332,7 +1399,7 @@ export function RunDetailPage() {
 					<ChatTimeline events={selectedEvents} />
 					<div ref={bottomRef} />
 				</div>
-				{selectedRun?.readOnly ? null : (
+				{selectedRun && !selectedRun.readOnly ? (
 					<RunInputBar
 						initialMessage={initialRunsState.message}
 						runId={runId}
@@ -1345,7 +1412,7 @@ export function RunDetailPage() {
 						onMarkDone={markSelectedRunDone}
 						onSend={sendMessage}
 					/>
-				)}
+				) : null}
 			</div>
 			</div>
 		</section>

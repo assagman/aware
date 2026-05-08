@@ -364,6 +364,7 @@ describe("flue runtime prompt event shape", () => {
 			affectsTaskStatus: false,
 			delegateRole: "explore-agent",
 			delegateDescription: "Discovery",
+			delegateToolCallId: expect.any(String),
 			mainAgentName: "Explore Agent",
 			status: "done",
 		});
@@ -374,6 +375,56 @@ describe("flue runtime prompt event shape", () => {
 			childRunHref: `/projects/${task.projectId}/tasks/${task.id}/runs/${child.id}`,
 			role: "explore-agent",
 			status: "done",
+		});
+	});
+
+	it("returns delegated child metadata when a child run fails", async () => {
+		const runtime = new FlueRuntime() as unknown as {
+			runDelegatedAgent: (parentRun: AgentRun, input: unknown, agent: RuntimeAgent, prompt: string, description?: string) => Promise<unknown>;
+		};
+		vi.spyOn(
+			FlueRuntime.prototype as unknown as { runFlue: () => Promise<unknown> },
+			"runFlue",
+		).mockRejectedValueOnce(new Error("child failed"));
+		const parentRun: AgentRun = {
+			id: "parent-failed",
+			taskId: task.id,
+			projectId: task.projectId,
+			worktreeId: "worktree-1",
+			status: "running",
+			sessionId: "session-parent-failed",
+			startedAt: "",
+		};
+		state.runs = [parentRun];
+		const exploreAgent: RuntimeAgent = {
+			...agents[0]!,
+			id: "explore",
+			name: "Explore Agent",
+			roleName: "explore-agent",
+			tools: ["read"],
+			allowedToolNames: ["read"],
+			skillsEnabled: false,
+		};
+
+		const result = await runtime.runDelegatedAgent(parentRun, {
+			task,
+			worktreeId: "worktree-1",
+			worktreePath: "/workspace/project",
+			agents: [agents[0]!, exploreAgent],
+		}, exploreAgent, "inspect code", "Discovery");
+		const child = state.runs.find((run) => run.id !== parentRun.id)!;
+
+		expect(child.status).toBe("failed");
+		expect(result).toMatchObject({
+			childRunId: child.id,
+			childRunHref: `/projects/${task.projectId}/tasks/${task.id}/runs/${child.id}`,
+			role: "explore-agent",
+			status: "failed",
+			result: "child failed",
+		});
+		expect(state.events.filter((event) => event.runId === parentRun.id).at(-1)).toMatchObject({
+			type: "task_end",
+			payload: expect.objectContaining({ childRunId: child.id, status: "failed", result: "child failed" }),
 		});
 	});
 
@@ -402,6 +453,55 @@ describe("flue runtime prompt event shape", () => {
 		await expect(mainTools[0]!.execute({ role: "main", prompt: "x" })).rejects.toThrow(/not available|current agent/);
 		await expect(mainTools[0]!.execute({ role: "explore-agent", prompt: "x" })).resolves.toBe("ok");
 		await expect(mainTools[0]!.execute({ role: "explore-agent", prompt: "x" })).rejects.toThrow(/limit reached/);
+	});
+
+	it("does not expose the legacy task tool in runtime sessions", async () => {
+		(
+			FlueRuntime.prototype as unknown as {
+				runFlue: { mockRestore: () => void };
+			}
+		).runFlue.mockRestore();
+		const { createFlueContext } = await import("@flue/sdk/internal");
+		const { resolveAgentTools } = await import("../../flue/tools");
+		vi.mocked(resolveAgentTools).mockReturnValue([
+			{ name: "task", description: "legacy task", parameters: {}, execute: vi.fn() },
+			{ name: "read", description: "read", parameters: {}, execute: vi.fn() },
+		] as never);
+		let initTools: Array<{ name: string }> = [];
+		vi.mocked(createFlueContext).mockReturnValue({
+			setEventCallback: vi.fn(),
+			init: vi.fn(async (options: { tools: Array<{ name: string }> }) => {
+				initTools = options.tools;
+				return {
+					session: vi.fn(async () => ({
+						harness: { state: { tools: initTools } },
+						prompt: vi.fn(async () => "ok"),
+					})),
+				};
+			}),
+		} as never);
+		const runtime = new FlueRuntime() as unknown as {
+			runFlue: (run: AgentRun, input: unknown, prompt: string) => Promise<unknown>;
+		};
+		const selected: RuntimeAgent = {
+			...agents[0]!,
+			tools: ["task", "read", "delegate_agent"],
+		};
+		const explore: RuntimeAgent = {
+			...agents[0]!,
+			id: "explore",
+			name: "Explore Agent",
+			roleName: "explore-agent",
+			tools: ["read"],
+		};
+		const run: AgentRun = {
+			id: "run-task-filter", taskId: task.id, projectId: task.projectId, worktreeId: "worktree-1", status: "running", sessionId: "session-task-filter", startedAt: "",
+		};
+
+		await runtime.runFlue(run, { task, worktreeId: "worktree-1", worktreePath: "/workspace/project", agents: [selected, explore] }, "prompt");
+
+		expect(initTools.map((tool) => tool.name)).not.toContain("task");
+		expect(initTools.map((tool) => tool.name)).toContain("delegate_agent");
 	});
 
 	it("fails scoped planner runs that return without required delegation", async () => {

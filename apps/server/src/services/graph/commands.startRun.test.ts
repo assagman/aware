@@ -147,6 +147,33 @@ describe("graph_start_run sequential dependency handling", () => {
 		expect(state.startRun).not.toHaveBeenCalled();
 	});
 
+	it("ignores delegated child runs when matching execution-plan duplicates and conflicts", async () => {
+		state.runs = [
+			run({
+				id: "delegated",
+				request: "Build helper",
+				status: "done",
+				origin: "delegate_agent",
+				affectsTaskStatus: false,
+				readOnly: true,
+			}),
+		];
+		state.startRun.mockImplementationOnce(async () => run({ id: "created", request: "Build helper", status: "running" }));
+
+		const result = await startExecutionPlanCommand({
+			version: 1,
+			projectId: project.id,
+			taskId: task.id,
+			runs: [
+				{ planId: "helper", title: "Build helper", lane: "task", relation: "parallel", dependsOn: [], parentPlanId: null, prompt: "Build helper" },
+			],
+		});
+
+		expect(result.created.map((item) => item.planId)).toEqual(["helper"]);
+		expect(result.existing).toEqual([]);
+		expect(state.startRun).toHaveBeenCalledOnce();
+	});
+
 	it("creates a structurally validated execution plan and maps parentPlanId to parentRunId", async () => {
 		state.startRun
 			.mockImplementationOnce(async () => {

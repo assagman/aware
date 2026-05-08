@@ -193,7 +193,7 @@ function normalizedText(value: string | undefined) {
 }
 
 function activeOrCompletedRun(run: AgentRun) {
-	return !run.deletedAt && ["queued", "running", "need_review", "done"].includes(run.status);
+	return affectsTaskStatus(run) && !run.deletedAt && ["queued", "running", "need_review", "done"].includes(run.status);
 }
 
 function validateExecutionPlan(plan: ExecutionPlan) {

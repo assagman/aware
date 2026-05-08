@@ -77,8 +77,16 @@ function worktreeName(worktree: Worktree | undefined) {
 	return worktree.path.split("/").filter(Boolean).at(-1) || worktree.path;
 }
 
+function affectsGraph(run: AgentRun) {
+	return run.affectsTaskStatus !== false && run.origin !== "delegate_agent";
+}
+
+function graphRelevantRuns(runs: AgentRun[]) {
+	return runs.filter(affectsGraph);
+}
+
 function activeRuns(runs: AgentRun[]) {
-	return runs.filter((run) => !run.deletedAt && run.affectsTaskStatus !== false && run.origin !== "delegate_agent");
+	return graphRelevantRuns(runs).filter((run) => !run.deletedAt);
 }
 
 function runLane(run: AgentRun): RunLane {
@@ -355,7 +363,7 @@ export async function buildGraphProjection(
 				b.updatedAt.localeCompare(a.updatedAt),
 		);
 		const rows = orderedTasks.map((task) => {
-			const taskRuns = runsByTask.get(task.id) ?? [];
+			const taskRuns = graphRelevantRuns(runsByTask.get(task.id) ?? []);
 			const taskLaneRuns = taskRuns.filter((run) => runLane(run) === "task");
 			const gateRuns = taskRuns.filter((run) => runLane(run) === "gate");
 			const shipRuns = taskRuns.filter((run) => runLane(run) === "ship");

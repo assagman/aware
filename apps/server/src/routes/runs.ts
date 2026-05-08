@@ -105,6 +105,9 @@ runs.get("/:id/task", async (c) => {
 
 runs.post("/:id/cancel", async (c) => {
 	const id = c.req.param("id");
+	const existing = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!existing) return c.json({ error: "missing run" }, 404);
+	if (existing.readOnly) return c.json({ error: "run is read-only" }, 409);
 	const run = await db.update<AgentRun>("runs", id, {
 		status: "cancelled",
 		endedAt: new Date().toISOString(),
@@ -119,6 +122,9 @@ runs.post("/:id/cancel", async (c) => {
 
 runs.delete("/:id", async (c) => {
 	const id = c.req.param("id");
+	const existing = (await db.list<AgentRun>("runs")).find((row) => row.id === id);
+	if (!existing) return c.json({ error: "missing run" }, 404);
+	if (existing.readOnly) return c.json({ error: "run is read-only" }, 409);
 	const run = await db.update<AgentRun>("runs", id, {
 		deletedAt: new Date().toISOString(),
 	});

@@ -1,5 +1,5 @@
 import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
-import { exploreAgentPrompt, reviewAgentPrompt, testAgentPrompt } from "../prompts";
+import { exploreAgentPrompt, planningAgentPrompt, reviewAgentPrompt, testAgentPrompt } from "../prompts";
 
 function helperAgent(
 	base: RuntimeAgent,
@@ -39,6 +39,18 @@ export function exploreRuntimeAgent(base: RuntimeAgent): RuntimeAgent {
 		description: "Read-only context discovery agent for files, symbols, flows, and risks.",
 		systemPrompt: exploreAgentPrompt,
 		allowedToolNames: ["read", "grep", "glob"],
+	});
+}
+
+export function planRuntimeAgent(base: RuntimeAgent): RuntimeAgent {
+	return helperAgent(base, {
+		id: "internal:plan-agent",
+		name: "Plan Agent",
+		roleName: "plan-agent",
+		description: "Read-only planning agent for decomposition, sequencing, risk, and validation strategy.",
+		systemPrompt: planningAgentPrompt,
+		allowedToolNames: ["read", "grep", "glob", "delegate_agent"],
+		delegationPolicy: { allowedRoles: ["explore-agent"] },
 	});
 }
 

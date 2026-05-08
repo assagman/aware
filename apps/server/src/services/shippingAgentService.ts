@@ -2,7 +2,7 @@ import type { RuntimeAgent } from "./agentRuntime/runtimeAgent";
 import { shippingAgentPrompt } from "../prompts";
 import { listAgentProfilesForRun } from "./agentProfileService";
 import { worktreeAgent } from "./worktreeAgentService";
-import { exploreRuntimeAgent, reviewRuntimeAgent, testRuntimeAgent } from "./helperAgentService";
+import { exploreRuntimeAgent, planRuntimeAgent, reviewRuntimeAgent, testRuntimeAgent } from "./helperAgentService";
 
 export const shippingAgent = {
 	name: "Shipping",
@@ -43,8 +43,8 @@ function shippingRuntimeAgent(base: RuntimeAgent) {
 		description: "Internal service agent for commit, rebase, push, PR creation, and PR merge.",
 		systemPrompt: shippingAgent.prompt,
 		}),
-		tools: base.tools.filter((tool) => tool !== "delegate_agent"),
-		allowedToolNames: base.tools.filter((tool) => tool !== "delegate_agent"),
+		tools: base.tools.filter((tool) => tool !== "delegate_agent" && tool !== "task"),
+		allowedToolNames: base.tools.filter((tool) => tool !== "delegate_agent" && tool !== "task"),
 		delegationPolicy: { maxCalls: 0 },
 	};
 }
@@ -67,6 +67,7 @@ export async function listMainAgentsForRun(): Promise<RuntimeAgent[]> {
 		{ ...base, delegationPolicy: { maxCalls: 20 } },
 		shippingRuntimeAgent(base),
 		exploreRuntimeAgent(base),
+		planRuntimeAgent(base),
 		reviewRuntimeAgent(base),
 		testRuntimeAgent(base),
 		...agents.filter((agent) => agent.id !== base.id).map((agent) => ({

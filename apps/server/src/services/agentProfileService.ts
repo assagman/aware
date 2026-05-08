@@ -13,7 +13,7 @@ type DefaultAgentProfile = Pick<
 > &
 	Partial<Pick<AgentProfile, "thinking">>;
 
-const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "task", "delegate_agent"];
+const writeTools = ["read", "write", "edit", "bash", "grep", "glob", "delegate_agent"];
 const mainTools = [...writeTools, ...EXA_TOOL_NAMES];
 
 const retiredDefaultAgentSignatures = retiredDefaultAgentPromptPrefixes
@@ -78,6 +78,7 @@ export async function createAgentProfile(
 const retiredMainShippingBoundaryMarkers = [
 	"MUST always be delegated to Aware's internal Shipping Agent",
 	"exact role `shipping-agent` for all shipping operations",
+	"Use the task tool with exact role `shipping-agent`",
 	"do not run `git " + "commit`, `git rebase`",
 ];
 
@@ -85,7 +86,7 @@ const mainShippingBoundary = [
 	"Shipping boundary:",
 	"- Commit implementation progress yourself as coherent atomic changes.",
 	"- Never perform final shipping operations yourself. Rebase, push, pull-request creation, and pull-request merge MUST always be delegated to Aware's internal Shipping Agent when needed.",
-	"- Use the task tool with exact role `shipping-agent` for final shipping operations. Never delegate to Main/current agent.",
+	"- Use `delegate_agent` with exact role `shipping-agent` for final shipping operations. Never delegate to Main/current agent.",
 	"- If asked to ship from UI, stop implementation work and tell the user to start the Ship workflow; do not run `git rebase`, `git push`, `gh`, or `tea` yourself.",
 ].join("\n");
 
@@ -106,7 +107,8 @@ function removeRetiredMainShippingBoundary(prompt: string) {
 function ensureMainShippingBoundary(prompt: string) {
 	const promptWithoutRetiredBoundary =
 		removeRetiredMainShippingBoundary(prompt);
-	return promptWithoutRetiredBoundary.includes("final shipping operations")
+	return promptWithoutRetiredBoundary.includes("delegate_agent") &&
+		promptWithoutRetiredBoundary.includes("final shipping operations")
 		? promptWithoutRetiredBoundary
 		: [promptWithoutRetiredBoundary, mainShippingBoundary]
 				.filter(Boolean)
@@ -116,7 +118,7 @@ function ensureMainShippingBoundary(prompt: string) {
 
 const mainDelegationBoundary = [
 	"Delegation boundary:",
-	"- Decompose non-trivial work early and use delegate_agent aggressively for independent Explore, Review, Test, Shipping, and custom-agent slices.",
+	"- Decompose non-trivial work early and use delegate_agent aggressively for independent Explore, Plan, Review, Test, Shipping, and custom-agent slices.",
 	"- You may run up to 20 delegated child agents in parallel when work is isolated.",
 	"- Never delegate to yourself. Never delegate to Worktree Agent or Graph Agent in normal runs.",
 	"- Keep delegated prompts scoped, standalone, and non-overlapping; synthesize child results before editing or reporting.",

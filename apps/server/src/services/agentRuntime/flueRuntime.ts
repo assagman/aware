@@ -49,6 +49,11 @@ import { runtimeAgentRoleName, type RuntimeAgent } from "./runtimeAgent";
 
 const now = () => new Date().toISOString();
 const DEFAULT_RUN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const LEGACY_TASK_TOOL = "task";
+
+function runtimeToolNames(agent: RuntimeAgent) {
+	return agent.tools.filter((tool) => tool !== LEGACY_TASK_TOOL);
+}
 
 function formatDuration(ms: number) {
 	const seconds = Math.round(ms / 1000);
@@ -710,7 +715,7 @@ export class FlueRuntime {
 				? "zai/glm-5.1"
 				: agent.model;
 		const agentTools = [
-			...resolveAgentTools(agent.tools, {
+			...resolveAgentTools(runtimeToolNames(agent), {
 				...(isThoughtAgent
 					? { thought: { runId: input.thoughtTargetRunId ?? run.id } }
 					: {
@@ -719,7 +724,7 @@ export class FlueRuntime {
 						}),
 			}),
 			...this.createScopedDelegationTools(run, input, availableAgents),
-		];
+		].filter((tool) => tool.name !== LEGACY_TASK_TOOL);
 		const flueAgent = await ctx.init({
 			sandbox,
 			model,
@@ -869,6 +874,7 @@ export class FlueRuntime {
 			origin: "delegate_agent",
 			delegateRole: role,
 			...(description ? { delegateDescription: description } : {}),
+			delegateToolCallId: taskId,
 			startedAt: now(),
 		};
 		await db.insert("runs", childRun);
@@ -928,7 +934,7 @@ export class FlueRuntime {
 				result: message,
 				parentSessionId: parentRun.sessionId,
 			}, { immediate: true });
-			throw error;
+			return { childRunId: childRun.id, childRunHref, role, agentName: agent.name, status: "failed", isError: true, result: message };
 		} finally {
 			this.childActivityParents.delete(childRun.id);
 		}
@@ -1021,13 +1027,14 @@ export class FlueRuntime {
 			...ARTIFACTORY_TOOL_NAMES,
 			...(agent.skillsEnabled === false ? [] : SKILL_TOOL_NAMES),
 		]);
+		const nonLegacyTools = tools?.filter((tool) => tool.name !== LEGACY_TASK_TOOL);
 		const filtered = agent.allowedToolNames
-			? tools?.filter(
+			? nonLegacyTools?.filter(
 					(tool) =>
 						agent.allowedToolNames?.includes(tool.name) ||
 						alwaysAllowed.has(tool.name),
 				)
-			: tools;
+			: nonLegacyTools;
 		this.guardAgentDelegationTool(filtered, availableAgentRoles);
 		return filtered;
 	}
